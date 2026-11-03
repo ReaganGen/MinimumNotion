@@ -4,9 +4,11 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useSettingsStore } from "@/features/settings/settingsStore";
 import { useUiStore } from "@/features/ui/uiStore";
+import { useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import { onMenuCommand } from "@/lib/ipc/client";
 
 export const MENU_COMMANDS = [
+  "new-page",
   "toggle-sidebar",
   "toggle-ai-panel",
   "open-settings",
@@ -18,6 +20,7 @@ export type CommandId = (typeof MENU_COMMANDS)[number];
 
 /** Shortcut labels for display. Keep in sync with the accelerators in menu.rs. */
 export const SHORTCUTS: Record<CommandId, { label: string; keys: string }> = {
+  "new-page": { label: "New page", keys: "⌘N" },
   "toggle-sidebar": { label: "Toggle sidebar", keys: "⌘⇧L" },
   "toggle-ai-panel": { label: "Toggle AI panel", keys: "⌘⇧A" },
   "open-settings": { label: "Settings", keys: "⌘," },
@@ -31,6 +34,12 @@ export function isCommandId(value: string): value is CommandId {
 
 export function runCommand(id: CommandId) {
   switch (id) {
+    case "new-page":
+      // Without an open workspace there's nowhere to put a page.
+      if (useWorkspaceStore.getState().status === "open") {
+        void useWorkspaceStore.getState().createPage(null);
+      }
+      return;
     case "toggle-sidebar":
       return useSettingsStore.getState().togglePanel("sidebar");
     case "toggle-ai-panel":

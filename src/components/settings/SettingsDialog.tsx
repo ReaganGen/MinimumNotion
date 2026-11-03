@@ -4,7 +4,9 @@ import { type ReactNode, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSettingsStore } from "@/features/settings/settingsStore";
+import { useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import type { ThemePreference } from "@/lib/ipc/bindings/ThemePreference";
+import { ipc } from "@/lib/ipc/client";
 import { cn } from "@/lib/utils";
 
 type SectionId = "appearance" | "workspace" | "ai" | "data";
@@ -62,12 +64,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             Forma preferences. Changes are saved automatically.
           </DialogDescription>
           {section === "appearance" && <AppearanceSection />}
-          {section === "workspace" && (
-            <PendingSection title="Workspace">
-              Choosing and opening a workspace folder comes in the next build. Your pages will be
-              plain Markdown files in a folder you pick.
-            </PendingSection>
-          )}
+          {section === "workspace" && <WorkspaceSection />}
           {section === "ai" && (
             <PendingSection title="AI">
               Connecting OpenAI, Anthropic, or a local model through Ollama or LM Studio comes in a
@@ -128,6 +125,53 @@ function AppearanceSection() {
         <p className="selectable mt-4 text-[13px] text-muted-foreground">{readOnlyReason}</p>
       )}
     </section>
+  );
+}
+
+function WorkspaceSection() {
+  const info = useWorkspaceStore((s) => s.info);
+  const { choose, reportError } = useWorkspaceStore.getState();
+  return (
+    <section aria-labelledby="settings-workspace">
+      <h2 id="settings-workspace" className="text-[15px] font-semibold">
+        Workspace
+      </h2>
+      <div className="mt-5 border-t pt-4">
+        <p className="text-[14px]">Location</p>
+        <p className="selectable mt-0.5 text-[13px] break-all text-muted-foreground">
+          {info?.root ?? "No workspace is open."}
+        </p>
+        {info?.read_only_reason && (
+          <p className="mt-2 text-[13px] text-destructive">{info.read_only_reason}</p>
+        )}
+        <div className="mt-3 flex gap-2">
+          <SettingsButton onClick={() => void choose()}>
+            {info ? "Open another folder…" : "Choose a folder…"}
+          </SettingsButton>
+          {info && (
+            <SettingsButton onClick={() => ipc.revealWorkspace().catch(reportError)}>
+              Show in Finder
+            </SettingsButton>
+          )}
+        </div>
+        <p className="mt-4 text-[13px] leading-5 text-muted-foreground">
+          Pages are Markdown files in this folder, arranged like your page tree. Forma keeps its own
+          data (history, trash, order) in the hidden .forma folder inside it.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function SettingsButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-md px-3 py-1.5 text-[13px] text-foreground shadow-popover hover:bg-accent"
+    >
+      {children}
+    </button>
   );
 }
 

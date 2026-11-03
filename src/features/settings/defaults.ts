@@ -22,5 +22,6 @@ export function defaultSettings(): AppSettings {
       sidebar: { visible: true, width: WIDTH_RANGES.sidebar.default },
       ai_panel: { visible: false, width: WIDTH_RANGES.ai_panel.default },
     },
+    workspace: { last_path: null },
   };
 }

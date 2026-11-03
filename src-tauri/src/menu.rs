@@ -18,9 +18,11 @@ const GO_ITEMS: [(&str, &str, &str); 2] = [
     ("open-quick-open", "Quick Open…", "CmdOrCtrl+P"),
 ];
 const SETTINGS_ITEM: (&str, &str, &str) = ("open-settings", "Settings…", "CmdOrCtrl+,");
+const NEW_PAGE_ITEM: (&str, &str, &str) = ("new-page", "New Page", "CmdOrCtrl+N");
 
 fn is_command(id: &str) -> bool {
     id == SETTINGS_ITEM.0
+        || id == NEW_PAGE_ITEM.0
         || VIEW_ITEMS
             .iter()
             .chain(&GO_ITEMS)
@@ -53,6 +55,10 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .quit()
         .build()?;
 
+    let file_menu = SubmenuBuilder::new(app, "File")
+        .item(&item(NEW_PAGE_ITEM)?)
+        .build()?;
+
     let edit_menu = SubmenuBuilder::new(app, "Edit")
         .undo()
         .redo()
@@ -83,7 +89,14 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .build()?;
 
     let menu = MenuBuilder::new(app)
-        .items(&[&app_menu, &edit_menu, &view_menu, &go_menu, &window_menu])
+        .items(&[
+            &app_menu,
+            &file_menu,
+            &edit_menu,
+            &view_menu,
+            &go_menu,
+            &window_menu,
+        ])
         .build()?;
     app.set_menu(menu)?;
     app.on_menu_event(handle_event);
@@ -92,8 +105,10 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 
 fn handle_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     let id = event.id().as_ref();
-    if is_command(id) {
-        let _ = app.emit(MENU_EVENT, id);
+    if is_command(id)
+        && let Err(err) = app.emit(MENU_EVENT, id)
+    {
+        log::warn!("couldn't forward menu command {id}: {err}");
     }
 }
 
@@ -113,7 +128,11 @@ mod tests {
     #[test]
     fn command_ids_match_frontend() {
         let ts = include_str!("../../src/features/commands/commands.ts");
-        for (id, _, _) in VIEW_ITEMS.iter().chain(&GO_ITEMS).chain([&SETTINGS_ITEM]) {
+        for (id, _, _) in VIEW_ITEMS
+            .iter()
+            .chain(&GO_ITEMS)
+            .chain([&SETTINGS_ITEM, &NEW_PAGE_ITEM])
+        {
             assert!(
                 ts.contains(&format!("\"{id}\"")),
                 "{id} missing from commands.ts"

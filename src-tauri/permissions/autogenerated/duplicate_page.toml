@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-duplicate-page"
+description = "Enables the duplicate_page command without any pre-configured scope."
+commands.allow = ["duplicate_page"]
+
+[[permission]]
+identifier = "deny-duplicate-page"
+description = "Denies the duplicate_page command without any pre-configured scope."
+commands.deny = ["duplicate_page"]

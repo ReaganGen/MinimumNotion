@@ -1,12 +1,25 @@
 import { Info, X } from "lucide-react";
 import { useSettingsStore } from "@/features/settings/settingsStore";
+import { useWorkspaceStore } from "@/features/workspace/workspaceStore";
 
-/** A quiet, dismissible message about settings (reset, read-only, or a failed save). */
+/** Quiet, dismissible messages about settings and the workspace. */
 export function NoticeBar() {
-  const message = useSettingsStore((s) => s.saveError ?? s.notice);
-  const dismiss = useSettingsStore((s) => s.dismissNotice);
-  if (!message) return null;
+  const settingsMessage = useSettingsStore((s) => s.saveError ?? s.notice);
+  const dismissSettings = useSettingsStore((s) => s.dismissNotice);
+  const workspaceNotices = useWorkspaceStore((s) => s.notices);
+  const dismissWorkspace = useWorkspaceStore((s) => s.dismissNotice);
 
+  return (
+    <>
+      {settingsMessage && <Notice message={settingsMessage} onDismiss={dismissSettings} />}
+      {workspaceNotices.map((message) => (
+        <Notice key={message} message={message} onDismiss={() => dismissWorkspace(message)} />
+      ))}
+    </>
+  );
+}
+
+function Notice({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
     <div
       role="status"
@@ -17,7 +30,7 @@ export function NoticeBar() {
       <button
         type="button"
         aria-label="Dismiss"
-        onClick={dismiss}
+        onClick={onDismiss}
         className="rounded-sm p-0.5 hover:bg-accent hover:text-foreground"
       >
         <X className="size-3.5" aria-hidden />

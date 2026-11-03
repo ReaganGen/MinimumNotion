@@ -22,7 +22,11 @@
         "visible": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 16, "y": 20 }
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 20
+        },
+        "dragDropEnabled": false
       }
     ],
     "security": {
@@ -30,7 +34,7 @@
         "default-src": "'self'",
         "script-src": "'self'",
         "style-src": "'self' 'unsafe-inline'",
-        "img-src": "'self'",
+        "img-src": "'self' forma-asset: https:",
         "font-src": "'self'",
         "connect-src": "ipc: http://ipc.localhost",
         "object-src": "'none'",
@@ -42,7 +46,7 @@
         "default-src": "'self'",
         "script-src": "'self' 'unsafe-inline'",
         "style-src": "'self' 'unsafe-inline'",
-        "img-src": "'self'",
+        "img-src": "'self' forma-asset: https:",
         "font-src": "'self'",
         "connect-src": "ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420",
         "object-src": "'none'",

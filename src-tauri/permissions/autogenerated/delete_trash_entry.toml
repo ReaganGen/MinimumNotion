@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-trash-entry"
+description = "Enables the delete_trash_entry command without any pre-configured scope."
+commands.allow = ["delete_trash_entry"]
+
+[[permission]]
+identifier = "deny-delete-trash-entry"
+description = "Denies the delete_trash_entry command without any pre-configured scope."
+commands.deny = ["delete_trash_entry"]

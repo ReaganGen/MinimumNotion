@@ -336,3 +336,12 @@ Still open: F5–F14 and the user decisions in §5.2 and §8.
 
 §5.2 items 6, 7, 9 and 10 weren't separately reviewed and stay as documented. Item 11 (bundle identifier) is still provisional.
 
+
+### 9.3 Resolved during Phase 2 (2026-11-02)
+
+| ID | Status | Change | Verification |
+|---|---|---|---|
+| F5 | **Fixed** | `atomic.rs` copies the replaced file's mode and extended attributes (Finder tags) onto the staged file before the rename. Birth time can't survive a rename; frontmatter `created_at` is authoritative | Rust tests `rewrite_keeps_permissions` and `rewrite_keeps_extended_attributes`. Hard links are still replaced by a new file (documented) |
+| F7 | **Fixed** | `tauri-plugin-log` writes to `~/Library/Logs/app.forma.desktop/forma.log` (Info in release, Debug in development). Window-API errors are logged through `warn_on_err` | The release app wrote `opened workspace …` to the log file in the runtime checks. Logs never contain note text or credentials |
+
+Still open: F6, F8–F14.

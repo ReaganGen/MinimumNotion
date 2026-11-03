@@ -96,6 +96,8 @@ pub struct AppSettings {
     pub format_version: u32,
     pub appearance: AppearanceSettings,
     pub layout: LayoutSettings,
+    /// Managed by Rust only; the UI can't change it through `SettingsUpdate`.
+    pub workspace: WorkspaceSettings,
     /// Keys this build doesn't know, preserved verbatim. Never sent to the webview.
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     #[ts(skip)]
@@ -108,9 +110,18 @@ impl Default for AppSettings {
             format_version: SETTINGS_FORMAT_VERSION,
             appearance: AppearanceSettings::default(),
             layout: LayoutSettings::default(),
+            workspace: WorkspaceSettings::default(),
             unknown: serde_json::Map::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct WorkspaceSettings {
+    /// The workspace folder opened last, reopened on launch.
+    pub last_path: Option<String>,
 }
 
 impl AppSettings {
@@ -274,6 +285,27 @@ impl SettingsStore {
         &self.path
     }
 
+    /// Remembers the workspace to reopen on the next launch. Skipped while read-only.
+    pub fn set_last_workspace(&mut self, path: Option<String>) -> Result<(), SettingsError> {
+        if self.read_only_reason.is_some() {
+            return Err(SettingsError::ReadOnly);
+        }
+        let mut next = self.settings.clone();
+        next.workspace.last_path = path;
+        self.persist(next)
+    }
+
+    fn persist(&mut self, next: AppSettings) -> Result<(), SettingsError> {
+        let mut bytes = serde_json::to_vec_pretty(&next).expect("settings always serialize");
+        bytes.push(b'\n');
+        write_atomic(&self.path, &bytes).map_err(|source| SettingsError::Io {
+            path: self.path.clone(),
+            source,
+        })?;
+        self.settings = next;
+        Ok(())
+    }
+
     /// Applies `update`, persists atomically, and returns the stored result.
     /// On a write failure the in-memory settings are left unchanged.
     pub fn update(&mut self, update: SettingsUpdate) -> Result<&AppSettings, SettingsError> {
@@ -282,13 +314,7 @@ impl SettingsStore {
         }
         let mut next = self.settings.clone();
         next.apply_update(update);
-        let mut bytes = serde_json::to_vec_pretty(&next).expect("settings always serialize");
-        bytes.push(b'\n');
-        write_atomic(&self.path, &bytes).map_err(|source| SettingsError::Io {
-            path: self.path.clone(),
-            source,
-        })?;
-        self.settings = next;
+        self.persist(next)?;
         Ok(&self.settings)
     }
 }
@@ -415,7 +441,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(
             dir.path().join(SETTINGS_FILE_NAME),
-            br#"{"format_version":1,"ai":{"enabled":true},"workspace":{"last_path":"/x"}}"#,
+            br#"{"format_version":1,"ai":{"enabled":true},"sync":{"server":"/x"}}"#,
         )
         .unwrap();
         let (mut store, _) = SettingsStore::load(dir.path()).unwrap();
@@ -426,7 +452,7 @@ mod tests {
         let raw: serde_json::Value =
             serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
         assert_eq!(raw["ai"]["enabled"], true);
-        assert_eq!(raw["workspace"]["last_path"], "/x");
+        assert_eq!(raw["sync"]["server"], "/x");
         assert_eq!(raw["appearance"]["theme"], "light");
 
         let for_ui = serde_json::to_value(store.settings().for_ui()).unwrap();
@@ -434,7 +460,7 @@ mod tests {
             for_ui.get("ai").is_none(),
             "unknown keys must not reach the webview"
         );
-        assert!(for_ui.get("workspace").is_none());
+        assert!(for_ui.get("sync").is_none());
     }
 
     #[test]
@@ -480,6 +506,21 @@ mod tests {
         fs::write(&stale, b"partial").unwrap();
         SettingsStore::load(dir.path()).unwrap();
         assert!(!stale.exists());
+    }
+
+    #[test]
+    fn last_workspace_persists_and_ui_updates_keep_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, _) = SettingsStore::load(dir.path()).unwrap();
+        store.set_last_workspace(Some("/notes".into())).unwrap();
+        store
+            .update(update_with(ThemePreference::Dark, 260))
+            .unwrap();
+        let (reloaded, _) = SettingsStore::load(dir.path()).unwrap();
+        assert_eq!(
+            reloaded.settings().workspace.last_path.as_deref(),
+            Some("/notes")
+        );
     }
 
     #[test]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-create-page"
+description = "Enables the create_page command without any pre-configured scope."
+commands.allow = ["create_page"]
+
+[[permission]]
+identifier = "deny-create-page"
+description = "Denies the create_page command without any pre-configured scope."
+commands.deny = ["create_page"]

@@ -3,4 +3,4 @@
 /**
  * Machine-readable error category sent across IPC.
  */
-export type ErrorCode = "io" | "read_only" | "invalid" | "internal";
+export type ErrorCode = "io" | "read_only" | "invalid" | "not_found" | "internal";

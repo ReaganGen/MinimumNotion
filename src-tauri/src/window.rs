@@ -23,14 +23,21 @@ pub fn apply_theme<R: Runtime>(window: &WebviewWindow<R>, preference: ThemePrefe
         ThemePreference::Light => Some(Theme::Light),
         ThemePreference::Dark => Some(Theme::Dark),
     };
-    let _ = window.set_theme(theme);
-    if let Ok(effective) = window.theme() {
-        let _ = window.set_background_color(Some(background_for(effective)));
+    warn_on_err(window.set_theme(theme), "set window theme");
+    match window.theme() {
+        Ok(effective) => warn_on_err(
+            window.set_background_color(Some(background_for(effective))),
+            "set window background",
+        ),
+        Err(err) => log::warn!("couldn't read the window theme: {err}"),
     }
 }
 
 pub fn sync_background<R: Runtime>(window: &Window<R>, theme: Theme) {
-    let _ = window.set_background_color(Some(background_for(theme)));
+    warn_on_err(
+        window.set_background_color(Some(background_for(theme))),
+        "set window background",
+    );
 }
 
 fn background_for(theme: Theme) -> Color {
@@ -41,9 +48,16 @@ fn background_for(theme: Theme) -> Color {
 }
 
 pub fn focus<R: Runtime>(window: &WebviewWindow<R>) {
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_focus();
+    warn_on_err(window.unminimize(), "unminimize window");
+    warn_on_err(window.show(), "show window");
+    warn_on_err(window.set_focus(), "focus window");
+}
+
+/// Window-API failures are cosmetic for the user but must be visible in the log.
+pub fn warn_on_err<T>(result: tauri::Result<T>, action: &str) {
+    if let Err(err) = result {
+        log::warn!("couldn't {action}: {err}");
+    }
 }
 
 /// The window starts hidden so the first frame already has the right theme.
@@ -53,7 +67,8 @@ pub fn show_if_frontend_stalls<R: Runtime>(window: WebviewWindow<R>) {
     thread::spawn(move || {
         thread::sleep(READY_TIMEOUT);
         if !window.is_visible().unwrap_or(true) {
-            let _ = window.show();
+            log::warn!("frontend didn't report ready within {READY_TIMEOUT:?}; showing the window");
+            warn_on_err(window.show(), "show window");
         }
     });
 }

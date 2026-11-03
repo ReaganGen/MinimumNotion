@@ -1,3 +1,4 @@
+import "katex/dist/katex.min.css";
 import "./styles/globals.css";
 import { isTauri } from "@tauri-apps/api/core";
 import { StrictMode } from "react";

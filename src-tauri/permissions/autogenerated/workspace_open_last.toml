@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-workspace-open-last"
+description = "Enables the workspace_open_last command without any pre-configured scope."
+commands.allow = ["workspace_open_last"]
+
+[[permission]]
+identifier = "deny-workspace-open-last"
+description = "Denies the workspace_open_last command without any pre-configured scope."
+commands.deny = ["workspace_open_last"]

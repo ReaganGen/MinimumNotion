@@ -94,3 +94,206 @@
     }
   }
 }
+
+/* Editor typography and editor UI (Phase 2). */
+@layer components {
+  .forma-popover {
+    border-radius: var(--radius);
+    background: var(--popover);
+    color: var(--popover-foreground);
+    box-shadow: var(--shadow-popover);
+  }
+
+  .forma-editor {
+    min-height: 40vh;
+    outline: none;
+    font-size: 16px;
+    line-height: 1.65;
+    color: var(--foreground);
+    -webkit-user-select: text;
+    user-select: text;
+    caret-color: var(--foreground);
+  }
+
+  .forma-editor > * + * {
+    margin-top: 0.6em;
+  }
+
+  .forma-editor h1,
+  .forma-editor h2,
+  .forma-editor h3,
+  .forma-editor h4,
+  .forma-editor h5,
+  .forma-editor h6 {
+    font-weight: 650;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    margin-top: 1.4em;
+  }
+  .forma-editor h1 {
+    font-size: 1.875em;
+  }
+  .forma-editor h2 {
+    font-size: 1.5em;
+  }
+  .forma-editor h3 {
+    font-size: 1.25em;
+  }
+  .forma-editor h4,
+  .forma-editor h5,
+  .forma-editor h6 {
+    font-size: 1.05em;
+  }
+  .forma-editor > :first-child {
+    margin-top: 0;
+  }
+
+  .forma-editor a {
+    color: var(--link);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--link) 40%, transparent);
+    text-underline-offset: 2px;
+    cursor: text;
+  }
+
+  .forma-editor code {
+    font-family: var(--font-code);
+    font-size: 0.88em;
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+    background: var(--muted);
+    color: var(--destructive);
+  }
+
+  .forma-editor pre {
+    font-family: var(--font-code);
+    font-size: 0.875em;
+    line-height: 1.55;
+    padding: 0.9em 1.1em;
+    border-radius: var(--radius);
+    background: var(--muted);
+    overflow-x: auto;
+  }
+  .forma-editor pre code {
+    padding: 0;
+    background: none;
+    color: inherit;
+  }
+
+  .forma-editor blockquote {
+    border-left: 3px solid var(--input);
+    padding-left: 0.9em;
+    color: var(--muted-foreground);
+  }
+
+  .forma-editor ul,
+  .forma-editor ol {
+    padding-left: 1.6em;
+  }
+  .forma-editor ul {
+    list-style: disc;
+  }
+  .forma-editor ol {
+    list-style: decimal;
+  }
+  .forma-editor li > p {
+    margin: 0;
+  }
+  .forma-editor li + li {
+    margin-top: 0.15em;
+  }
+  .forma-editor ul[data-type="taskList"] {
+    list-style: none;
+    padding-left: 0.2em;
+  }
+  .forma-editor ul[data-type="taskList"] li {
+    display: flex;
+    gap: 0.5em;
+    align-items: flex-start;
+  }
+  .forma-editor ul[data-type="taskList"] li > label {
+    margin-top: 0.3em;
+  }
+  .forma-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+    color: var(--faint-foreground);
+    text-decoration: line-through;
+  }
+  .forma-editor input[type="checkbox"] {
+    accent-color: var(--primary);
+    width: 1em;
+    height: 1em;
+  }
+
+  .forma-editor hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1.4em 0;
+  }
+
+  .forma-editor table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.94em;
+  }
+  .forma-editor th,
+  .forma-editor td {
+    border: 1px solid var(--border);
+    padding: 0.35em 0.6em;
+    vertical-align: top;
+    min-width: 4em;
+  }
+  .forma-editor th {
+    font-weight: 600;
+    background: var(--muted);
+    text-align: left;
+  }
+  .forma-editor .selectedCell {
+    background: var(--selection);
+  }
+
+  /* Markdown Forma keeps byte for byte: shown as source, never rendered. */
+  .forma-editor .raw-block {
+    font-family: var(--font-code);
+    font-size: 0.82em;
+    white-space: pre-wrap;
+    padding: 0.6em 0.9em;
+    border-radius: var(--radius);
+    border: 1px dashed var(--input);
+    color: var(--muted-foreground);
+    background: transparent;
+  }
+  .forma-editor .raw-inline {
+    color: var(--muted-foreground);
+    background: transparent;
+    border: 1px dashed var(--input);
+  }
+
+  .forma-editor .forma-image img {
+    display: inline-block;
+    max-width: 100%;
+    border-radius: 4px;
+  }
+  .forma-editor .forma-image.is-broken img,
+  .forma-editor .forma-image-placeholder {
+    display: inline-block;
+    padding: 0.5em 0.8em;
+    border-radius: var(--radius);
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.85em;
+  }
+
+  .forma-editor .is-empty::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+    color: var(--faint-foreground);
+  }
+
+  .forma-editor .ProseMirror-selectednode {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}

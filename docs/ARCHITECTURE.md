@@ -202,6 +202,7 @@ If the workspace and `.forma/tmp` turn out to be on different volumes (cross-dev
 
 - A page's **revision** (`rev`) is the BLAKE3 hash of the file's full bytes (frontmatter plus body), truncated to 16 hex characters. It is derived, never stored, and it changes automatically when anything edits the file, including external tools.
 - Every write to an existing page carries `base_rev`. Just before replacing the file, the service re-reads it and compares hashes. If they differ, the write is rejected with `Conflict { current_rev, current }` and nothing is written.
+- **The editor's saves compare the body only** (ADR-033, awaiting approval). `save_page` carries `base_body_rev`, the hash of the body the editor started from. A frontmatter change made meanwhile (a rename, a tag edit in another app) isn't a conflict: the body is written under the current frontmatter. Title, icon and favorite edits take no base; each is a surgical one-key change to the current file, after snapshotting content that came from outside.
 - Accepted residual risk: an external process could write between the hash check and the `rename` (a window of microseconds to milliseconds). POSIX offers no cross-process compare-and-swap for files. The pre-overwrite snapshot policy (§4.6) narrows the impact, and this risk is documented rather than claimed away.
 
 ### 4.6 History (Document Revisions)
@@ -239,7 +240,8 @@ Restoring returns the subtree to its original parent if that parent still exists
 | Clean | Modified | Reload silently, preserving the selection where possible |
 | Dirty | Modified | **Conflict.** Autosave pauses and the editor buffer is written to `.forma/recovery/<id>.md` at once. A banner offers *Keep mine* (disk version snapshotted first), *Use theirs* (buffer snapshotted first) or *Keep both* (the buffer becomes a sibling page "Title (conflict YYYY-MM-DD)") |
 | Any | Moved/renamed (same ID) | Follow the page, with no interruption |
-| Any | Deleted | The buffer is kept in recovery. A banner offers *Restore page* (recreates it with the buffer) or *Close* |
+| Clean | Deleted | The page closes |
+| Dirty | Deleted | Autosave pauses and the buffer is kept in recovery. A banner offers *Restore with my text* (a new page with the same title and parent, holding the buffer) or *Discard my text* |
 
 - No external event ever causes Forma to overwrite a file without a fresh `base_rev` check.
 
@@ -258,6 +260,8 @@ On open, the service:
 ---
 
 ## 5. Index (SQLite)
+
+> **Phase 2 status:** the index is kept in memory and rebuilt by a scan when a workspace opens (ADR-032). The SQLite database described here arrives with search in Phase 3.
 
 ### 5.1 Role
 
@@ -322,10 +326,11 @@ There are two Markdown parsers, `marked` (inside `@tiptap/markdown`) in TS and `
 
 ### 6.4 Autosave
 
-- Debounced save 750 ms after the last change, a 5 s maximum delay during continuous typing, and an immediate flush on page switch, blur, window close and app quit.
-- At most one save in flight per page. Newer content replaces any queued save.
-- On a save failure (disk full, permissions, conflict), the editor keeps its content, shows a persistent non-modal error, writes the buffer to `.forma/recovery/`, and retries with backoff when the failure is transient. The UI never shows "Saved" for content that wasn't persisted.
-- Title edits update frontmatter with the normal save. The file or directory rename is deferred until the title field loses focus or has been idle for 2 s, so it doesn't happen on every keystroke.
+- Debounced save 750 ms after the last change, a 5 s maximum delay during continuous typing, and an immediate flush on page switch, editor blur, window close and app quit (§8, quit handshake).
+- At most one save in flight per page. Edits made meanwhile are saved right after it.
+- Only real document changes mark the page edited. Opening a page, or switching the editor between editable and read-only, never writes it.
+- On a save failure (disk full, permissions), the editor keeps its content, shows "Couldn't save — retrying" and retries with backoff (2, 5, then every 10 s). On a conflict it pauses and writes the buffer to `.forma/recovery/` at once. When the editor closes (page switch, quit) with text still unsaved, that text is written to recovery as well. The UI never shows "Saved" for content that wasn't persisted.
+- Title edits go through `set_title`, which updates the frontmatter and renames the file or folder. They run when the title field has been idle for 600 ms, loses focus, or gets Enter, so a rename doesn't happen on every keystroke.
 
 ### 6.5 Page links
 
@@ -366,11 +371,12 @@ There are two Markdown parsers, `marked` (inside `@tiptap/markdown`) in TS and `
 | Mechanism | Use |
 |---|---|
 | `invoke` commands | Request and response: reads and mutations. Arguments use IDs, never paths. Errors are typed (`NotFound`, `Conflict{…}`, `Validation{…}`, `Io{…}`, `ReadOnly`, …) |
-| Events | Broadcasts: `workspace://changed`, `index://status`, `workspace://conflict`, `workspace://error` |
+| Events | Broadcasts: `workspace://changed` (`{ content_changed, removed, tree_changed }`), `forma://menu` (a command ID), `forma://flush-before-quit`, and `index://status` from Phase 3. There is no `workspace://conflict` event (ADR-033) |
 | Channels | Streams: AI token and tool events for one request, and index rebuild progress |
 
 - Rust request and response types derive TypeScript definitions with **`ts-rs`**. The generated files go into `src/lib/ipc/bindings/` and are committed. CI fails if regenerating them produces a diff.
-- `src/lib/ipc/` wraps `invoke` in typed functions. Components never call `invoke` directly.
+- `src/lib/ipc/` wraps `invoke` in typed functions. Components never call `invoke` directly. A contract test (`src/lib/ipc/contract.test.ts`) reads the Rust command signatures and fails if the client sends an argument name a command doesn't take.
+- **Quit handshake.** Closing the window or quitting asks the webview to save first: the shell sends `forma://flush-before-quit`, the frontend flushes every open editor and calls `confirm_quit`, and the app exits. If no confirmation arrives within 5 seconds, it quits anyway and logs a warning. Text that couldn't be saved is kept as a recovery buffer (§6.4).
 - Tauri capabilities allow-list exactly Forma's commands plus the dialog and opener plugins. No `fs` or `shell` plugin is granted to the webview.
 
 The full command list is defined during each phase, starting from the Document Service API in [DATA_MODEL.md §10](DATA_MODEL.md#10-document-service-api-surface).

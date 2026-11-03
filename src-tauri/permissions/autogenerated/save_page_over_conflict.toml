@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-page-over-conflict"
+description = "Enables the save_page_over_conflict command without any pre-configured scope."
+commands.allow = ["save_page_over_conflict"]
+
+[[permission]]
+identifier = "deny-save-page-over-conflict"
+description = "Denies the save_page_over_conflict command without any pre-configured scope."
+commands.deny = ["save_page_over_conflict"]

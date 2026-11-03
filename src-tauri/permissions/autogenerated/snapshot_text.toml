@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-snapshot-text"
+description = "Enables the snapshot_text command without any pre-configured scope."
+commands.allow = ["snapshot_text"]
+
+[[permission]]
+identifier = "deny-snapshot-text"
+description = "Denies the snapshot_text command without any pre-configured scope."
+commands.deny = ["snapshot_text"]

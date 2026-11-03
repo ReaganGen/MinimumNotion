@@ -126,7 +126,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-009: A revision is a content hash; optimistic concurrency on every write
 
-- **Status:** Accepted. **Date:** 2026-11-02
+- **Status:** Accepted; refined for the editor by ADR-033 (awaiting the user's approval). **Date:** 2026-11-02
 - **Context:** Revisions are needed for conflict detection between the editor, external edits and AI proposals.
 - **Decision:** `rev` is the first 16 hex characters of the BLAKE3 hash of the file bytes. Every mutation of an existing page carries `base_rev` and is rejected if the file has changed.
 - **Alternatives:**
@@ -192,7 +192,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-015: Editor: Tiptap 3 + `@tiptap/markdown`, gated by a round-trip spike
 
-- **Status:** Accepted, gated. **Date:** 2026-11-02
+- **Status:** Accepted. The gate passed; the outcome is ADR-034. **Date:** 2026-11-02
 - **Context:** Tiptap 3.32 ships an official `@tiptap/markdown` extension, based on `marked` 17. Round-trip fidelity is a hard requirement.
 - **Decision:** Start Phase 2 with a spike that runs the fixture corpus through `@tiptap/markdown`, including custom handlers for math, page links, wikilinks and raw blocks. Adopt it only if it passes. Otherwise, use a custom `prosemirror-markdown` serializer with `markdown-it`. Use only MIT-licensed Tiptap packages, with no Tiptap Pro or cloud extensions.
 - **Alternatives:** The community `tiptap-markdown` package (last released September 2025, so maintenance is uncertain). Lexical or Slate (the Markdown and table support is less mature, and the spec prefers Tiptap).
@@ -379,3 +379,43 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
   - Offline, those images don't show.
   - Risk R17 tracks this.
   - A setting to switch remote images off could be added later. It isn't added now, to keep settings minimal.
+
+## ADR-032: The Phase 2 page index lives in memory; SQLite arrives with search
+
+- **Status:** Accepted. **Date:** 2026-11-02 (Phase 2)
+- **Context:** ARCHITECTURE §5 places the index in SQLite. Phase 2 needs only the page tree and each page's facts (ID, title, icon, revision, status). Full-text search, backlinks and collections, which are what SQLite is for, start in Phase 3.
+- **Decision:** In Phase 2 the Document Service keeps the index in memory. Opening a workspace scans it. A rescan re-reads only files whose `(size, mtime)` signature changed, and reuses everything else, so outside edits cost a stat walk. Phase 3 adds the SQLite database from ARCHITECTURE §5 as a persistent cache of the same facts, plus FTS5.
+- **Alternatives:** SQLite from the start. It adds a schema, migrations-by-rebuild and a second writer before anything needs them.
+- **Rationale:** It is the smallest correct thing for this phase. The files stay the only source of truth either way, and nothing is lost when the process exits.
+- **Consequences:** Opening a very large workspace reads every Markdown file's frontmatter once per launch until Phase 3. Opening a folder with more than 10,000 entries asks first (§5.1 task 4 of the implementation plan).
+
+## ADR-033: The editor's saves are checked against the body revision
+
+- **Status:** **Proposed. Awaiting the user's approval**, because it refines CLAUDE.md architecture rule 7 ("every write to an existing page carries `base_rev`"). It is implemented and tested. **Date:** 2026-11-02 (Phase 2)
+- **Context:** With ADR-009 as written, the editor's base revision covers the whole file. Renaming a page, changing its icon or favoriting it rewrites the frontmatter, which changes the file revision. The next autosave of the body would then report a conflict that isn't one, and so would a tag change made by another app.
+- **Decision:**
+  1. `get_page` returns both `rev` (the whole file) and `body_rev` (the BLAKE3 hash of the body only, truncated to 16 hex characters).
+  2. `save_page(id, base_body_rev, body)` re-reads the file just before writing and compares the **body** revision. If the body changed, nothing is written and the result is `Conflict { current_body_rev, current_body }`. If only the frontmatter changed, the new body is written under the current frontmatter, so neither side's change is lost.
+  3. Metadata edits (`set_title`, `set_icon`, `set_favorite`) take no base revision. Each changes one key surgically in the file as it is on disk at that moment. If that content came from outside Forma, it is snapshotted to history first (ARCHITECTURE §4.6).
+  4. There is no separate `workspace://conflict` event. A conflict surfaces as the result of a save, or when `workspace://changed` reports a new body revision for the page being edited.
+- **Alternatives:** Keep whole-file revisions and refresh the editor's base after each metadata change. That races with autosave and still turns every outside tag edit into a conflict banner.
+- **Rationale:** A conflict should mean that two people changed the same text. Body edits are still never silently overwritten. A title or icon change is a single explicit user action that is applied to the current file, and the snapshot policy keeps whatever it replaced.
+- **Consequences:** If the user approves, CLAUDE.md rule 7 should read: "Every body write carries the base body revision. Metadata edits are surgical, applied to the current file, and snapshot outside content first." AI proposals (Phase 6) still carry a whole-file `base_rev`, as ARCHITECTURE §10 specifies.
+
+## ADR-034: Outcome of the Markdown gate: `@tiptap/markdown` plus a Forma rules layer
+
+- **Status:** Accepted. **Date:** 2026-11-02 (Phase 2)
+- **Context:** ADR-015 made `@tiptap/markdown` conditional on the round-trip corpus passing.
+- **Decision:** Adopt `@tiptap/markdown` 3.32 (marked 17), with Forma's rules in `src/features/editor/markdownRules.ts`, `math.ts` and `rawBlock.ts`. Run as shipped, the library failed the corpus in these ways, each now fixed by a rule and covered by a fixture:
+  1. Code fences weren't lengthened when the code contained a fence, which corrupted the block.
+  2. Paragraph lines starting with `#`, `>`, `-` or `1.` weren't escaped, so they came back as blocks.
+  3. `&`, `<` and `>` were written as HTML entities.
+  4. Every `_` was escaped, even inside words.
+  5. Autolinks such as `<https://…>` were rewritten as `[…](…)`.
+  6. Hard breaks were written as two trailing spaces, which editors strip. Forma writes a backslash.
+  7. Tables got a blank line before them and an extra one after them, and the alignment row was wider than its columns.
+  8. `$5 and $10` was read as math. Forma follows the pandoc rule for inline math.
+  Raw HTML, footnotes and wikilinks are kept byte for byte as atom nodes and never rendered.
+- **Alternatives:** The `prosemirror-markdown` fallback. The problems found were local serializer rules, not structural, so the fallback would have cost more than the fixes.
+- **Rationale:** It is the maintained path, and the rules layer is small and fully covered by the corpus (23 fixtures; byte-identical output for canonical input).
+- **Consequences:** Upgrading `@tiptap/markdown` must re-run the corpus. Some valid Markdown is written back in Forma's canonical form, for example `*` list markers become `-` and tables are padded to aligned columns. Opening such a page shows a notice, and the original is snapshotted before the first save rewrites it (ARCHITECTURE §6.3).

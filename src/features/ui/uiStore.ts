@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type DialogId = "settings" | "search" | "quick-open";
+export type DialogId = "settings" | "search" | "quick-open" | "trash";
 
 interface UiState {
   /** At most one dialog is open at a time. */

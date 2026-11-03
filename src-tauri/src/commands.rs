@@ -48,9 +48,9 @@ pub fn apply_window_theme(webview_window: WebviewWindow, theme: ThemePreference)
 #[tauri::command]
 pub fn app_ready(webview_window: WebviewWindow) {
     if webview_window.label() == window::MAIN {
-        let _ = webview_window.show();
-        let _ = webview_window.set_focus();
+        window::warn_on_err(webview_window.show(), "show window");
+        window::warn_on_err(webview_window.set_focus(), "focus window");
     } else if let Some(main) = webview_window.app_handle().get_webview_window(window::MAIN) {
-        let _ = main.show();
+        window::warn_on_err(main.show(), "show window");
     }
 }

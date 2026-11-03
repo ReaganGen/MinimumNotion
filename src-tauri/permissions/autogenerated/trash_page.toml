@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-trash-page"
+description = "Enables the trash_page command without any pre-configured scope."
+commands.allow = ["trash_page"]
+
+[[permission]]
+identifier = "deny-trash-page"
+description = "Denies the trash_page command without any pre-configured scope."
+commands.deny = ["trash_page"]

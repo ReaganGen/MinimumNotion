@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings } from "@/features/settings/defaults";
 import { resetSettingsStoreForTests, useSettingsStore } from "@/features/settings/settingsStore";
+import {
+  resetWorkspaceStoreForTests,
+  useWorkspaceStore,
+} from "@/features/workspace/workspaceStore";
 import { ipc } from "@/lib/ipc/client";
 import { SettingsDialog } from "./SettingsDialog";
 
@@ -12,11 +16,14 @@ vi.mock("@/lib/ipc/client", () => ({
     applyWindowTheme: vi.fn(),
     getSettings: vi.fn(),
     appReady: vi.fn(),
+    chooseWorkspace: vi.fn(),
+    revealWorkspace: vi.fn(),
   },
 }));
 
 beforeEach(() => {
   resetSettingsStoreForTests();
+  resetWorkspaceStoreForTests();
   vi.mocked(ipc.saveSettings).mockReset();
   vi.mocked(ipc.saveSettings).mockImplementation(async (update) => ({
     ...defaultSettings(),
@@ -49,7 +56,7 @@ describe("SettingsDialog", () => {
     const user = userEvent.setup();
     const { dialog } = renderOpen();
 
-    for (const name of ["Workspace", "AI", "Data"]) {
+    for (const name of ["AI", "Data"]) {
       await user.click(within(dialog).getByRole("button", { name }));
       expect(within(dialog).getByRole("heading", { name })).toBeInTheDocument();
       expect(within(dialog).queryByRole("radio")).toBeNull();
@@ -60,6 +67,40 @@ describe("SettingsDialog", () => {
         .map((b) => b.textContent);
       expect(buttons).toEqual(["Appearance", "Workspace", "AI", "Data", "Close"]);
     }
+  });
+
+  it("shows where the workspace is and opens it in Finder", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({
+      status: "open",
+      info: {
+        root: "/Users/me/Notes",
+        name: "Notes",
+        id: "w",
+        read_only_reason: null,
+        notices: [],
+      },
+    });
+    vi.mocked(ipc.revealWorkspace).mockResolvedValue(undefined);
+    const { dialog } = renderOpen();
+
+    await user.click(within(dialog).getByRole("button", { name: "Workspace" }));
+    expect(within(dialog).getByText("/Users/me/Notes")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Show in Finder" }));
+    expect(ipc.revealWorkspace).toHaveBeenCalled();
+    expect(within(dialog).getByRole("button", { name: "Open another folder…" })).toBeVisible();
+  });
+
+  it("offers to choose a folder when no workspace is open", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({ status: "none", info: null });
+    vi.mocked(ipc.chooseWorkspace).mockResolvedValue(null);
+    const { dialog } = renderOpen();
+
+    await user.click(within(dialog).getByRole("button", { name: "Workspace" }));
+    expect(within(dialog).queryByRole("button", { name: "Show in Finder" })).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Choose a folder…" }));
+    expect(ipc.chooseWorkspace).toHaveBeenCalled();
   });
 
   it("closes on Escape", async () => {

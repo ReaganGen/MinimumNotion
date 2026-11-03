@@ -2,17 +2,50 @@
 
 ## Current Phase
 
-Phase 1: macOS Application Foundation
+Phase 2: Document System and Editor (approved 2026-11-02). **Implemented and verified; waiting for the user's approval** of the phase and of ADR-033.
 
 ## Status
 
-Implemented and verified (details below). An implementation audit ([IMPLEMENTATION_AUDIT.md](IMPLEMENTATION_AUDIT.md)) found four defects, F1–F4, which were fixed in a Phase 1.1 batch. **Awaiting user approval** to proceed to Phase 2.
+Phase 2 is complete as far as automated and runtime checks can show. The manual checks in the built app (below) are for the user. ADR-033 refines CLAUDE.md rule 7 and needs the user's approval.
+
+### Phase 2 journal
+
+- **Audit items F5 and F7 fixed.** Atomic writes keep permissions and extended attributes. Logs go to `~/Library/Logs/app.forma.desktop/forma.log`.
+- **Markdown gate passed (ADR-034).** `@tiptap/markdown` plus a Forma rules layer. Eight library problems were found and fixed (code fences, line-start escaping, HTML entities, underscores, autolinks, hard breaks, table spacing and alignment rows, currency read as math). 23 fixtures, byte-identical for canonical input.
+- **Rust core (`forma-core`).** Frontmatter (surgical edits), naming, scan (in-memory index, ADR-032), history, trash, recovery, relative-link rewriting, watcher, and the Document Service.
+- **Shell.** 32 commands, the `forma-asset://` protocol (refuses paths outside the workspace, inside `.forma`, or reached through symlinks), the quit handshake, a native folder picker, and a warning before opening a folder with more than 10,000 entries.
+- **UI.** Welcome screen, page tree (lazy children, rename, drag and drop, context and ⋯ menus, Move to…, duplicate, favorites, trash with restore and confirmed delete), breadcrumbs, title field, Tiptap editor (slash menu, formatting bubble, KaTeX, tables, task lists, images by paste and drop), autosave with status, conflict banner, recovery dialog, Settings → Workspace.
+- **Bugs found and fixed by the Phase 2 tests and checks:**
+  1. *Opening a page wrote it.* Tiptap's `setEditable()` emits an update by default, which looked like an edit. Now only document changes mark a page edited (architecture rule 14).
+  2. *Edits were silently dropped in development builds.* React runs effects twice in development; the save controller was disposed and reused. Each mount now gets its own controller. Production builds weren't affected.
+  3. *Deleting an open page outside Forma lost unsaved edits.* The page now stays open with a banner (restore with my text, or discard), as ARCHITECTURE §4.9 specifies.
+  4. *A failed save on page switch or quit lost the text.* It's now kept as a recovery buffer.
+  5. *An endless re-render on the welcome screen* (a store selector returned a new array each time).
+  6. *Duplicate React keys* made a page show several title fields after a rename.
+  7. *A copied page got a new ID on every outside edit*, and its notice repeated. It now keeps the first one.
+  8. *Notices from rescans were never shown.* They're now fetched after each change.
+  9. *A new page didn't put the cursor in its title.*
+  10. *Tables were saved with an extra blank line* and a misaligned alignment row.
+- **Design decisions:** ADR-032 (in-memory index until Phase 3), ADR-033 (body revision for editor saves; **awaiting approval**), ADR-034 (Markdown gate outcome).
+- **Deferred, with reasons:** the `journal` module (first used by collections in Phase 3; no speculative modules), the `workspace://conflict` event (replaced, ADR-033).
 
 ## Completed Phases
 
 - **Phase 0: Architecture and Project Planning.** Approved 2026-11-02 (commit `0b64019`).
+- **Phase 1: macOS Application Foundation**, with the Phase 1.1 audit fixes. Commits `fd1dc6b` and `c2145e7`; design decisions recorded in `a90c3c6`.
 
 ## Implemented Features
+
+### Phase 2 (2026-11-02)
+
+See the Phase 2 journal above. Data-integrity behavior in brief:
+
+- Every write is atomic (staged in `.forma/tmp`, `F_FULLFSYNC`, rename, directory fsync) and keeps permissions and Finder tags.
+- Opening a workspace or a page writes nothing outside `.forma`. Verified in the release app: no workspace file changed.
+- A save checks the body revision first. If the body changed elsewhere, nothing is written and the conflict banner appears; the editor's text goes to `.forma/recovery/` at once.
+- Content that came from outside Forma is snapshotted to `.forma/history/` before Forma first overwrites it. Snapshots from the last 30 days are kept; older ones are thinned to one per day.
+- Trash keeps whole subtrees and restores them to their parent, or to the top level if the parent is gone.
+- Quitting saves first (quit handshake), and anything that couldn't be saved is offered back on the next launch.
 
 ### Phase 1 (2026-11-02)
 
@@ -59,42 +92,44 @@ The architecture documents and CLAUDE.md. See the git history.
 
 ## Tests
 
-Run on 2026-11-02 after the Phase 1.1 fixes:
+Run on 2026-11-02 at the end of Phase 2 (`npm run check` exits 0):
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` (app and Vite config) | Pass |
-| `npx biome check .` | Pass, 0 diagnostics |
-| `npx vitest run` | 8 files, **45 tests passed** |
+| `npx biome check .` | Pass, 75 files, 0 diagnostics |
+| `npx vitest run` | 16 files, **119 tests passed** |
 | `cargo fmt --all --check` | Pass |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
-| `cargo test --workspace` | **30 passed**: 27 in `forma-core` (18 behavior tests + 9 generated binding exports) and 3 in the shell |
+| `cargo test --workspace` | **92 passed**: 89 in `forma-core` (including 25 workspace integration tests against real temporary folders) and 3 in the shell |
 | `npm audit` | 0 vulnerabilities |
-| `npx tauri build` | Pass. `Forma.app` is 5.2 MiB, arm64, `LSMinimumSystemVersion` 13.0 |
-| `codesign --verify --deep --strict Forma.app` | Pass: "valid on disk", flags `adhoc,runtime`, `Info.plist` bound, resources sealed. Not notarized |
+| `npm run tauri -- build --bundles app` | Pass. `Forma.app` is 8.16 MiB, arm64. The JS bundle is 1.26 MB (388 KB gzipped) |
+| `codesign --verify --deep --strict Forma.app` | Pass (ad-hoc, hardened runtime). Not notarized |
 
-(Before Phase 1.1 this table said "ad-hoc signed", but the bundle actually failed strict verification. See audit finding F2.)
+What the frontend tests cover: the Markdown corpus, the save controller, the page view (autosave arguments, no write on open, conflict and "use theirs", deleted-while-editing and restore, StrictMode double effects, title focus and rename), the page tree (open, expand, rename, Move to…), the workspace store, image source rules, the slash menu filter, and an **IPC contract test** that compares every client call's argument names with the Rust command signatures (it caught a mutation in a check run).
 
-Manual and runtime checks:
+Runtime checks on the release app (2026-11-02):
 
-- **Phase 1.1, re-signed app:** visible 0.53–0.80 s after launch over three runs.
-- **Phase 1.1, F3:** with the settings folder temporarily set to mode `000`, the app opened in 0.52 s, kept running and quit cleanly. Permissions were restored afterwards, and the settings files were confirmed unchanged by hash. Whether the notice appears in the native window is **Unverified**: the session can't take screenshots.
-- **Phase 1.1, F1:** the generated ACL (`src-tauri/gen/schemas/capabilities.json`) contains `core:window:allow-internal-toggle-maximize`. The double-click itself is **Unverified** at runtime, because the session can't send mouse input.
+- **Launch:** the window became visible in 0.46–0.83 s (4 runs).
+- **Quit handshake:** the app exited 0.17–0.19 s after a quit request (4 runs), with no "didn't confirm saving" warning in the log. So the shell → webview → `confirm_quit` round trip works under the production CSP and capabilities.
+- **Opening a real workspace writes nothing:** a sandbox workspace (frontmatter with a comment and an unknown key, a file without frontmatter, a wikilink, raw HTML, a table and an attachment) was opened by the release app. A file was then edited from outside while the app was running. Afterwards, every file's hash was unchanged except the outside edit, and `.forma/` held only `history lock recovery tmp trash workspace.json`.
+- **macOS privacy prompts:** opening a workspace inside Desktop or Documents makes macOS ask for access the first time, and Forma waits until the user answers. Each ad-hoc-signed build counts as a new app, so development builds ask again. Outside protected folders the workspace opened at once (4 of 4 runs). A declined prompt now produces a message pointing to System Settings → Privacy & Security → Files and Folders (unit-tested; the native prompt itself is **Unverified**).
 
-- **Release app launch, measured with a CoreGraphics window-list probe:** the window became visible 0.6–1.0 s after launch over three runs. That is well before the 3 s fallback, so the production JavaScript runs under the CSP and the `get_settings` and `app_ready` IPC calls are permitted.
-  - The first build revealed a bug: `requestAnimationFrame` never fires in a hidden WKWebView window, so the window only appeared through the fallback, after 3.6 s. It's fixed by signalling from a post-commit effect.
-- **Visual check in the browser preview:** light and dark themes, the AI panel docked, the Settings dialog with a working theme switch, ⌘K search, Esc closing dialogs, and overlay mode at 700 px wide.
-- **Not verified by Claude:** the look and feel of the native window (traffic-light placement, menu bar, accelerators, and native appearance switching in the real app). This session has no Screen Recording or Accessibility permission, so it can't take screenshots of the app or send it keystrokes. See the manual steps below.
+Checked in the development browser preview, not the native app: the editor's rendering in light and dark themes, the slash menu turning a line into a heading, the bubble menu's italic button, the new-page flow (title, then Enter, then body), autosave reaching the in-memory backend, the Trash dialog's empty state, and Settings → Workspace.
+
+**Unverified in the native app** (this session can't take screenshots of it or send it input): every interaction inside the window, including typing, drag and drop in the tree, pasting or dropping images, the conflict banner after an outside edit, and the large-folder warning dialog.
 
 ## Manual Verification Steps (for the user)
 
-1. `open target/release/bundle/macos/Forma.app` (or run `npm run tauri:dev`).
-2. Check that the traffic lights sit in the sidebar's top-left corner and the window has no visible title text.
-3. Press ⌘⇧L and ⌘⇧A: the panels slide closed and open. Look for the matching items in the View menu.
-4. Drag the sidebar's right edge to resize it, double-click the edge to reset it, then quit and relaunch: the width and visibility should be kept.
-5. ⌘, → Appearance → Dark: the title bar and content switch together. Choose System, then change macOS appearance: Forma follows it live.
-6. ⌘K and ⌘P open their dialogs, and Esc closes them.
-7. Make the window narrow: the AI panel, then the sidebar, float over the editor instead of squeezing it.
+Use a test folder, not real notes. Open `target/release/bundle/macos/Forma.app`.
+
+1. **First run:** "Create a workspace in Documents" (macOS asks for Documents access; allow it). Or "Open a folder…".
+2. **Persistence:** ⌘N, type a title, press Enter, type some text, wait for "Saved", quit (⌘Q), reopen: the page and text are there. Look at the `.md` file in Finder or a text editor: it reads as plain Markdown, with a short frontmatter.
+3. **Nesting:** hover a page, click +, name the child. Drag it onto another page, or use ⋯ → Move to…. Quit and reopen: the hierarchy is kept, and the folders in Finder match.
+4. **Markdown:** use headings, lists, a to-do list, a quote, a code block, a table and `$x^2$`. Reload (switch pages and back): nothing changed.
+5. **Images:** paste or drag an image into a page. It's saved in the page's `_assets/` folder.
+6. **Outside edits:** with a page open and no unsaved typing, edit its file in TextEdit and save: Forma shows the new text. Then type in Forma and, within a second, change the file again elsewhere: the conflict banner appears. Try "Keep both".
+7. **Trash:** ⋯ → Move to Trash on a page with children, then Trash → Restore: the whole subtree comes back.
 
 ## Design Decisions Confirmed (2026-11-02)
 
@@ -115,15 +150,16 @@ Not separately reviewed, and kept as documented: favorites and order in `.forma/
 
 ## Known Issues and Open Decisions
 
-1. **License:** resolved. Apache-2.0 was chosen and `LICENSE` added (ADR-026). `CONTRIBUTING.md` and a trademark policy are Phase 7 tasks.
-2. **Bundle identifier** `app.forma.desktop` is used provisionally. It can be changed cheaply until Phase 4 stores Keychain items.
-3. **The app icon is provisional**, a simple "F" mark. The final icon is a Phase 7 task.
-4. **Build targets:** arm64 only so far. The universal (Intel) build and the DMG are Phase 7.
-5. **Accelerator labels:** the labels in `SHORTCUTS` (TypeScript) mirror the accelerators in `menu.rs` by hand. A test checks the command IDs but not the key labels.
-6. **The dev browser preview** can't show ⌘, inside the Claude desktop app's browser pane, because the host app captures that key. This doesn't affect the real app, where ⌘, is a native menu item.
-7. **CLAUDE.md "Execution Transparency" section:** resolved. The user adopted it on 2026-11-02, with its journal pointed at this file instead of a separate `IMPLEMENTATION_STATUS.md`.
-8. **Open audit items** (not part of Phase 1.1): F5 (atomic replace drops file metadata, which must be decided before Phase 2), F7 (no logging), F10 (constants duplicated across TypeScript and Rust), and the remaining F6, F8, F9 and F11–F14. The format decisions in audit §5.2 are now confirmed (see below). See [IMPLEMENTATION_AUDIT.md](IMPLEMENTATION_AUDIT.md) §8.
+1. **ADR-033 needs your approval.** Editor saves are checked against the body revision, and title, icon and favorite changes take no base revision. This refines CLAUDE.md rule 7.
+2. **Native interactions are unverified by Claude** (see Tests). The manual steps above cover them.
+3. **Recovery buffers** are cleared by a later successful save only when the same editor kept them. One left from a page switch stays until you resolve it in the dialog on the next launch.
+4. **The title field doesn't follow a title changed outside Forma** while the page is open; the sidebar and breadcrumbs do.
+5. **The frontend bundle is 1.26 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
+6. **Each development build re-asks macOS for folder access** (ad-hoc signing). Release builds with a stable signing identity won't (Phase 7).
+7. **Index in memory (ADR-032):** a very large workspace is rescanned on every launch until Phase 3 adds the SQLite cache.
+8. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
+9. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
 
 ## Next Phase
 
-**Phase 2: Document System and Editor.** It opens with the Markdown round-trip spike (ADR-015). Then: workspace initialization and opening, the Document Service (atomic writes, revisions, history, trash, recovery), the page tree, the Tiptap editor, autosave and external-change handling. See IMPLEMENTATION_PLAN §5.
+**Phase 3: Collections, Links, and Search** (IMPLEMENTATION_PLAN §6): the SQLite index with FTS5, page links and backlinks, ⌘K search and ⌘P quick open, and collections. It starts only after your approval.

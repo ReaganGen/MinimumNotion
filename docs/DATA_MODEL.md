@@ -221,7 +221,7 @@ The fixture corpus in `tests/fixtures/markdown/` is the executable definition of
 | Blockquote | `>` | `> ` |
 | Code block | fenced (`` ``` `` or `~~~`), indented | `` ``` `` fence with info string. The fence is lengthened if the content contains one |
 | Horizontal rule | `---` `***` `___` | `---` |
-| Table | GFM pipe table with alignment row | GFM pipe table, alignment preserved. Cells hold inline content only. `|` is escaped. A hard break in a cell is written as `<br>` |
+| Table | GFM pipe table with alignment row | GFM pipe table, alignment preserved, columns padded to equal width with the alignment row matching. Cells hold inline content only. `|` is escaped. A hard break in a cell is written as `<br>` |
 | Hard line break | two trailing spaces, `\` | `\` at end of line |
 | Inline math | `$…$` (opening `$` not followed by a space, closing `$` not preceded by a space or followed by a digit) | `$…$` |
 | Block math | `$$` on its own line … `$$` | `$$\n…\n$$` |
@@ -458,7 +458,7 @@ The user then sees "An interrupted operation was undone".
 
 ### 7.7 Recovery: `recovery/<page-id>.md` and `.json`
 
-These hold editor buffers that couldn't be saved normally (conflict, deleted file, save failure). The `.json` file records `{ base_rev, saved_at, reason }`. Recovery buffers are offered back to the user on the next launch and deleted only after the user resolves them.
+These hold editor buffers that couldn't be saved normally (conflict, deleted file, save failure). The `.json` file records `{ page_id, title, saved_at, reason }`, where `reason` is `conflict` or `unsaved`. Recovery buffers are offered back to the user on the next launch and deleted only after the user resolves them (keep as a new page, or discard), or when the editor that kept one later saves that page successfully.
 
 ---
 
@@ -467,6 +467,8 @@ These hold editor buffers that couldn't be saved normally (conflict, deleted fil
 ### 8.1 Current revision
 
 `rev = hex(blake3(file_bytes))[0..16]`. A folder page without `index.md` has no revision. Every mutation of an existing page requires `base_rev` (ARCHITECTURE §4.5).
+
+`body_rev = hex(blake3(body_bytes))[0..16]`, where the body is everything after the frontmatter. The editor's saves are checked against it, so a frontmatter change made meanwhile isn't a conflict (ADR-033, awaiting approval). A folder page's body is empty.
 
 ### 8.2 Snapshots
 
@@ -561,8 +563,10 @@ query_collection(collection_id, view)        → Page<CollectionRow>
 
 ```
 create_page(parent_id?, title, body?, position?)            → PageMeta
-save_page(id, base_rev, body)                               → Saved{rev} | Conflict{current}
-update_meta(id, base_rev, { title?, icon?, tags? })         → Saved{rev} | Conflict{current}
+save_page(id, base_body_rev, body)                          → Saved{rev, body_rev} | Conflict{current_body_rev, current_body}
+save_page_over_conflict(id, body)                           → Saved{…}       ("keep mine": snapshots the disk version first)
+set_title(id, title) / set_icon(id, icon?)                  → ()             (surgical, no base: ADR-033; set_title renames the file)
+update_meta(id, base_rev, { tags? })                        → Saved{rev} | Conflict{current}   (Phase 3)
 move_page(id, new_parent_id?, position?)                    → PageMeta       (cycle-checked)
 reorder_page(id, position)                                  → ()             (tree.json only)
 duplicate_page(id)                                          → PageMeta       (subtree, new IDs)
