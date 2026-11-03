@@ -468,7 +468,7 @@ These hold editor buffers that couldn't be saved normally (conflict, deleted fil
 
 `rev = hex(blake3(file_bytes))[0..16]`. A folder page without `index.md` has no revision. Every mutation of an existing page requires `base_rev` (ARCHITECTURE §4.5).
 
-`body_rev = hex(blake3(body_bytes))[0..16]`, where the body is everything after the frontmatter. The editor's saves are checked against it, so a frontmatter change made meanwhile isn't a conflict (ADR-033, awaiting approval). A folder page's body is empty.
+`body_rev = hex(blake3(body_bytes))[0..16]`, where the body is everything after the frontmatter. The editor's saves are checked against it, so a frontmatter change made meanwhile isn't a conflict (ADR-033). A folder page's body is empty.
 
 ### 8.2 Snapshots
 

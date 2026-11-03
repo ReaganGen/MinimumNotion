@@ -2,11 +2,11 @@
 
 ## Current Phase
 
-Phase 2: Document System and Editor (approved 2026-11-02). **Implemented and verified; waiting for the user's approval** of the phase and of ADR-033.
+Phase 2: Document System and Editor (approved 2026-11-02). **Implemented and verified (commit `52c5d1e`); waiting for the user's approval to proceed to Phase 3.** ADR-033 was approved on 2026-11-02.
 
 ## Status
 
-Phase 2 is complete as far as automated and runtime checks can show. The manual checks in the built app (below) are for the user. ADR-033 refines CLAUDE.md rule 7 and needs the user's approval.
+Phase 2 is complete as far as automated and runtime checks can show. The manual checks in the built app (below) are for the user. ADR-033, which refines CLAUDE.md rule 7, was approved by the user, and rule 7 was updated to match.
 
 ### Phase 2 journal
 
@@ -26,7 +26,7 @@ Phase 2 is complete as far as automated and runtime checks can show. The manual 
   8. *Notices from rescans were never shown.* They're now fetched after each change.
   9. *A new page didn't put the cursor in its title.*
   10. *Tables were saved with an extra blank line* and a misaligned alignment row.
-- **Design decisions:** ADR-032 (in-memory index until Phase 3), ADR-033 (body revision for editor saves; **awaiting approval**), ADR-034 (Markdown gate outcome).
+- **Design decisions:** ADR-032 (in-memory index until Phase 3), ADR-033 (body revision for editor saves; approved by the user), ADR-034 (Markdown gate outcome).
 - **Deferred, with reasons:** the `journal` module (first used by collections in Phase 3; no speculative modules), the `workspace://conflict` event (replaced, ADR-033).
 
 ## Completed Phases
@@ -150,15 +150,14 @@ Not separately reviewed, and kept as documented: favorites and order in `.forma/
 
 ## Known Issues and Open Decisions
 
-1. **ADR-033 needs your approval.** Editor saves are checked against the body revision, and title, icon and favorite changes take no base revision. This refines CLAUDE.md rule 7.
-2. **Native interactions are unverified by Claude** (see Tests). The manual steps above cover them.
-3. **Recovery buffers** are cleared by a later successful save only when the same editor kept them. One left from a page switch stays until you resolve it in the dialog on the next launch.
-4. **The title field doesn't follow a title changed outside Forma** while the page is open; the sidebar and breadcrumbs do.
-5. **The frontend bundle is 1.26 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
-6. **Each development build re-asks macOS for folder access** (ad-hoc signing). Release builds with a stable signing identity won't (Phase 7).
-7. **Index in memory (ADR-032):** a very large workspace is rescanned on every launch until Phase 3 adds the SQLite cache.
-8. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
-9. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
+1. **Native interactions are unverified by Claude** (see Tests). The manual steps above cover them.
+2. **Recovery buffers** are cleared by a later successful save only when the same editor kept them. One left from a page switch stays until you resolve it in the dialog on the next launch.
+3. **The title field doesn't follow a title changed outside Forma** while the page is open; the sidebar and breadcrumbs do.
+4. **The frontend bundle is 1.26 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
+5. **Each development build re-asks macOS for folder access** (ad-hoc signing). Release builds with a stable signing identity won't (Phase 7).
+6. **Index in memory (ADR-032):** a very large workspace is rescanned on every launch until Phase 3 adds the SQLite cache.
+7. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
+8. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
 
 ## Next Phase
 

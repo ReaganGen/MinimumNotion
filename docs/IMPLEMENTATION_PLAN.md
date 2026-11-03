@@ -154,7 +154,7 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 
 **Goal:** reliable local-first editing. This is the highest-risk phase for data integrity.
 
-> **Status (2026-11-02):** implemented; see PROGRESS.md. Deviations, each recorded: the index is in memory until Phase 3 (ADR-032); conflicts surface through save results and `workspace://changed` instead of a `workspace://conflict` event (ADR-033, awaiting approval); the `journal` module is deferred to Phase 3, where its first user (collection schema batches) arrives, because CLAUDE.md forbids speculative modules. The manual checks in the built app (§5.2) are for the user.
+> **Status (2026-11-02):** implemented; see PROGRESS.md. Deviations, each recorded: the index is in memory until Phase 3 (ADR-032); conflicts surface through save results and `workspace://changed` instead of a `workspace://conflict` event (ADR-033); the `journal` module is deferred to Phase 3, where its first user (collection schema batches) arrives, because CLAUDE.md forbids speculative modules. The manual checks in the built app (§5.2) are for the user.
 
 ### 5.1 Tasks
 

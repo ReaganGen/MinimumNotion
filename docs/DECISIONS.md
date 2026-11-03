@@ -126,7 +126,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-009: A revision is a content hash; optimistic concurrency on every write
 
-- **Status:** Accepted; refined for the editor by ADR-033 (awaiting the user's approval). **Date:** 2026-11-02
+- **Status:** Accepted; refined for the editor by ADR-033. **Date:** 2026-11-02
 - **Context:** Revisions are needed for conflict detection between the editor, external edits and AI proposals.
 - **Decision:** `rev` is the first 16 hex characters of the BLAKE3 hash of the file bytes. Every mutation of an existing page carries `base_rev` and is rejected if the file has changed.
 - **Alternatives:**
@@ -391,7 +391,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-033: The editor's saves are checked against the body revision
 
-- **Status:** **Proposed. Awaiting the user's approval**, because it refines CLAUDE.md architecture rule 7 ("every write to an existing page carries `base_rev`"). It is implemented and tested. **Date:** 2026-11-02 (Phase 2)
+- **Status:** Accepted, approved by the user on 2026-11-02. It refines CLAUDE.md architecture rule 7, which was updated to match. **Date:** 2026-11-02 (Phase 2)
 - **Context:** With ADR-009 as written, the editor's base revision covers the whole file. Renaming a page, changing its icon or favoriting it rewrites the frontmatter, which changes the file revision. The next autosave of the body would then report a conflict that isn't one, and so would a tag change made by another app.
 - **Decision:**
   1. `get_page` returns both `rev` (the whole file) and `body_rev` (the BLAKE3 hash of the body only, truncated to 16 hex characters).
@@ -400,7 +400,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
   4. There is no separate `workspace://conflict` event. A conflict surfaces as the result of a save, or when `workspace://changed` reports a new body revision for the page being edited.
 - **Alternatives:** Keep whole-file revisions and refresh the editor's base after each metadata change. That races with autosave and still turns every outside tag edit into a conflict banner.
 - **Rationale:** A conflict should mean that two people changed the same text. Body edits are still never silently overwritten. A title or icon change is a single explicit user action that is applied to the current file, and the snapshot policy keeps whatever it replaced.
-- **Consequences:** If the user approves, CLAUDE.md rule 7 should read: "Every body write carries the base body revision. Metadata edits are surgical, applied to the current file, and snapshot outside content first." AI proposals (Phase 6) still carry a whole-file `base_rev`, as ARCHITECTURE §10 specifies.
+- **Consequences:** CLAUDE.md rule 7 now reads: "Revisions are content hashes. Every body write carries the base body revision. Metadata edits are surgical, applied to the current file, and snapshot outside content first." AI proposals (Phase 6) still carry a whole-file `base_rev`, as ARCHITECTURE §10 specifies.
 
 ## ADR-034: Outcome of the Markdown gate: `@tiptap/markdown` plus a Forma rules layer
 

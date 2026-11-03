@@ -146,7 +146,7 @@ Verified versions: `docs/IMPLEMENTATION_PLAN.md` §2. Re-verify before adding an
 4. UI components never modify workspace files directly. IPC arguments are page IDs, never paths.
 5. AI tools never modify workspace files directly. They only build ChangeSets, and applying one is a user-only command.
 6. Pages use stable UUIDs in frontmatter, persisted lazily. Run `ensure_persisted_id` before creating any durable reference to a page.
-7. Revisions are content hashes. Every write to an existing page carries `base_rev`.
+7. Revisions are content hashes. Every body write carries the base body revision. Metadata edits are surgical, applied to the current file, and snapshot outside content first (ADR-033).
 8. Conflicting changes are never silently overwritten. When in doubt, snapshot to history first.
 9. Core functionality works offline. The webview has no network access except loading `https:` images embedded in notes (ADR-031). AI chat output and AI change previews never load remote images. All AI traffic goes through Rust.
 10. No unnecessary cloud dependencies, telemetry, accounts or license checks.
