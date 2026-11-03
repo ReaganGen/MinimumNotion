@@ -2,11 +2,11 @@
 
 ## Current Phase
 
-Phase 7: Product Polish and Release (approved 2026-11-03), the last phase of the v0.1.0 plan. **Implemented and verified; waiting for the user's review.** Releasing needs the user's decisions on the name (R15), signing and pushing (Known Issues 1–3).
+None. **All phases of the v0.1.0 plan are complete**; Phase 7 was approved on 2026-11-03 (commit `538d170`). Releasing still needs the user's decisions on the name (R15), signing and pushing (Known Issues 1–3).
 
 ## Status
 
-Phase 7 is complete as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The GitHub workflows were written and their steps run locally, but have not run on GitHub.
+Phase 7 is complete and approved, as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The GitHub workflows were written and their steps run locally, but have not run on GitHub.
 
 ### Phase 7 journal
 
@@ -121,6 +121,7 @@ Phase 7 is complete as far as automated, preview and release-app checks can show
 - **Phase 4: AI Provider Integration.** Approved 2026-11-03 (commit `5e3825e`).
 - **Phase 5: AI Knowledge Retrieval.** Approved 2026-11-03 (commit `3f5bf0d`).
 - **Phase 6: AI Agent and Knowledge Management.** Approved 2026-11-03 (commit `6505ae6`).
+- **Phase 7: Product Polish and Release.** Approved 2026-11-03 (commit `538d170`).
 
 ## Implemented Features
 
