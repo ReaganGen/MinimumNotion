@@ -1,0 +1,548 @@
+# Forma Architecture
+
+Status: Phase 0 baseline (2026-11-02). This document describes the intended system design for v0.1.0. Where a later phase changes a design, update this file and record the change in [DECISIONS.md](DECISIONS.md).
+
+Related documents:
+
+- [DATA_MODEL.md](DATA_MODEL.md): exact on-disk formats, entity fields, the Markdown dialect, and the index schema
+- [DECISIONS.md](DECISIONS.md): architectural decision records (ADRs)
+- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): per-phase tasks and acceptance criteria
+
+---
+
+## 1. Goals and non-goals
+
+The architecture serves these properties, in priority order:
+
+1. **Correctness and data integrity.** No user-authored content is lost or silently overwritten. Every on-disk write is atomic. Every destructive operation can be recovered.
+2. **Local-first and portable.** The workspace is a plain folder of Markdown files with YAML frontmatter. A user who stops using Forma keeps everything, and the folder structure stays readable.
+3. **Simplicity.** Each concept has one authoritative home. Most mutations are a single atomic filesystem operation.
+4. **Optional, safe AI.** AI is a separate subsystem with no direct write path to user data. It can only propose changes, and the user applies them.
+
+Non-goals for v0.1.0 are listed in [ROADMAP.md](ROADMAP.md#explicitly-out-of-scope-for-v010). The architecture keeps extension points for them (§13), but none of them is built.
+
+---
+
+## 2. System overview
+
+```
+┌──────────────────────────── Forma.app (single process, single window) ───────────────────────────┐
+│                                                                                                  │
+│  WebView (WKWebView) — React + TypeScript                     Rust (Tauri 2 shell)               │
+│  ┌──────────────────────────────────────────┐   invoke()      ┌───────────────────────────────┐  │
+│  │ Sidebar │ Editor (Tiptap/PM) │ AI panel  │ ──────────────▶ │ commands/  (thin IPC layer)   │  │
+│  │                                          │ ◀────────────── │ events / channels             │  │
+│  │ Markdown body ⇄ ProseMirror conversion   │   events,       └──────────────┬────────────────┘  │
+│  │ UI state (zustand)                       │   channels                     │                   │
+│  │ NO filesystem access, NO network access  │                 ┌──────────────▼────────────────┐  │
+│  └──────────────────────────────────────────┘                 │ forma-core (no network)       │  │
+│        ▲ forma-asset:// (read-only, workspace-scoped)          │  Workspace  · DocumentService │  │
+│        └──────────────────────────────────────────────────────│  Index (SQLite/FTS5) · Watcher│  │
+│                                                                │  Collections · History · Trash│  │
+│                                                                └──────────────▲────────────────┘  │
+│                                                                ┌──────────────┴────────────────┐  │
+│                                                                │ forma-ai (network)            │  │
+│                                                                │  Providers · Agent · Tools    │  │
+│                                                                │  ChangeSets (proposals only)  │  │
+│                                                                └───────┬───────────────┬───────┘  │
+└────────────────────────────────────────────────────────────────────────┼───────────────┼──────────┘
+                                                                         │               │
+             ~/FormaWorkspace/ (user's Markdown files, .forma/)  ◀───────┘   HTTPS / localhost
+             ~/Library/Application Support/<bundle-id>/ (settings, index.db)    to AI providers
+             macOS Keychain (API keys)
+```
+
+### 2.1 Process model and trust boundaries
+
+| Component | Trust | May access |
+|---|---|---|
+| Rust backend (`forma-core`, `forma-ai`, shell) | Trusted | Workspace folder, app data dir, Keychain, network (only `forma-ai`) |
+| WebView application code (our bundle) | Trusted code that renders untrusted content | Only the IPC commands allow-listed in Tauri capabilities, plus the `forma-asset://` protocol |
+| Document content (Markdown, images) | **Untrusted** | Nothing. Never executed or rendered as raw HTML |
+| AI model output and tool arguments | **Untrusted** | Only read tools and proposal tools (§10) |
+| Files modified externally | **Untrusted input** | Parsed defensively and validated |
+
+Consequences:
+
+- The webview cannot reach the network. The Content Security Policy sets `connect-src` to IPC only and allows no remote `img-src`, `script-src` or `frame-src`. All AI traffic goes through Rust, so API keys never enter JavaScript memory.
+- The webview has no generic filesystem plugin. Every file operation is a typed command whose arguments are **page IDs, not paths**. Rust computes paths from the index and checks that each one stays inside the workspace. This removes path traversal from the IPC surface.
+- Paths from outside the workspace come only from native user actions handled in Rust: the folder picker (Rust opens the dialog itself) and files dropped onto the window. A dropped file reaches the webview as an opaque, single-use **drop token** issued by Rust, never as a path. Compromised webview code therefore can't ask Rust to copy arbitrary files, such as `~/.ssh/*`, into the workspace.
+- Raw HTML in documents and in AI output is shown as escaped text, never rendered. This matters for integrity as well as privacy: script running in the webview could call `apply_changeset`, so an XSS bug would defeat the AI approval boundary. A strict CSP (no `unsafe-inline` or `unsafe-eval` for scripts) adds a second layer of defense.
+
+### 2.2 Repository layout
+
+```
+/                         (repository root; product name "Forma")
+├── CLAUDE.md, README.md, .gitignore
+├── package.json, vite.config.ts, tsconfig.json, biome.json, index.html      (Phase 1)
+├── src/                  React application
+│   ├── app/              App shell, providers, routing between views
+│   ├── components/       ui/ (shadcn primitives), layout/, sidebar/, editor/, collections/, ai/, search/
+│   ├── features/         Feature logic + stores: pages/, collections/, search/, settings/, ai/
+│   ├── lib/              ipc/ (typed client + generated bindings), markdown/, utils
+│   └── styles/           tokens.css (design tokens), globals.css
+├── Cargo.toml            Cargo workspace
+├── crates/
+│   ├── forma-core/       Workspace, DocumentService, frontmatter, index, watcher, collections. No Tauri, no network.
+│   └── forma-ai/         Provider adapters, agent runtime, tool registry, ChangeSets. Depends on forma-core.
+├── src-tauri/            Thin Tauri shell: commands, events, window, menus, capabilities, bundling
+├── tests/fixtures/       Shared fixtures, including the Markdown round-trip corpus used by TS and Rust tests
+├── docs/
+└── .github/workflows/    CI (Phase 7)
+```
+
+There are two reasons to split `forma-core` from the Tauri shell. First, `cargo test -p forma-core` runs without compiling WebKit bindings, which keeps the test loop fast. Second, core logic stays platform-independent, so a future CLI, sync daemon or other OS port can reuse it. `forma-ai` is separate so that `forma-core` has no network dependency at all, which keeps the security boundary visible in `Cargo.toml`.
+
+Directories are created only when they get real content. No empty placeholder modules.
+
+---
+
+## 3. Workspace on disk
+
+Full specification: [DATA_MODEL.md §2–§4](DATA_MODEL.md#2-workspace-directory-layout).
+
+```
+MyWorkspace/                         ← the folder the user picked; the page tree root
+├── Inbox.md                         ← leaf page (no children, no attachments)
+├── Research/                        ← bundle page: a page with children or attachments
+│   ├── index.md                     ←   the "Research" page itself
+│   ├── _assets/                     ←   attachments of "Research" (referenced as _assets/x.png)
+│   │   └── diagram.png
+│   ├── Paper A.md                   ←   child page (leaf)
+│   └── Papers/                      ←   child page that is a Collection (bundle)
+│       ├── index.md                 ←     collection schema lives in this page's frontmatter
+│       ├── Attention Is All You Need.md   ← collection entry (child of the collection page)
+│       └── ...
+└── .forma/                          ← Forma metadata (portable, human-readable, no cache)
+    ├── workspace.json               ← workspace identity + format version
+    ├── tree.json                    ← sibling order + favorites (advisory)
+    ├── views.json                   ← collection view settings (advisory)
+    ├── history/<page-id>/…          ← revision snapshots (full Markdown files)
+    ├── trash/<entry-id>/…           ← trashed pages with their whole subtree
+    ├── operations/<op-id>.json      ← applied AI ChangeSets (for undo)
+    ├── journal/                     ← write-ahead intents for multi-file batches
+    ├── recovery/                    ← unsaved editor buffers kept during conflicts
+    ├── tmp/                         ← staging area for atomic writes (same volume)
+    └── lock                         ← advisory lock: one Forma process per workspace
+```
+
+Outside the workspace, in `~/Library/Application Support/<bundle-id>/`:
+
+- `settings.json`: app preferences (theme, last workspace, AI provider configuration without secrets)
+- `index/<workspace-key>/index.db`: the SQLite index, which is a **cache** (§5)
+- `logs/`
+
+API keys live in the macOS Keychain only.
+
+### 3.1 Why the directory tree mirrors the page tree
+
+The folder hierarchy *is* the page hierarchy, so a page's parent is derived from its location and is never stored twice. Most operations become one atomic `rename(2)`:
+
+| Operation | Filesystem effect | Atomic? |
+|---|---|---|
+| Move page (with subtree) | `rename` of one file or one bundle directory | Yes |
+| Rename page | rewrite frontmatter `title` (atomic write), then `rename` of the file or directory | Each step is atomic. A crash between them leaves a stale filename, which is harmless because the filename is not authoritative |
+| Trash page (with subtree) | write `entry.json` into a new trash entry, then `rename` the file or bundle into it | Yes (an orphaned empty entry is cleaned up on start) |
+| Restore from trash | `rename` back | Yes |
+| First child or attachment on a leaf | `mkdir Name/`, then `rename Name.md → Name/index.md` | Each step is atomic. A crash between them leaves an empty `Name/` beside `Name.md`, which startup recovery removes |
+| Duplicate (subtree) | copy into `.forma/tmp/`, assign new IDs, then one `rename` into place | Yes (publish by rename) |
+
+Attachments live in their page's own `_assets/` folder and are referenced relative to `index.md`. Their references therefore never change when the page is renamed or moved. Page-to-page links use stable IDs (§6.5), so renames and moves never rewrite other files.
+
+Only true multi-file batches need the write-ahead journal: renaming a collection property or select option (rewrites every entry), and applying an AI ChangeSet. One rare single-page case also uses it: converting a leaf whose body contains hand-written relative references, which must be adjusted (DATA_MODEL §3.1).
+
+---
+
+## 4. Document Service
+
+`forma-core::documents::DocumentService` is the **only** component that writes workspace files. The UI, the Tauri command layer and the AI agent all call it. None of them touch the filesystem.
+
+### 4.1 Responsibilities
+
+- Workspace open, initialize and close, plus the workspace lock and startup recovery
+- Page reads, which return metadata, the Markdown body and the current revision
+- All mutations: create, save, set title, move, reorder, duplicate, trash, restore, favorite, icon, tags, attachments, collection schema and properties, revision restore, and batched ChangeSet application
+- Atomic persistence, revision checks, history snapshots and the trash
+- Recording its own writes so the watcher can tell them apart from external changes
+- Telling the index about every change, and emitting change events to the UI
+
+### 4.2 Concurrency model
+
+- **Single writer.** One mutation task per workspace processes requests in order from a queue, so mutations never interleave. Reads (page content, index queries) run concurrently with the writer and never wait for it. Because files are replaced by atomic rename, a reader always sees either the complete old file or the complete new one.
+- **Frontend write serialization.** The frontend keeps a per-page write queue so a body save and a metadata patch for the same page never race. Each request carries the latest known revision.
+- **One process per workspace.** `tauri-plugin-single-instance` plus an advisory `flock` on `.forma/lock`. If the lock is held, the workspace opens read-only and explains why.
+
+### 4.3 Mutation pipeline
+
+Every mutation follows the same steps:
+
+```
+validate request (IDs exist, names valid, no cycles, revision matches)
+  → [multi-file batch only] write journal intent to .forma/journal/
+  → snapshot previous content to history (per policy, §4.6)
+  → atomic write(s) / rename(s)
+  → register self-writes (path, revision) for watcher suppression
+  → update index in one SQLite transaction (failure → mark index stale; never fails the mutation)
+  → [batch only] delete journal intent
+  → emit `workspace://changed { pages: [{id, rev}], removed, tree_parents }`
+```
+
+### 4.4 Atomic write protocol
+
+1. Write the new bytes to `.forma/tmp/<random>`. This is on the same volume, so the later rename is atomic, and it keeps temporary files out of the user's folders and out of sync tools.
+2. Call `File::sync_all()`. On macOS, Rust's standard library implements this with `fcntl(F_FULLFSYNC)`.
+3. `rename(tmp, target)`. This is atomic on APFS and HFS+.
+4. `fsync` the parent directory.
+
+Startup removes anything left in `.forma/tmp/`. A crash at any point leaves either the old file or the new one, never a torn file.
+
+If the workspace and `.forma/tmp` turn out to be on different volumes (cross-device rename fails with `EXDEV`), the service falls back to a temporary file in the target directory, named `.<name>.forma-tmp-<random>`, which the watcher and the scanner ignore.
+
+### 4.5 Revisions and optimistic concurrency
+
+- A page's **revision** (`rev`) is the BLAKE3 hash of the file's full bytes (frontmatter plus body), truncated to 16 hex characters. It is derived, never stored, and it changes automatically when anything edits the file, including external tools.
+- Every write to an existing page carries `base_rev`. Just before replacing the file, the service re-reads it and compares hashes. If they differ, the write is rejected with `Conflict { current_rev, current }` and nothing is written.
+- Accepted residual risk: an external process could write between the hash check and the `rename` (a window of microseconds to milliseconds). POSIX offers no cross-process compare-and-swap for files. The pre-overwrite snapshot policy (§4.6) narrows the impact, and this risk is documented rather than claimed away.
+
+### 4.6 History (Document Revisions)
+
+History snapshots are full copies of the file bytes, stored at `.forma/history/<page-id>/<UTC timestamp>_<rev>_<reason>.md`. They stay readable without Forma.
+
+The service snapshots the current on-disk content before overwriting it whenever any of the following is true:
+
+- that content was not produced by Forma's own last write. This covers external edits and first-time edits of files created outside Forma, so the original bytes are always recoverable.
+- the page's most recent snapshot is older than the coalescing window (default 10 minutes of editing)
+- the write is an AI ChangeSet apply, a revision restore, a conflict resolution, an undo, or a schema batch rewrite (reason-tagged "protected" snapshots)
+
+Retention is conservative. Phase 2 sets and documents the thinning rules. Snapshots younger than 30 days are never pruned, and snapshots referenced by an undoable AI operation are kept while that operation can still be undone.
+
+### 4.7 Trash
+
+Trashing moves a page's file or bundle, with its whole subtree, into `.forma/trash/<entry-id>/` together with `entry.json`, which records the original parent ID, the original relative path, the time and the page IDs in the subtree. Descendants are never destroyed separately.
+
+Restoring returns the subtree to its original parent if that parent still exists outside the trash, and to the root otherwise, adjusting the name if it collides. Permanent deletion ("Delete forever" or "Empty trash") is a separate, explicitly confirmed user action. v0.1 never purges the trash automatically.
+
+### 4.8 Page identity and ID persistence
+
+- Every page has a UUID stored in frontmatter as `id`. Identity never depends on title or path.
+- **Lazy persistence.** A file discovered without an `id` (for example, Markdown the user dropped into the folder) gets an *index-only* ID. Forma writes the `id` into that file only when it writes the file for another reason, or just before anything durable starts referencing the page (a link, a favorite, an order entry, a history snapshot, an operation record or a journal step; the full list is in DATA_MODEL §4.4). Opening an existing folder of Markdown therefore never mass-rewrites the user's files.
+- **Duplicate IDs** can appear when a user copies a file in Finder or a sync tool creates conflict copies. When two files carry the same `id`, the file at the path the index already associates with that ID keeps it. Without an index entry, the earliest-created file keeps it, with path order as the tie-breaker. The other file receives a new UUID, written into its frontmatter, and the user is told. Both files are kept.
+
+### 4.9 External changes
+
+- A `notify` watcher on the workspace root (FSEvents, recursive, debounced about 300 ms) treats events as *hints*. For each affected path, the service stats the file, hashes it and reconciles. Events that match a registered self-write are ignored.
+- Moves and renames are recognized by `id`: the same ID disappearing at one path and appearing at another. Open editors follow the page transparently.
+- Interaction with an open editor:
+
+| Editor state | External event | Behavior |
+|---|---|---|
+| Clean | Modified | Reload silently, preserving the selection where possible |
+| Dirty | Modified | **Conflict.** Autosave pauses and the editor buffer is written to `.forma/recovery/<id>.md` at once. A banner offers *Keep mine* (disk version snapshotted first), *Use theirs* (buffer snapshotted first) or *Keep both* (the buffer becomes a sibling page "Title (conflict YYYY-MM-DD)") |
+| Any | Moved/renamed (same ID) | Follow the page, with no interruption |
+| Any | Deleted | The buffer is kept in recovery. A banner offers *Restore page* (recreates it with the buffer) or *Close* |
+
+- No external event ever causes Forma to overwrite a file without a fresh `base_rev` check.
+
+### 4.10 Startup recovery
+
+On open, the service:
+
+1. Acquires the lock.
+2. Clears `.forma/tmp/`.
+3. Replays or rolls back any `.forma/journal/` intents. Each batch type defines its rollback, which is restoring the protected snapshots taken before the batch.
+4. Removes empty bundle directories left by an interrupted leaf-to-bundle conversion. It removes a directory only when it is truly empty and sits beside a `Name.md`.
+5. Cleans up orphaned trash entries.
+6. Offers any `.forma/recovery/` buffers back to the user.
+7. Reconciles the index (§5.3).
+
+---
+
+## 5. Index (SQLite)
+
+### 5.1 Role
+
+SQLite is a **derived cache**. It accelerates the page tree, full-text search, backlinks, collection sorting and filtering, and AI retrieval. Deleting it loses nothing: the service rebuilds it from the workspace files. No user-authored data is written only to SQLite.
+
+- **Location:** `~/Library/Application Support/<bundle-id>/index/<workspace-key>/index.db`, where `workspace-key` is a hash of the workspace's `id` and its canonical path. Keeping it outside the workspace means a synced workspace (Dropbox, iCloud) never carries a SQLite database, which sync tools corrupt, and it keeps the user's folder free of cache files.
+- **Engine:** `rusqlite` with the `bundled` feature, so SQLite and its FTS5 support are pinned and do not depend on the system SQLite. WAL mode. One writer connection, owned by the index task, and a small pool of read connections.
+- **Schema versioning:** `meta.schema_version`. On a mismatch the index is dropped and rebuilt. The cache needs no migration code.
+
+### 5.2 Contents
+
+Pages (path, parent, title, icon, kind, timestamps, revision, size and mtime for change detection, whether the ID is persisted, status), tags, links (source to target ID, or unresolved wikilink text), attachments, collection property values (typed columns for sort and filter), an FTS5 table over title, body text, tags and property text, and (in Phase 5) passage-level FTS for retrieval. Exact schema: [DATA_MODEL.md §9](DATA_MODEL.md#9-sqlite-index-schema-initial).
+
+Body text for FTS and link extraction comes from the Rust side, using `pulldown-cmark` (§6.3).
+
+### 5.3 Reconciliation and rebuild
+
+- **Startup reconcile.** Walk the workspace, skipping `.forma/`, dotfiles and symlinks, which are never followed. Compare each file's `(size, mtime)` with its index row, re-read only the files that changed, and detect moves by ID. With thousands of files this costs a stat walk, not a full parse.
+- **Incremental.** The Document Service updates the index after its own writes. The watcher triggers reconciliation for external changes.
+- **Rebuild.** Settings → Workspace → "Rebuild search index" writes a fresh database beside the current one and swaps it in atomically. Search keeps working on the old database during the rebuild.
+- Indexing runs off the UI path and reports progress through `index://status` events.
+
+### 5.4 Search behavior
+
+FTS5 with BM25 ranking, `snippet()` and `highlight()` for previews, prefix queries for type-ahead, and title matches boosted.
+
+**CJK risk:** the default `unicode61` tokenizer does not segment Chinese or Japanese text. Phase 3 evaluates a secondary `trigram` FTS table (SQLite 3.34 or later) for substring and CJK matching, plus a bounded fallback scan for queries shorter than 3 characters. See the risk register (§14).
+
+---
+
+## 6. Editor and Markdown pipeline
+
+### 6.1 Division of responsibility
+
+| Concern | Owner |
+|---|---|
+| File assembly: frontmatter plus body | Rust (`forma-core`) |
+| Frontmatter parsing, validation and surgical editing | Rust |
+| Body Markdown → ProseMirror document → body Markdown | TypeScript (Tiptap 3 + `@tiptap/markdown`) |
+| Plain-text extraction, link and attachment extraction for the index | Rust (`pulldown-cmark`) |
+
+The frontend never sees or produces frontmatter. It receives `{ meta, body, rev }` and sends back `{ body, base_rev }` or typed metadata patches. Because only Rust touches frontmatter, unknown keys, key order and comments survive (DATA_MODEL §4.6).
+
+### 6.2 The editor
+
+- **Tiptap 3** on ProseMirror. The title is a separate field above the editor and is stored as frontmatter `title`. It is not an H1 inside the body.
+- Node and mark set: paragraph, heading (levels 1–6 accepted; only H1–H3 appear in the menus), bold, italic, strike, inline code, bullet, ordered and task lists, blockquote, code block (with a language attribute), link, image, GFM table, horizontal rule, hard break, inline and block math (KaTeX), page link, and the **raw block** described below.
+- Underline is **disabled** because Markdown cannot represent it, so ⌘U must not create content that can't be saved. Generally, no editor feature ships without a serialization rule.
+- **Raw block.** Markdown the editor can't represent (HTML blocks, footnote definitions, unknown syntax) becomes a read-only raw block that shows the source text and writes it back byte for byte. Unsupported content is never silently dropped.
+- Interaction: Markdown input rules (`#`, `-`, `1.`, `[]`, `>`, ```` ``` ````, `---`, `$$`), a small slash menu, a contextual bubble menu for formatting and links, and `[[` for page-link autocomplete.
+
+### 6.3 Round-trip guarantees
+
+The Markdown dialect and its canonical serialization are specified in [DATA_MODEL.md §5](DATA_MODEL.md#5-markdown-dialect). The guarantees are:
+
+1. **Semantic round-trip.** For every document in the fixture corpus, `parse → serialize` preserves semantics. For documents already in canonical form, it also preserves the bytes. Tests run on this corpus in Vitest (the TS serializer) and in Rust (text and link extraction must agree on the same fixtures).
+2. **No write without an edit.** Opening a page never writes it. Forma writes only after a ProseMirror transaction with `docChanged` or an explicit metadata change. Externally authored files are never reformatted just by being viewed.
+3. **First-write safety.** The first time Forma overwrites content it didn't produce, it snapshots the original first (§4.6). If the open-time check (`serialize(parse(body))` compared with `body`) finds differences beyond whitespace, the page shows a quiet notice: "Forma will reformat parts of this page when you edit it. View changes."
+4. The editor library choice is gated by a Phase 2 spike against the corpus (ADR-015). If `@tiptap/markdown` can't meet guarantees 1–3, the fallback is a custom `prosemirror-markdown` serializer.
+
+There are two Markdown parsers, `marked` (inside `@tiptap/markdown`) in TS and `pulldown-cmark` in Rust. They could disagree on edge cases. The Rust side only extracts plain text, links and attachment references, which is far less sensitive to that, and the shared fixture corpus enforces agreement on the parts that matter.
+
+### 6.4 Autosave
+
+- Debounced save 750 ms after the last change, a 5 s maximum delay during continuous typing, and an immediate flush on page switch, blur, window close and app quit.
+- At most one save in flight per page. Newer content replaces any queued save.
+- On a save failure (disk full, permissions, conflict), the editor keeps its content, shows a persistent non-modal error, writes the buffer to `.forma/recovery/`, and retries with backoff when the failure is transient. The UI never shows "Saved" for content that wasn't persisted.
+- Title edits update frontmatter with the normal save. The file or directory rename is deferred until the title field loses focus or has been idle for 2 s, so it doesn't happen on every keystroke.
+
+### 6.5 Page links
+
+- On disk: a standard CommonMark link, `[Page Title](forma://page/<uuid>)`. Every Markdown tool renders it as readable linked text. Renaming or moving the target never breaks it, and no other files are rewritten. The label is refreshed to the target's current title whenever the *source* page is saved.
+- Typing `[[` opens title autocomplete and inserts that link.
+- **Read support for wikilinks.** A literal `[[Some Title]]` written in another editor is resolved by title. A unique match becomes a link, and an ambiguous or missing one shows as an unresolved link. The text is preserved exactly as written.
+- Backlinks come from the index's `links` table and appear at the bottom of the page.
+- Links to a trashed page render as "deleted page" and heal when the page is restored.
+
+### 6.6 Attachments
+
+- Pasted images (as bytes) and dropped files (as drop tokens, §2.1) go to Rust (`import_attachment(page_id, bytes | drop_token, name)`). If needed, Rust converts the page from a leaf to a bundle, writes `_assets/<unique-name>`, and returns the relative reference `_assets/<name>`.
+- The webview loads attachments through a custom `forma-asset://localhost/<page-id>/<rel-path>` protocol. Rust resolves the page's directory, canonicalizes the path and rejects anything outside the workspace or behind symlinks.
+- Remote image URLs in documents are kept in the Markdown but **not loaded** (CSP). They render as a placeholder showing the URL, because loading them silently would leak reading activity.
+- Binaries are never stored in SQLite.
+
+---
+
+## 7. Frontend architecture
+
+- **React 19 + TypeScript 6**, Vite 8, Tailwind CSS 4 with CSS-variable design tokens, shadcn/ui (Radix primitives) and Lucide icons.
+- **State.** Small zustand stores per feature: layout and panels, theme, the active page and editor session, tree expansion, search UI, and AI chat. The application never holds the whole workspace in React state. Tree children load per expanded node through IPC, document content loads only for the open page, and search results are paged.
+- **Invalidation.** Stores subscribe to `workspace://changed` and refetch only the affected nodes and pages.
+- **Large lists** (sidebar tree, collection tables, search results) are virtualized with `@tanstack/react-virtual`.
+- **Layout.** Three panels using `react-resizable-panels`: sidebar (visible by default), editor, and AI panel (hidden by default). Panel sizes and visibility persist in app settings.
+- **macOS window.** An overlay title bar with inset traffic lights and drag regions, native menus with standard shortcuts, and window-state persistence. Solid surfaces only; no glass effects.
+- **Theming.** Tokens are defined for light and dark, plus "follow system". The theme is applied before first paint to avoid a flash.
+
+---
+
+## 8. IPC contract
+
+| Mechanism | Use |
+|---|---|
+| `invoke` commands | Request and response: reads and mutations. Arguments use IDs, never paths. Errors are typed (`NotFound`, `Conflict{…}`, `Validation{…}`, `Io{…}`, `ReadOnly`, …) |
+| Events | Broadcasts: `workspace://changed`, `index://status`, `workspace://conflict`, `workspace://error` |
+| Channels | Streams: AI token and tool events for one request, and index rebuild progress |
+
+- Rust request and response types derive TypeScript definitions with **`ts-rs`**. The generated files go into `src/lib/ipc/bindings/` and are committed. CI fails if regenerating them produces a diff.
+- `src/lib/ipc/` wraps `invoke` in typed functions. Components never call `invoke` directly.
+- Tauri capabilities allow-list exactly Forma's commands plus the dialog and opener plugins. No `fs` or `shell` plugin is granted to the webview.
+
+The full command list is defined during each phase, starting from the Document Service API in [DATA_MODEL.md §10](DATA_MODEL.md#10-document-service-api-surface).
+
+---
+
+## 9. AI provider layer (`forma-ai`)
+
+### 9.1 Abstraction
+
+```rust
+trait ChatProvider: Send + Sync {
+    async fn list_models(&self) -> Result<Vec<ModelInfo>, AiError>;
+    async fn capabilities(&self, model: &str) -> Result<ModelCapabilities, AiError>;
+    fn stream_chat(&self, req: ChatRequest, cancel: CancellationToken)
+        -> BoxStream<'static, Result<ChatEvent, AiError>>;
+}
+
+struct ChatRequest { model, system, messages: Vec<Message>, tools: Vec<ToolSpec>,
+                     max_output_tokens, temperature, response_format: Option<JsonSchema> }
+enum ChatEvent { TextDelta(String), ToolCallStart{id, name}, ToolCallArgsDelta{id, delta},
+                 ToolCallEnd{id}, Usage{input, output}, Done{stop_reason} }
+struct ModelCapabilities { tool_calling: Tri, streaming: bool, structured_output: Tri,
+                           context_window: Option<u32>, max_output_tokens: Option<u32> }
+enum AiError { Auth, RateLimited{retry_after}, Network, Timeout, ModelNotFound,
+               ContextOverflow, Provider{status, message}, Cancelled, Unsupported(..) }
+```
+
+`Tri` is `Yes`, `No` or `Unknown`. Forma never assumes that every model has the same capabilities.
+
+### 9.2 Adapters
+
+Two wire protocols plus provider presets keep the code small:
+
+| Preset | Wire protocol | Auth | Model list and capabilities |
+|---|---|---|---|
+| OpenAI | OpenAI Chat Completions (verify against the current OpenAI API in Phase 4; adopt the Responses API if Chat Completions has been deprecated) | API key (Keychain) | `/v1/models` + built-in capability table |
+| Anthropic | Anthropic Messages API (SSE) | API key (Keychain) | `/v1/models` |
+| OpenAI-compatible | Chat Completions | Optional key | `/v1/models`. Capabilities `Unknown` unless the user overrides them |
+| Ollama | Native `/api/chat` (NDJSON stream) | None (localhost) | `/api/tags`, `/api/show` (tool support, context length) |
+| LM Studio | Chat Completions at `localhost:1234/v1` | None | `/v1/models`, LM Studio REST model info where available |
+
+Ollama uses its native API because the OpenAI-compatible endpoint can't set `num_ctx`, so long contexts would be truncated silently.
+
+- Model lists come from provider APIs, not hard-coded lists. The user can type a model ID manually.
+- Streaming uses SSE or NDJSON parsed in Rust and forwarded through a Tauri Channel. Cancellation propagates via a `CancellationToken`, which aborts the HTTP request.
+- **Connection test:** list models, then send a one-token request. The result names the exact failure: authentication, endpoint unreachable, model missing, or TLS.
+
+### 9.3 Credentials and privacy
+
+- API keys are stored in the **macOS Keychain** (`keyring-core` with `apple-native-keyring-store`, behind a `SecretStore` trait). Keys never appear in `settings.json`, the workspace, logs or the webview. Settings only show whether a key is stored, with Replace and Remove actions.
+- Only official authentication: provider API keys, or no auth for local servers. A consumer chat subscription (ChatGPT Plus or Pro, Claude Pro or Max) does not grant API access, and session-token extraction is never implemented.
+- **Cloud transmission notice.** The first use of a cloud provider requires an explicit acknowledgement. Every cloud request shows which pages or snippets are being sent. Local providers say "stays on this Mac". Only context the request needs is sent (§11).
+
+---
+
+## 10. AI agent (`forma-ai::agent`)
+
+### 10.1 Modes and capability separation
+
+| Mode | Tools exposed to the model | Can change data? |
+|---|---|---|
+| Ask | Read tools only | No |
+| Act | Read tools and proposal tools | Only by creating a **ChangeSet proposal**. Applying it is a separate user command the model can't reach |
+
+The agent runtime holds a **read-only handle** to the Document Service plus a ChangeSet builder. It has no reference to any mutation API, so authorization is enforced by construction, not by prompt instructions. Applying a change is the `apply_changeset` IPC command, which only the approval UI calls.
+
+Act mode needs a model with tool calling. When tool support is `No` or `Unknown`, Act mode is unavailable and the UI says why. Ask mode still works with any model through pre-retrieval (§11).
+
+### 10.2 Tool registry
+
+Each tool has a name, a description, an input JSON Schema (generated from Rust types), an output type, a kind (`Read` or `Propose`), validation, and limits on result size and iteration count.
+
+| Tool | Kind | Notes |
+|---|---|---|
+| `search_pages(query, limit)` | Read | FTS retrieval. Returns page IDs, titles and snippets |
+| `read_page(page_id, range?)` | Read | Body Markdown plus metadata. Paged for long pages |
+| `list_pages(parent_id?)` | Read | Children summaries |
+| `get_page_metadata(page_id)` | Read | Title, tags, properties, parent, revision |
+| `create_page(title, parent_id?, content)` | Propose | |
+| `edit_page(page_id, base_rev, edits)` | Propose | `edits` = exact `{old, new}` replacements (each `old` must match exactly once) or `{replace_all_body}` |
+| `move_page(page_id, new_parent_id)` | Propose | Cycle check |
+| `create_collection(title, parent_id?, schema)` | Propose | |
+| `update_page_properties(page_id, base_rev, set, unset)` | Propose | Typed against the schema |
+| `link_pages(source_id, target_id, context?)` | Propose | Becomes an edit that inserts a page link |
+
+- Tools accept **page IDs only, never paths**. Every ID is resolved through the index and the Document Service, which is how workspace boundaries are enforced.
+- Invalid arguments come back to the model as structured tool errors, so it can correct them. The runtime never panics or partially applies a change.
+- Limits: at most 12 tool rounds per request, tool results truncated to a token budget, and a wall-clock timeout. All are cancellable.
+
+### 10.3 Proposal → preview → approval → apply → undo
+
+```
+User request → context retrieval → model ⇄ read tools → proposal tools → ChangeSet (in memory)
+  → Preview: pages to create / edit / move, collection & property changes,
+             per-page Markdown diff (word-level, `similar`)
+  → User: approve all · approve selected · reject     (rejection changes nothing on disk)
+  → apply_changeset(id, selected_ops):
+       journal intent → protected history snapshots → per-op base_rev check
+       → apply via DocumentService batch (all-or-nothing; rollback from snapshots on failure)
+       → write .forma/operations/<op-id>.json {ops, before/after revs, snapshot refs}
+  → Result summary with links to affected pages · "Undo" button
+```
+
+- **Conflicts.** If any selected operation's `base_rev` no longer matches, none of the selected operations are applied. The preview marks the conflicting ones and offers to refresh the proposal against the current content.
+- **Undo** restores each affected page from its snapshot, but only if the page is still at the revision the operation left it in. Otherwise it reports the conflict for that page and does nothing to it. Created pages are moved to the trash, moved pages are moved back, and new collections are reverted to regular pages. An undo is itself a recorded operation, so it can be redone.
+
+### 10.4 Prompt-injection posture
+
+Retrieved documents are untrusted. The defenses, from strongest to weakest:
+
+1. **Structural.** The model can't write without explicit user approval of a visible diff, and it can't reach files outside the workspace, the shell or the network.
+2. **Isolation of content.** Document text is passed inside delimited, labeled data blocks, and the system prompt states that document content is data, not instructions.
+3. **Output hardening.** Chat output is rendered as sanitized Markdown, with no raw HTML, no remote images (blocking the "image URL exfiltration" pattern) and no `javascript:` links. External links show their destination and need a click.
+4. **Transparency.** The preview shows the full proposed content, so injected instructions that lead to a strange proposal are visible before anything changes.
+
+The Phase 6 test suite includes adversarial documents.
+
+---
+
+## 11. Knowledge retrieval and context management
+
+- A `Retriever` trait (`retrieve(query, k, filters) -> Vec<Passage>`) has one implementation in v0.1: BM25 over **passage-level FTS5**. Pages are chunked at headings and paragraphs into passages of about 200–400 tokens, each keeping its heading path and source range. The interface allows adding an embedding or hybrid retriever later without changing callers.
+- **Pre-retrieval** works for every model: Forma turns the user's question into an FTS query and supplies the top passages as numbered sources `[S1]…[Sn]`. Tool-capable models can also call `search_pages` and `read_page` themselves.
+- **Context packing** fills a token budget in order: system prompt, then selected text, then the current page (by section, nearest the cursor first, if over budget), then retrieved passages by score, then recent conversation turns. Older turns are dropped first. Tokens are estimated conservatively, at about 4 characters per token for Latin text and 1 per character for CJK. The window size comes from detected capabilities, then a user override, then a conservative default.
+- **Citations.** The model cites `[S#]`. Forma maps each key to a page ID and renders clickable citations. A key that doesn't correspond to a source actually provided is shown as an unverified citation. It is never turned into a link.
+- **Missing information.** The system prompt asks the model to say when the sources don't contain the answer, and the UI shows when retrieval returned nothing.
+
+---
+
+## 12. Security summary
+
+| Threat | Mitigation |
+|---|---|
+| Path traversal through IPC or tools | IDs instead of paths. Paths computed in Rust, canonicalized, with a prefix check against the workspace root. No symlink following. Dropped files are referenced by single-use tokens, and folders come from a dialog Rust opens itself |
+| Malicious Markdown, HTML or XSS in documents | No raw HTML rendering, strict CSP, `javascript:` and `data:` URLs filtered from links, KaTeX in `trust: false` mode |
+| Data exfiltration through remote resources | Webview has no network access. Remote images aren't loaded. AI calls only through Rust |
+| Credential leakage | Keychain only. Keys never cross IPC to the webview and are redacted from logs and errors. `.gitignore` covers env and secret files |
+| Prompt injection driving writes | Capability separation, proposals only, user-only apply, diff preview, per-op revision checks |
+| Unauthorized workspace access | One workspace root per session. The asset protocol and tools are scoped to it |
+| Concurrent writers | Single instance, workspace `flock`, single-writer service, revision checks |
+| Supply chain | Minimal dependencies, lockfiles committed, `cargo audit` and `npm audit` in CI (Phase 7), no Tiptap Pro or other non-OSI dependencies |
+
+---
+
+## 13. Future collaboration extension points (not implemented)
+
+v0.1 has no accounts, sync, CRDT or multiplayer features. These existing properties keep that door open:
+
+1. **Stable UUIDs** for pages, collections, properties and options. A future sync layer can key everything by ID.
+2. **A single mutation API.** All changes go through typed Document Service operations, the same ops the ChangeSet system uses. A sync engine can record, replay or transmit them as an operation log.
+3. **Revisions as content hashes** support cheap "has this changed?" checks and three-way merges against history snapshots.
+4. **The editor is separate from persistence.** The editor exchanges Markdown and typed patches with the service. A future CRDT model (for example Yjs bound to ProseMirror) could replace the in-memory document without changing the storage format.
+5. **Explicit collection schemas** with ID-keyed properties and options allow a future server to validate them.
+6. **History and the operation log** are already the raw material for conflict resolution UIs.
+
+Expected future work, intentionally deferred: identity and authorship metadata, a sync protocol, CRDT document state stored next to the Markdown files, per-page permissions, and real-time presence.
+
+---
+
+## 14. Risk register
+
+| # | Risk | Likelihood / Impact | Mitigation | Phase |
+|---|---|---|---|---|
+| R1 | `@tiptap/markdown` round-trip fidelity is insufficient (tables, nested lists, math, escaping) | Medium / High | Round-trip corpus spike at the start of Phase 2. Fallback to a custom `prosemirror-markdown` serializer. Raw-block preservation, no-write-without-edit and first-write snapshots | 2 |
+| R2 | External edits race with Forma writes (TOCTOU) | Low / High | Hash checks immediately before `rename`, pre-overwrite snapshots, documented residual window | 2 |
+| R3 | Sync tools (iCloud, Dropbox) create conflict copies, evict files or reorder events | Medium / Medium | Duplicate-ID handling, an index outside the workspace, event-as-hint reconciliation. v0.1 documents synced folders as "not officially supported" | 2, 7 |
+| R4 | macOS path limits (`PATH_MAX` 1024 bytes) with deep trees and long titles | Low / Medium | Filename stems capped at 100 bytes, a depth warning, and an error message that points at the problem before any write is attempted | 2 |
+| R5 | APFS is case- and normalization-insensitive by default, so sibling names collide | Medium / Low | NFC normalization and case-folded uniqueness checks with numeric suffixes | 2 |
+| R6 | CJK full-text search quality with `unicode61` | High (for CJK users) / Medium | Trigram FTS table plus a short-query fallback, evaluated in Phase 3 | 3 |
+| R7 | Keychain access prompts during development (ad-hoc signatures change between builds) | High in dev / Low | Documented. Release builds use a stable signing identity | 4, 7 |
+| R8 | Provider API drift (OpenAI Chat Completions vs Responses, Anthropic versions, Ollama endpoints) | Medium / Medium | Verify at the start of Phase 4. Adapters isolated behind a trait, with recorded-response tests | 4 |
+| R9 | Local models silently truncate context (Ollama's `num_ctx` default) | High / Medium | Native Ollama API with an explicit `num_ctx`. Context budget derived from detected capabilities | 4–5 |
+| R10 | Prompt injection through retrieved notes | High / Medium | §10.4. The structural guarantee doesn't depend on model behavior | 5–6 |
+| R11 | XSS in the webview defeats the approval boundary | Low / High | No raw HTML, strict CSP, sanitized link schemes, security tests | 2, 6 |
+| R12 | Lazy ID persistence leaves links pointing at index-only IDs | Low / Medium | Invariant: `ensure_persisted_id` runs before any durable reference is created, covered by tests | 2–3 |
+| R13 | Distribution: unsigned or un-notarized DMG is blocked by Gatekeeper | High / Medium | Needs an Apple Developer ID (user decision). Otherwise ship ad-hoc-signed with documented steps, and report the status accurately | 7 |
+| R14 | Intel support: `x86_64-apple-darwin` is a Tier 2 Rust target, and Intel CI runners are scarce | Medium / Low | Cross-compile a universal binary from Apple Silicon. Intel smoke testing is best-effort and reported as such | 7 |
+| R15 | The "Forma" name collides with existing products (for example Autodesk Forma) | Medium / Medium | Trademark and name search before any public release (user decision) | 7 |
+| R16 | TypeScript 7 ecosystem incompatibility | Avoided | Pinned to TypeScript 6.0 (ADR-016). Revisit when typescript-eslint, editors and other tools support TS 7 | — |

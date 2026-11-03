@@ -1,0 +1,29 @@
+# Dependencies and build output
+node_modules/
+dist/
+dist-ssr/
+target/
+src-tauri/target/
+coverage/
+*.tsbuildinfo
+
+# Local test workspaces (never commit private workspace data)
+sandbox-workspaces/
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+*.mobileprovision
+
+# Logs and OS / editor files
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
