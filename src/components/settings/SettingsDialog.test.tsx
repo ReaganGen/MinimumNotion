@@ -18,6 +18,7 @@ vi.mock("@/lib/ipc/client", () => ({
     appReady: vi.fn(),
     chooseWorkspace: vi.fn(),
     revealWorkspace: vi.fn(),
+    rebuildIndex: vi.fn(),
   },
 }));
 
@@ -56,7 +57,7 @@ describe("SettingsDialog", () => {
     const user = userEvent.setup();
     const { dialog } = renderOpen();
 
-    for (const name of ["AI", "Data"]) {
+    for (const name of ["AI"]) {
       await user.click(within(dialog).getByRole("button", { name }));
       expect(within(dialog).getByRole("heading", { name })).toBeInTheDocument();
       expect(within(dialog).queryByRole("radio")).toBeNull();
@@ -127,5 +128,24 @@ describe("SettingsDialog", () => {
   it("shows no read-only message when settings are writable", () => {
     renderOpen();
     expect(screen.queryByText(/won't be saved/)).toBeNull();
+  });
+
+  it("rebuilds the search index from Data", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({ status: "open" });
+    vi.mocked(ipc.rebuildIndex).mockResolvedValue(undefined);
+    const { dialog } = renderOpen();
+    await user.click(within(dialog).getByRole("button", { name: "Data" }));
+    await user.click(within(dialog).getByRole("button", { name: "Rebuild search index" }));
+    expect(ipc.rebuildIndex).toHaveBeenCalled();
+    expect(await within(dialog).findByText("Rebuilt.")).toBeInTheDocument();
+  });
+
+  it("can't rebuild without a workspace", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({ status: "none" });
+    const { dialog } = renderOpen();
+    await user.click(within(dialog).getByRole("button", { name: "Data" }));
+    expect(within(dialog).getByRole("button", { name: "Rebuild search index" })).toBeDisabled();
   });
 });

@@ -33,7 +33,7 @@ export function SidePanel({ side, label, layout, resizing, className, children }
       data-mode={layout.mode}
       style={style}
       className={cn(
-        "shrink-0 overflow-hidden",
+        "shrink-0 overflow-clip",
         docked ? "relative" : "absolute inset-y-0 z-30 shadow-popover",
         side === "left" ? "left-0" : "right-0",
         layout.visible && (side === "left" ? "border-r" : "border-l"),

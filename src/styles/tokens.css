@@ -42,6 +42,8 @@
   --destructive: #c4443a;
   --link: #3567d4;
   --selection: rgb(53 103 212 / 0.18);
+  /* Search matches: a quiet marker, not a bright accent */
+  --highlight: rgb(232 190 60 / 0.3);
 
   /* Elevation */
   --overlay: rgb(15 15 14 / 0.28);
@@ -108,6 +110,7 @@
   --destructive: #e06c62;
   --link: #7ea6f0;
   --selection: rgb(120 162 240 / 0.28);
+  --highlight: rgb(232 190 60 / 0.24);
 
   --overlay: rgb(0 0 0 / 0.5);
   --shadow-popover:

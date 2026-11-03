@@ -27,8 +27,10 @@ export function AppShell() {
     onDraggingChange: (dragging: boolean) => setResizing(dragging ? panel : null),
   });
 
+  // `clip`, not `hidden`: a hidden panel sits outside the window, and focus
+  // must never scroll the shell sideways to reveal it.
   return (
-    <div className="relative flex h-full overflow-hidden bg-background">
+    <div className="relative flex h-full overflow-clip bg-background">
       <SidePanel
         side="left"
         label="Sidebar"

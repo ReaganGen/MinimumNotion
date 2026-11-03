@@ -261,19 +261,20 @@ On open, the service:
 
 ## 5. Index (SQLite)
 
-> **Phase 2 status:** the index is kept in memory and rebuilt by a scan when a workspace opens (ADR-032). The SQLite database described here arrives with search in Phase 3.
+> **Phase 3 status (ADR-035):** the SQLite cache below is in place. The Document Service still keeps the session's page tree in memory (ADR-032); the cache is loaded as the starting point of each open, so only changed files are read, and every rescan or write updates it in one transaction.
 
 ### 5.1 Role
 
 SQLite is a **derived cache**. It accelerates the page tree, full-text search, backlinks, collection sorting and filtering, and AI retrieval. Deleting it loses nothing: the service rebuilds it from the workspace files. No user-authored data is written only to SQLite.
 
 - **Location:** `~/Library/Application Support/<bundle-id>/index/<workspace-key>/index.db`, where `workspace-key` is a hash of the workspace's `id` and its canonical path. Keeping it outside the workspace means a synced workspace (Dropbox, iCloud) never carries a SQLite database, which sync tools corrupt, and it keeps the user's folder free of cache files.
-- **Engine:** `rusqlite` with the `bundled` feature, so SQLite and its FTS5 support are pinned and do not depend on the system SQLite. WAL mode. One writer connection, owned by the index task, and a small pool of read connections.
+- **Engine:** `rusqlite` with the `bundled` feature (SQLite 3.54), so SQLite and its FTS5 support are pinned and do not depend on the system SQLite. WAL mode. In v0.1 one connection is owned by the Document Service and used under its lock; searches take milliseconds (PROGRESS.md), so a read pool isn't needed yet (ADR-035).
+- **Read-only workspaces** (open in another window) keep their index in memory, so two windows never write the same cache. If the cache file can't be used, it's deleted and created again, and if that fails too, the index lives in memory for the session.
 - **Schema versioning:** `meta.schema_version`. On a mismatch the index is dropped and rebuilt. The cache needs no migration code.
 
 ### 5.2 Contents
 
-Pages (path, parent, title, icon, kind, timestamps, revision, size and mtime for change detection, whether the ID is persisted, status), tags, links (source to target ID, or unresolved wikilink text), attachments, collection property values (typed columns for sort and filter), an FTS5 table over title, body text, tags and property text, and (in Phase 5) passage-level FTS for retrieval. Exact schema: [DATA_MODEL.md §9](DATA_MODEL.md#9-sqlite-index-schema-initial).
+Pages (path, parent, title, icon, kind, revision, size and mtime for change detection, whether the ID is persisted, status, whether it's a collection, and the parsed frontmatter as JSON), tags, links (page links by target ID, wikilinks by their text), a word FTS5 table over title, body text, tags and property values, a trigram FTS5 table for substring and CJK search (ADR-036), and (in Phase 5) passage-level FTS for retrieval. Collection values are coerced from the cached frontmatter when a collection is read, so there is no separate values table. Exact schema: [DATA_MODEL.md §9](DATA_MODEL.md#9-sqlite-index-schema).
 
 Body text for FTS and link extraction comes from the Rust side, using `pulldown-cmark` (§6.3).
 
@@ -281,14 +282,16 @@ Body text for FTS and link extraction comes from the Rust side, using `pulldown-
 
 - **Startup reconcile.** Walk the workspace, skipping `.forma/`, dotfiles and symlinks, which are never followed. Compare each file's `(size, mtime)` with its index row, re-read only the files that changed, and detect moves by ID. With thousands of files this costs a stat walk, not a full parse.
 - **Incremental.** The Document Service updates the index after its own writes. The watcher triggers reconciliation for external changes.
-- **Rebuild.** Settings → Workspace → "Rebuild search index" writes a fresh database beside the current one and swaps it in atomically. Search keeps working on the old database during the rebuild.
-- Indexing runs off the UI path and reports progress through `index://status` events.
+- **Rebuild.** Settings → Data → "Rebuild search index" re-reads every file into a fresh database beside the current one, and replaces the current one only when the new one is complete. In v0.1 the rebuild holds the Document Service's lock while it runs (0.6 s for 5,000 pages), so other requests wait instead of reading the old database (ADR-035).
+- Indexing runs inside the Document Service's commands, which run off the UI thread. There is no `index://status` event in v0.1: the cold first open of 5,000 pages takes about 0.6 s.
 
 ### 5.4 Search behavior
 
-FTS5 with BM25 ranking, `snippet()` and `highlight()` for previews, prefix queries for type-ahead, and title matches boosted.
+FTS5 with BM25 ranking, `snippet()` for previews, prefix queries for type-ahead, and title matches boosted (title ×10, tags ×4, properties ×2, body ×1).
 
-**CJK risk:** the default `unicode61` tokenizer does not segment Chinese or Japanese text. Phase 3 evaluates a secondary `trigram` FTS table (SQLite 3.34 or later) for substring and CJK matching, plus a bounded fallback scan for queries shorter than 3 characters. See the risk register (§14).
+- **Words** (any query without CJK characters): every term must match, the last as a prefix. If nothing matches and a term has three or more characters, the substring search below runs instead, so `tention` finds `attention`.
+- **CJK** (any query with Chinese, Japanese or Korean characters): the `unicode61` tokenizer treats a whole run of CJK text as one token, so it can't find words inside sentences. These queries use the trigram table with `LIKE`: terms of three or more characters use the trigram index, and one- or two-character terms (common in Chinese) scan the table, bounded by the result limit. Snippets for these are cut in Rust. Measured at 5,000 pages: under 0.3 ms (ADR-036).
+- Snippets mark matches with U+0001 and U+0002. The UI splits on them and renders text runs, never HTML.
 
 ---
 
@@ -546,7 +549,7 @@ Expected future work, intentionally deferred: identity and authorship metadata, 
 | R3 | Sync tools (iCloud, Dropbox) create conflict copies, evict files or reorder events | Medium / Medium | Duplicate-ID handling, an index outside the workspace, event-as-hint reconciliation. v0.1 documents synced folders as "not officially supported" | 2, 7 |
 | R4 | macOS path limits (`PATH_MAX` 1024 bytes) with deep trees and long titles | Low / Medium | Filename stems capped at 100 bytes, a depth warning, and an error message that points at the problem before any write is attempted | 2 |
 | R5 | APFS is case- and normalization-insensitive by default, so sibling names collide | Medium / Low | NFC normalization and case-folded uniqueness checks with numeric suffixes | 2 |
-| R6 | CJK full-text search quality with `unicode61` | High (for CJK users) / Medium | Trigram FTS table plus a short-query fallback, evaluated in Phase 3 | 3 |
+| R6 | CJK full-text search quality with `unicode61` | High (for CJK users) / Medium | **Mitigated in Phase 3** (ADR-036): trigram table with `LIKE`, plus a bounded scan for 1–2-character queries. No dictionary segmentation, so results are substring matches, not word matches | 3 |
 | R7 | Keychain access prompts during development (ad-hoc signatures change between builds) | High in dev / Low | Documented. Release builds use a stable signing identity | 4, 7 |
 | R8 | Provider API drift (OpenAI Chat Completions vs Responses, Anthropic versions, Ollama endpoints) | Medium / Medium | Verify at the start of Phase 4. Adapters isolated behind a trait, with recorded-response tests | 4 |
 | R9 | Local models silently truncate context (Ollama's `num_ctx` default) | High / Medium | Native Ollama API with an explicit `num_ctx`. Context budget derived from detected capabilities | 4–5 |

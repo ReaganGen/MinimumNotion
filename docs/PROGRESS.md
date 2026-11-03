@@ -2,11 +2,25 @@
 
 ## Current Phase
 
-Phase 2: Document System and Editor (approved 2026-11-02). **Implemented and verified (commit `52c5d1e`); waiting for the user's approval to proceed to Phase 3.** ADR-033 was approved on 2026-11-02.
+Phase 3: Collections, Links, and Search (approved 2026-11-02). **Implemented and verified; waiting for the user's approval to proceed to Phase 4.**
 
 ## Status
 
-Phase 2 is complete as far as automated and runtime checks can show. The manual checks in the built app (below) are for the user. ADR-033, which refines CLAUDE.md rule 7, was approved by the user, and rule 7 was updated to match.
+Phase 3 is complete as far as automated, performance and runtime checks can show. The manual checks in the built app (below) are for the user.
+
+### Phase 3 journal
+
+- **SQLite index (ADR-035).** A cache in Application Support, loaded when a workspace opens so only changed files are read, and updated in one transaction after every rescan and every write. Settings → Data → "Rebuild search index" builds a side database and swaps it in. A test checks that a rebuilt index equals the incrementally maintained one, row for row.
+- **Search (ADR-036).** ⌘K searches titles, text, tags and property values with BM25 ranking, prefixes, snippets and highlights. Chinese, Japanese and Korean queries use a trigram table: the default tokenizer couldn't find `注意力` inside a sentence. ⌘P matches titles and lists the pages opened this session.
+- **Links.** Page links are editor nodes that show the target's current title, and the label in the file is refreshed when the page is saved (no other file is rewritten). `[[` opens title search, and persists the target's ID before inserting the link. Wikilinks resolve by path, title, then file name; an ambiguous or missing one is marked. Links to a trashed page say so and heal on restore. Backlinks appear under each page. The editor and the index read the same link fixtures (`tests/fixtures/links/`).
+- **Collections.** Create, convert, or turn back into a regular page. Six property types, with the DATA_MODEL §6.3 reading rules: invalid values are shown and never rewritten unless edited; an empty value is an absent key. Renaming a property or option rewrites the entries as one journaled batch, rolled back on the next start if interrupted. Table view (rows drawn only when on screen, editing in place, column resize and hide, new entries) and list view. Sort and AND filters, saved in `.forma/views.json`. Entry pages show their properties under the title. Sidebar per ADR-037.
+- **Bugs found and fixed during the phase:**
+  1. *Forma's own saves didn't reach the index* (it only updated on rescans). Every write now indexes the page.
+  2. *Backlinks took 3.4 s* at 5,000 pages (every wikilink re-scanned every title). A lookup table and a name pre-filter: 6.6 ms.
+  3. *Focus could scroll the whole window sideways* to reveal the hidden AI panel (`overflow: hidden` still scrolls programmatically). The shell now uses `overflow: clip`. This dated from Phase 1.
+  4. *A schema version reached the UI typed as `bigint`*, though JSON delivers a number. Fixed in the binding.
+  5. *Numbers showed with thousands separators* ("2,017" for a year). They show as written.
+- **Design decisions:** ADR-035, ADR-036, ADR-037 (above).
 
 ### Phase 2 journal
 
@@ -33,6 +47,7 @@ Phase 2 is complete as far as automated and runtime checks can show. The manual 
 
 - **Phase 0: Architecture and Project Planning.** Approved 2026-11-02 (commit `0b64019`).
 - **Phase 1: macOS Application Foundation**, with the Phase 1.1 audit fixes. Commits `fd1dc6b` and `c2145e7`; design decisions recorded in `a90c3c6`.
+- **Phase 2: Document System and Editor.** Approved 2026-11-02 (commits `52c5d1e`, `7cbe4c7`).
 
 ## Implemented Features
 
@@ -92,19 +107,45 @@ The architecture documents and CLAUDE.md. See the git history.
 
 ## Tests
 
-Run on 2026-11-02 at the end of Phase 2 (`npm run check` exits 0):
+Run on 2026-11-03 at the end of Phase 3 (`npm run check` exits 0):
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` (app and Vite config) | Pass |
-| `npx biome check .` | Pass, 75 files, 0 diagnostics |
-| `npx vitest run` | 16 files, **119 tests passed** |
+| `npx biome check .` | Pass, 100 files, 0 diagnostics |
+| `npx vitest run` | 23 files, **155 tests passed** |
 | `cargo fmt --all --check` | Pass |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
-| `cargo test --workspace` | **92 passed**: 89 in `forma-core` (including 25 workspace integration tests against real temporary folders) and 3 in the shell |
+| `cargo test --workspace` | **143 passed**: 140 in `forma-core` (including 37 workspace integration tests against real temporary folders) and 3 in the shell |
 | `npm audit` | 0 vulnerabilities |
-| `npm run tauri -- build --bundles app` | Pass. `Forma.app` is 8.16 MiB, arm64. The JS bundle is 1.26 MB (388 KB gzipped) |
+| `npm run tauri -- build --bundles app` | Pass. `Forma.app` is 10.43 MiB, arm64. The JS bundle is 1.35 MB (413 KB gzipped) |
 | `codesign --verify --deep --strict Forma.app` | Pass (ad-hoc, hardened runtime). Not notarized |
+
+New in Phase 3: index (word, prefix, substring and CJK search; rebuild equivalence; cache across restarts; outside edits while closed), links (renames and moves, wikilink resolution and ambiguity, trash and restore, parity fixtures on both sides), collections (schema validation, the coercion table, value writing, renames and their refusal, crash rollback, turning back into a page, views, newer schemas read-only), and in the UI: search keyboard handling and stale answers, `[[` link insertion (and no link when the ID can't be saved), page link titles and states, backlinks, table editing, option creation, filters, list view, read-only collections, the rebuild button.
+
+**Performance** (5,000 synthetic pages from `node scripts/generate-workspace.mjs sandbox-workspaces/perf 5000`, 20 MB of Markdown, measured with `cargo run --release -p forma-core --example measure -- sandbox-workspaces/perf`; best of several runs):
+
+| Operation | Time |
+|---|---|
+| Open, no index cache (cold) | 569–618 ms |
+| Open, with the cache | 29 ms |
+| List a folder's pages (the tree) | 0.03–0.04 ms |
+| Search: word, prefix, three words | 3.6, 3.7, 4.8 ms |
+| Search: `tention` (inside a word), `蛋白质`, `知识` | 0.24, 0.30, 0.27 ms |
+| Quick open | 1.3 ms |
+| Backlinks | 6.6 ms (3.4 s before the fix) |
+| Load a 500-entry collection | 1.7 ms |
+| Rescan with nothing changed | 18 ms |
+| Rebuild the index | 574 ms |
+| Index size on disk | 34.8 MB |
+
+Runtime checks on the release app (2026-11-03): with a generated 300-page workspace, the window appeared in 0.84 s and the quit handshake took 0.20 s. Every one of the 301 files was unchanged afterwards, the workspace held no database files, and the index in Application Support had 301 pages, 653 links and 301 full-text rows. The test index and workspace were deleted afterwards.
+
+Checked in the development browser preview, not the native app: page links and wikilinks with live titles and navigation, ⌘K results with path and highlighted snippet, the collection table (option picker, values written), the list view, an entry page's properties, and the sidebar's collection icon.
+
+**Unverified in the native app** (no screenshots or input in this session): every interaction inside the window, as in Phase 2.
+
+### Phase 2 test record
 
 What the frontend tests cover: the Markdown corpus, the save controller, the page view (autosave arguments, no write on open, conflict and "use theirs", deleted-while-editing and restore, StrictMode double effects, title focus and rename), the page tree (open, expand, rename, Move to…), the workspace store, image source rules, the slash menu filter, and an **IPC contract test** that compares every client call's argument names with the Rust command signatures (it caught a mutation in a check run).
 
@@ -123,13 +164,20 @@ Checked in the development browser preview, not the native app: the editor's ren
 
 Use a test folder, not real notes. Open `target/release/bundle/macos/Forma.app`.
 
-1. **First run:** "Create a workspace in Documents" (macOS asks for Documents access; allow it). Or "Open a folder…".
-2. **Persistence:** ⌘N, type a title, press Enter, type some text, wait for "Saved", quit (⌘Q), reopen: the page and text are there. Look at the `.md` file in Finder or a text editor: it reads as plain Markdown, with a short frontmatter.
-3. **Nesting:** hover a page, click +, name the child. Drag it onto another page, or use ⋯ → Move to…. Quit and reopen: the hierarchy is kept, and the folders in Finder match.
-4. **Markdown:** use headings, lists, a to-do list, a quote, a code block, a table and `$x^2$`. Reload (switch pages and back): nothing changed.
-5. **Images:** paste or drag an image into a page. It's saved in the page's `_assets/` folder.
-6. **Outside edits:** with a page open and no unsaved typing, edit its file in TextEdit and save: Forma shows the new text. Then type in Forma and, within a second, change the file again elsewhere: the conflict banner appears. Try "Keep both".
-7. **Trash:** ⋯ → Move to Trash on a page with children, then Trash → Restore: the whole subtree comes back.
+**Phase 3**
+1. **Search:** write a few pages, then ⌘K and search for a word in the body, a word start, and a Chinese word of two characters. Edit a page and search again: results follow the edit.
+2. **Quick open:** ⌘P lists recently opened pages; typing filters by title.
+3. **Links:** in a page, type `[[`, pick a page. Rename and move the target: the link shows the new title and still opens it. Trash the target: the link is struck through; restore it: the link is back. The target's backlinks list shows the source.
+4. **Collections:** ⋯ → Turn into a collection. Add properties of each type with "+", add entries with "New", edit values in the table, sort and filter, switch to List. Quit and reopen: everything is kept. Open an entry: its properties are under the title. Open an entry's `.md` file in a text editor: the values are plain frontmatter keys.
+5. **Rename a property** used by several entries: every entry's file is updated.
+6. **Offline:** turn networking off and repeat 1–4. Nothing should change (Forma makes no network requests except loading `https:` images in notes).
+7. **Rebuild:** Settings → Data → Rebuild search index; search still works.
+
+**Phase 2** (still worth repeating)
+1. **Persistence:** ⌘N, type a title, press Enter, type text, wait for "Saved", quit (⌘Q), reopen.
+2. **Nesting and moves:** + on a page, drag, or ⋯ → Move to…; restart; the folders in Finder match.
+3. **Outside edits:** edit an open page's file in TextEdit; type in Forma and change the file again: the conflict banner appears.
+4. **Trash:** trash a page with children, then restore it from Trash.
 
 ## Design Decisions Confirmed (2026-11-02)
 
@@ -150,15 +198,20 @@ Not separately reviewed, and kept as documented: favorites and order in `.forma/
 
 ## Known Issues and Open Decisions
 
-1. **Native interactions are unverified by Claude** (see Tests). The manual steps above cover them.
-2. **Recovery buffers** are cleared by a later successful save only when the same editor kept them. One left from a page switch stays until you resolve it in the dialog on the next launch.
-3. **The title field doesn't follow a title changed outside Forma** while the page is open; the sidebar and breadcrumbs do.
-4. **The frontend bundle is 1.26 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
-5. **Each development build re-asks macOS for folder access** (ad-hoc signing). Release builds with a stable signing identity won't (Phase 7).
-6. **Index in memory (ADR-032):** a very large workspace is rescanned on every launch until Phase 3 adds the SQLite cache.
-7. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
-8. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
+1. **Native interactions are unverified by Claude.** The manual steps above cover them.
+2. **Rebuilding the index, or a cold first open, briefly blocks other workspace requests** (about 0.6 s at 5,000 pages; ADR-035).
+3. **CJK search results are substring matches without relevance ranking** (ADR-036).
+4. **Recent pages in ⌘P last for the session only.**
+5. **Index caches of workspaces that were moved or deleted stay in Application Support** until removed by hand. Each is about 1.7 times the size of its workspace's Markdown.
+6. **A collection's sidebar list stops at 50 entries** (ADR-037). The rest are in the collection, search and quick open.
+7. **Wide tables scroll sideways inside the page's reading column.**
+8. **Recovery buffers** are cleared by a later successful save only when the same editor kept them (Phase 2).
+9. **The title field doesn't follow a title changed outside Forma** while the page is open (Phase 2).
+10. **The frontend bundle is 1.35 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
+11. **Each development build re-asks macOS for folder access** (ad-hoc signing; Phase 7).
+12. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
+13. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
 
 ## Next Phase
 
-**Phase 3: Collections, Links, and Search** (IMPLEMENTATION_PLAN §6): the SQLite index with FTS5, page links and backlinks, ⌘K search and ⌘P quick open, and collections. It starts only after your approval.
+**Phase 4: AI Provider Integration** (IMPLEMENTATION_PLAN §7): OpenAI, Anthropic, OpenAI-compatible endpoints, Ollama and LM Studio, with keys in the Keychain and streaming chat. It starts only after your approval.

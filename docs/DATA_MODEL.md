@@ -376,7 +376,7 @@ The filter operators, combined with AND only in v0.1, are:
 | select | `is`, `is_not`, `empty`, `not_empty` |
 | multi_select | `contains`, `not_contains`, `empty`, `not_empty` |
 
-Without views.json, or when an entry references an unknown property, Forma falls back to a table sorted by title.
+Without views.json, or when an entry references an unknown property, Forma falls back to a table sorted by title. Filter values are always written as strings (numbers, `YYYY-MM-DD` dates, `true`/`false`, option names). The pseudo-properties `title`, `created_at` and `updated_at` can be used in `sort` and `filter`.
 
 ---
 
@@ -440,7 +440,7 @@ Forma keeps the last 100 operations. When it prunes an older operation, that ope
 
 ### 7.6 Journal: `journal/<journal-id>.json`
 
-Used for multi-file batches (ChangeSet apply, property rename, option rename) and for the rare `bundle_conversion` that rewrites relative references (§3.1).
+Used for multi-file batches (ChangeSet apply, property rename, option rename) and for the rare `bundle_conversion` that rewrites relative references (§3.1). Phase 3 writes `kind: "collection_rename"`, with each step's snapshot in `history/<page-id>/…_batch.md`; a rename that would give an entry two keys with the same name is refused before anything is written.
 
 ```json
 { "format_version": 1, "journal_id": "…", "kind": "changeset_apply", "started_at": "…",
@@ -488,54 +488,52 @@ Policy: ARCHITECTURE §4.6. Restoring a snapshot is a normal write: the current 
 
 ---
 
-## 9. SQLite index schema (initial)
+## 9. SQLite index schema
 
-This is a cache and safe to delete. A `schema_version` mismatch triggers a rebuild. Phase 3 finalizes the schema. This is the starting point:
+This is a cache and safe to delete. A `schema_version` mismatch drops and rebuilds it. The schema below is `schema_version = 1`, finalized in Phase 3 (`crates/forma-core/src/index.rs`):
 
 ```sql
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_version, workspace_id, root_path
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_version
 
 CREATE TABLE pages (
   id            TEXT PRIMARY KEY,
-  rel_path      TEXT NOT NULL UNIQUE,   -- NFC, '/' separators; file path, or directory for folder pages
+  rel_path      TEXT NOT NULL,          -- file (leaf) or directory (bundle, folder), '/' separators
   parent_id     TEXT,                   -- NULL = root
   kind          TEXT NOT NULL,          -- leaf | bundle | folder
   title         TEXT NOT NULL,
   icon          TEXT,
-  created_at    TEXT,
-  updated_at    TEXT,
   rev           TEXT,
-  size          INTEGER,
+  size          INTEGER,                -- with mtime_ns: skip unchanged files on open
   mtime_ns      INTEGER,
   id_persisted  INTEGER NOT NULL,
-  collection_id TEXT,                   -- parent's id when the parent is a collection
+  status        TEXT NOT NULL,          -- ok | metadata_readonly | invalid_frontmatter
+  status_detail TEXT,
   is_collection INTEGER NOT NULL DEFAULT 0,
-  status        TEXT NOT NULL DEFAULT 'ok', -- ok | invalid_frontmatter | metadata_readonly | too_large
-  frontmatter   TEXT                    -- parsed frontmatter as JSON (cache)
+  frontmatter   TEXT                    -- the top-level mapping as JSON (collection values)
 );
-CREATE INDEX pages_parent     ON pages(parent_id);
-CREATE INDEX pages_collection ON pages(collection_id);
+CREATE INDEX pages_parent ON pages(parent_id);
 
-CREATE TABLE tags        (page_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (page_id, tag));
-CREATE TABLE links       (source_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
-                          kind TEXT NOT NULL,        -- page | wiki
-                          target_id TEXT,            -- NULL when unresolved
-                          target_text TEXT,          -- wikilink text or label
-                          PRIMARY KEY (source_id, ordinal));
-CREATE INDEX links_target ON links(target_id);
-CREATE TABLE attachments (page_id TEXT NOT NULL, rel_ref TEXT NOT NULL, exists_on_disk INTEGER NOT NULL,
-                          PRIMARY KEY (page_id, rel_ref));
-CREATE TABLE property_values (
-  page_id TEXT NOT NULL, collection_id TEXT NOT NULL, property_id TEXT NOT NULL,
-  raw_json TEXT NOT NULL, text_value TEXT, num_value REAL, date_value TEXT, bool_value INTEGER,
-  valid INTEGER NOT NULL, PRIMARY KEY (page_id, property_id));
+CREATE TABLE tags  (page_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (page_id, tag));
+CREATE TABLE links (source_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+                    kind TEXT NOT NULL,      -- page | wiki
+                    target TEXT NOT NULL,    -- page ID, or the wikilink's text
+                    label TEXT NOT NULL,
+                    PRIMARY KEY (source_id, ordinal));
+CREATE INDEX links_target ON links(kind, target);
 
-CREATE VIRTUAL TABLE pages_fts USING fts5(
-  page_id UNINDEXED, title, body, tags, props,
+-- Both full-text tables use the pages row's rowid.
+CREATE VIRTUAL TABLE pages_fts USING fts5(title, body, tags, props,
   tokenize = 'unicode61 remove_diacritics 2');
--- Phase 3 evaluates: pages_fts_trigram USING fts5(..., tokenize='trigram') for CJK/substring search.
--- Phase 5 adds:     passages(id, page_id, ordinal, heading_path, start, end) + passages_fts(text).
+CREATE VIRTUAL TABLE pages_trigram USING fts5(text,   -- title, body and property text
+  tokenize = 'trigram remove_diacritics 1');
+-- Phase 5 adds: passages(id, page_id, ordinal, heading_path, start, end) + passages_fts(text).
 ```
+
+Changes from the initial draft:
+- `rel_path` isn't `UNIQUE`: two pages can trade places within one rescan.
+- Wikilinks are stored by their text and resolved when read, because titles change.
+- There is no `attachments` table yet (nothing reads it) and no `property_values` table: collection values are coerced from `frontmatter` when a collection is read.
+- `created_at` and `updated_at` are read from `frontmatter`.
 
 ---
 
@@ -547,6 +545,14 @@ These are conceptual signatures, finalized per phase as Tauri commands with `ts-
 
 ```
 workspace_info()                             → WorkspaceInfo
+search(query)                                → [PageHit]               (≤ 50, ranked; Phase 3)
+quick_open(query)                            → [PageHit]               (titles; Phase 3)
+backlinks(id)                                → [PageHit]               (page links + resolved wikilinks)
+resolve_pages(ids)                           → [PageLinkInfo]          (live titles: ok | trashed | missing)
+resolve_wikilinks(texts)                     → [WikiResolution]
+get_collection(id)                           → CollectionData { schema, problem?, rows }
+get_entry(id)                                → EntryData | null
+get_views(collection_id)                     → CollectionViews
 list_children(parent_id?)                    → [PageSummary]            (ordered)
 get_page(id)                                 → PageDocument { meta, body, rev, status, fidelity_notice? }
 get_ancestors(id)                            → [PageSummary]            (breadcrumbs)
@@ -562,6 +568,12 @@ query_collection(collection_id, view)        → Page<CollectionRow>
 **Mutations**
 
 ```
+ensure_persisted_id(id)                                     → ()   (before any link to the page)
+rebuild_index()                                             → ()
+create_collection(parent_id?, title) / convert_to_collection(id) / remove_collection(id)
+update_schema(collection_id, op)                            → Schema   (renames are journaled batches, §7.6)
+set_property(page_id, property_id, value)                   → ()       (surgical; absent key when empty)
+save_views(collection_id, views)                            → ()
 create_page(parent_id?, title, body?, position?)            → PageMeta
 save_page(id, base_body_rev, body)                          → Saved{rev, body_rev} | Conflict{current_body_rev, current_body}
 save_page_over_conflict(id, body)                           → Saved{…}       ("keep mine": snapshots the disk version first)

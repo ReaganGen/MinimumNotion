@@ -5,6 +5,7 @@ import { PaletteDialog } from "@/components/search/PaletteDialog";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { startMenuBridge } from "@/features/commands/commands";
+import { refreshLinks } from "@/features/links/linkStore";
 import { useSettingsStore } from "@/features/settings/settingsStore";
 import { useUiStore } from "@/features/ui/uiStore";
 import { flushAllEdits, useWorkspaceStore } from "@/features/workspace/workspaceStore";
@@ -35,7 +36,11 @@ export function App({ onReady }: AppProps) {
 
   useSubscription(startMenuBridge);
   useSubscription(() =>
-    onWorkspaceChanged((changes) => void useWorkspaceStore.getState().applyChanges(changes)),
+    onWorkspaceChanged((changes) => {
+      void useWorkspaceStore.getState().applyChanges(changes);
+      // Titles, trash and moves change what links show.
+      if (changes.tree_changed || changes.removed.length > 0) refreshLinks();
+    }),
   );
   // Quitting waits until every open editor has saved (src-tauri/src/main.rs).
   useSubscription(() =>
@@ -58,20 +63,8 @@ export function App({ onReady }: AppProps) {
     <TooltipProvider delayDuration={600} skipDelayDuration={300}>
       <AppShell />
       <SettingsDialog open={dialog === "settings"} onOpenChange={onOpenChange} />
-      <PaletteDialog
-        open={dialog === "search"}
-        onOpenChange={onOpenChange}
-        title="Search"
-        placeholder="Search pages…"
-        unavailableMessage="Search arrives in the next build."
-      />
-      <PaletteDialog
-        open={dialog === "quick-open"}
-        onOpenChange={onOpenChange}
-        title="Quick open"
-        placeholder="Jump to a page…"
-        unavailableMessage="Quick open arrives in the next build."
-      />
+      <PaletteDialog open={dialog === "search"} onOpenChange={onOpenChange} mode="search" />
+      <PaletteDialog open={dialog === "quick-open"} onOpenChange={onOpenChange} mode="quick-open" />
       <RecoveryDialog />
     </TooltipProvider>
   );

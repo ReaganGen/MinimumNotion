@@ -19,4 +19,8 @@ body_rev: string, kind: PageKind, status: PageStatus, favorite: boolean,
 /**
  * Root first, excluding this page.
  */
-ancestors: Array<PageRef>, };
+ancestors: Array<PageRef>, is_collection: boolean, 
+/**
+ * The collection this page is an entry of: its parent, when that is one.
+ */
+collection_id: string | null, };

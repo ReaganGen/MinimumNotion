@@ -1,11 +1,14 @@
 // Extensions for the live editor: the Markdown schema from extensions.ts plus
-// UI-only behavior (image loading, placeholder, slash menu). Saving uses the
+// UI-only behavior (image loading, live link titles, placeholder, "/" and "[["
+// menus). Saving uses the
 // same schema and Markdown rules the round-trip tests cover.
 import type { AnyExtension } from "@tiptap/core";
 import { Image } from "@tiptap/extension-image";
 import { Placeholder } from "@tiptap/extensions";
 import { assetUrl } from "@/lib/ipc/client";
 import { createMarkdownExtensions } from "./extensions";
+import { LivePageLink, LiveWikiLink } from "./linkViews";
+import { PageLinkSuggestion } from "./pageLinkSuggestion";
 import { SlashCommands } from "./slashCommands";
 
 /**
@@ -61,15 +64,19 @@ function imageView(pageId: string) {
 }
 
 export function createEditorExtensions(pageId: string): AnyExtension[] {
+  const live: Record<string, AnyExtension> = {
+    image: imageView(pageId).configure({ inline: true }),
+    pageLink: LivePageLink,
+    wikiLink: LiveWikiLink,
+  };
   return [
-    ...createMarkdownExtensions().map((extension) =>
-      extension.name === "image" ? imageView(pageId).configure({ inline: true }) : extension,
-    ),
+    ...createMarkdownExtensions().map((extension) => live[extension.name] ?? extension),
     Placeholder.configure({
       placeholder: ({ node }) =>
         node.type.name === "heading" ? "Heading" : "Write, or type “/” for commands…",
       showOnlyCurrent: true,
     }),
     SlashCommands,
+    PageLinkSuggestion,
   ];
 }

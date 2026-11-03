@@ -10,6 +10,7 @@ import type { WorkspaceInfo } from "@/lib/ipc/bindings/WorkspaceInfo";
 import { ipc } from "@/lib/ipc/client";
 
 export const ROOT = "root";
+const RECENT_LIMIT = 12;
 const key = (parentId: string | null) => parentId ?? ROOT;
 
 export type WorkspaceStatus = "loading" | "none" | "open";
@@ -28,10 +29,14 @@ interface WorkspaceState {
   externalChange: number;
   /** Bumped when the active page disappears; the page view decides what to keep. */
   activeRemoved: number;
+  /** Bumped on every change notification (backlinks and collections refetch). */
+  changeCount: number;
   /** A page just created by the user, whose title should take the focus. */
   focusTitleOf: string | null;
   /** Ancestors of the active page plus the page itself, for the top bar. */
   breadcrumbs: PageRef[];
+  /** Pages opened this session, most recent first (⌘P with no query). */
+  recent: PageRef[];
   saveStatus: SaveStatus | null;
   saveError: string | null;
 
@@ -81,6 +86,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
       expanded: {},
       favorites: [],
       activePageId: null,
+      recent: [],
     });
     await get().refresh();
     const first = get().children[ROOT]?.[0];
@@ -107,8 +113,10 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
     activePageId: null,
     externalChange: 0,
     activeRemoved: 0,
+    changeCount: 0,
     focusTitleOf: null,
     breadcrumbs: [],
+    recent: [],
     saveStatus: null,
     saveError: null,
 
@@ -151,6 +159,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
     },
 
     applyChanges: async (changes) => {
+      set({ changeCount: get().changeCount + 1 });
       const active = get().activePageId;
       if (active && changes.removed.includes(active)) {
         // Not closed here: unsaved edits must survive the file going away.
@@ -205,7 +214,13 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
       const notice = message(error);
       if (!get().notices.includes(notice)) set({ notices: [...get().notices, notice] });
     },
-    setBreadcrumbs: (breadcrumbs) => set({ breadcrumbs }),
+    setBreadcrumbs: (breadcrumbs) => {
+      const page = breadcrumbs.at(-1);
+      const recent = page
+        ? [page, ...get().recent.filter((r) => r.id !== page.id)].slice(0, RECENT_LIMIT)
+        : get().recent;
+      set({ breadcrumbs, recent });
+    },
     setSaveStatus: (saveStatus, error) => set({ saveStatus, saveError: error ?? null }),
   };
 });
@@ -224,8 +239,10 @@ export function resetWorkspaceStoreForTests() {
     activePageId: null,
     externalChange: 0,
     activeRemoved: 0,
+    changeCount: 0,
     focusTitleOf: null,
     breadcrumbs: [],
+    recent: [],
     saveStatus: null,
     saveError: null,
   });

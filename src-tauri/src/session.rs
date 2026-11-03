@@ -8,7 +8,7 @@ use forma_core::error::{CoreResult, ErrorCode, ErrorPayload};
 use forma_core::workspace::Workspace;
 use forma_core::workspace::types::WorkspaceInfo;
 use forma_core::workspace::watcher::{self, Watcher};
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 /// Emitted with a `WorkspaceChanges` payload whenever pages change.
 pub const CHANGED_EVENT: &str = "workspace://changed";
@@ -34,7 +34,16 @@ impl Session {
         app: &AppHandle<R>,
         path: &Path,
     ) -> Result<WorkspaceInfo, ErrorPayload> {
-        let mut workspace = Workspace::open(path).map_err(|e| ErrorPayload::from(&e))?;
+        // The search index is a cache in Application Support, never in the
+        // workspace (ADR-003). Without that folder it lives in memory.
+        let index_dir = app
+            .path()
+            .app_data_dir()
+            .map(|dir| dir.join("index"))
+            .inspect_err(|err| log::warn!("no app data folder for the index: {err}"))
+            .ok();
+        let mut workspace =
+            Workspace::open_with(path, index_dir.as_deref()).map_err(|e| ErrorPayload::from(&e))?;
         let info = workspace.info();
         // The window shows these from `info`; later ones come from `take_notices`.
         workspace.take_notices();

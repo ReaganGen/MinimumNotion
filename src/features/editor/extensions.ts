@@ -9,7 +9,8 @@ import { Markdown } from "@tiptap/markdown";
 import { StarterKit } from "@tiptap/starter-kit";
 import { CodeBlock, HardBreak, Link, Paragraph, Table } from "./markdownRules";
 import { BlockMath, InlineMath } from "./math";
-import { FootnoteDefinition, FootnoteReference, RawBlock, RawInline, Wikilink } from "./rawBlock";
+import { PageLink, WikiLink } from "./pageLink";
+import { FootnoteDefinition, FootnoteReference, RawBlock, RawInline } from "./rawBlock";
 
 export function createMarkdownExtensions(): AnyExtension[] {
   return [
@@ -41,7 +42,8 @@ export function createMarkdownExtensions(): AnyExtension[] {
     RawInline,
     FootnoteDefinition,
     FootnoteReference,
-    Wikilink,
+    PageLink,
+    WikiLink,
     Markdown.configure({ indentation: { style: "space", size: 2 } }),
   ];
 }

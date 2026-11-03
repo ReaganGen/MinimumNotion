@@ -2,7 +2,7 @@
 //! Each snapshot is a full copy of the file, readable without Forma.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 
@@ -22,7 +22,7 @@ pub fn snapshot(
     text: &str,
     reason: &str,
     staging: &Path,
-) -> CoreResult<()> {
+) -> CoreResult<PathBuf> {
     let dir = history_root.join(page_id);
     fs::create_dir_all(&dir).map_err(io_at(&dir))?;
     let name = format!(
@@ -33,7 +33,7 @@ pub fn snapshot(
     let path = dir.join(name);
     write_atomic_staged(&path, text.as_bytes(), Some(staging)).map_err(io_at(&path))?;
     prune(&dir, Utc::now());
-    Ok(())
+    Ok(path)
 }
 
 fn taken_at(file_name: &str) -> Option<DateTime<Utc>> {

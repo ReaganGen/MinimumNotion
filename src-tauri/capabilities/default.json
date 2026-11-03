@@ -38,6 +38,22 @@
     "allow-discard-recovery",
     "allow-snapshot-text",
     "allow-take-notices",
-    "allow-open-external"
+    "allow-open-external",
+    "allow-search",
+    "allow-quick-open",
+    "allow-backlinks",
+    "allow-resolve-pages",
+    "allow-resolve-wikilinks",
+    "allow-ensure-persisted-id",
+    "allow-rebuild-index",
+    "allow-get-collection",
+    "allow-get-entry",
+    "allow-create-collection",
+    "allow-convert-to-collection",
+    "allow-remove-collection",
+    "allow-update-schema",
+    "allow-set-property",
+    "allow-get-views",
+    "allow-save-views"
   ]
 }

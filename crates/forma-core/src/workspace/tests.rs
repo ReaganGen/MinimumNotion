@@ -630,3 +630,640 @@ fn counting_entries_stops_at_the_limit_and_skips_hidden_ones() {
     drop(Workspace::open(dir.path()).unwrap());
     assert!(super::is_workspace(dir.path()));
 }
+
+// ------------------------------------------------------------ Phase 3: index
+
+fn body_rev(ws: &Workspace, id: &str) -> String {
+    ws.get_page(id).unwrap().body_rev
+}
+
+fn save(ws: &mut Workspace, id: &str, body: &str) {
+    let base = body_rev(ws, id);
+    saved_rev(ws.save_page(id, Some(base.as_str()), body).unwrap());
+}
+
+fn titles(hits: &[super::types::PageHit]) -> Vec<String> {
+    hits.iter().map(|h| h.title.clone()).collect()
+}
+
+#[test]
+fn search_finds_text_and_follows_edits() {
+    let (_dir, mut ws) = temp_workspace();
+    let a = ws.create_page(None, "Reading list").unwrap();
+    let b = ws.create_page(None, "知识管理").unwrap();
+    save(&mut ws, &a.id, "Transformers and protein design.\n");
+    save(
+        &mut ws,
+        &b.id,
+        "今天讨论注意力机制在蛋白质结构预测中的应用。\n",
+    );
+
+    assert_eq!(titles(&ws.search("protein", 20)), vec!["Reading list"]);
+    assert_eq!(
+        titles(&ws.search("prot", 20)),
+        vec!["Reading list"],
+        "prefix"
+    );
+    assert_eq!(
+        titles(&ws.search("tein", 20)),
+        vec!["Reading list"],
+        "inside a word"
+    );
+    assert_eq!(titles(&ws.search("蛋白质", 20)), vec!["知识管理"]);
+    assert_eq!(
+        titles(&ws.search("预测", 20)),
+        vec!["知识管理"],
+        "two characters"
+    );
+    assert_eq!(titles(&ws.search("知识", 20)), vec!["知识管理"], "title");
+    let hit = &ws.search("protein", 20)[0];
+    assert!(
+        hit.snippet
+            .as_deref()
+            .unwrap()
+            .contains("\u{1}protein\u{2}")
+    );
+
+    save(&mut ws, &a.id, "Now about gardening.\n");
+    assert!(ws.search("protein", 20).is_empty());
+    assert_eq!(titles(&ws.search("gardening", 20)), vec!["Reading list"]);
+
+    ws.set_title(&a.id, "Garden notes").unwrap();
+    assert_eq!(titles(&ws.search("garden", 20)), vec!["Garden notes"]);
+    ws.trash_page(&a.id).unwrap();
+    assert!(
+        ws.search("gardening", 20).is_empty(),
+        "trashed pages aren't found"
+    );
+}
+
+#[test]
+fn quick_open_ranks_title_starts_first() {
+    let (_dir, mut ws) = temp_workspace();
+    for title in [
+        "Project notes",
+        "Side project",
+        "Projection math",
+        "Unrelated",
+    ] {
+        ws.create_page(None, title).unwrap();
+    }
+    assert_eq!(
+        titles(&ws.quick_open("proj", 10)),
+        vec!["Project notes", "Projection math", "Side project"]
+    );
+    assert!(ws.quick_open("  ", 10).is_empty());
+}
+
+#[test]
+fn the_index_cache_survives_restarts_and_sees_outside_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("No id.md"),
+        "Plain file without frontmatter\n",
+    )
+    .unwrap();
+    let (page, plain_id) = {
+        let mut ws = Workspace::open_with(dir.path(), Some(cache.path())).unwrap();
+        let page = ws.create_page(None, "Kept").unwrap();
+        save(&mut ws, &page.id, "first version\n");
+        let plain = ws.quick_open("no id", 5)[0].id.clone();
+        (page, plain)
+    };
+    let file = dir.path().join("Kept.md");
+    let text = fs::read_to_string(&file)
+        .unwrap()
+        .replace("first version", "second version");
+    fs::write(&file, text).unwrap();
+
+    let ws = Workspace::open_with(dir.path(), Some(cache.path())).unwrap();
+    assert_eq!(titles(&ws.search("second", 10)), vec!["Kept"]);
+    assert!(ws.search("first", 10).is_empty());
+    assert_eq!(ws.get_page(&page.id).unwrap().title, "Kept");
+    assert_eq!(
+        ws.quick_open("no id", 5)[0].id,
+        plain_id,
+        "a page without an id keeps its ID across restarts"
+    );
+    assert!(user_files(dir.path()).iter().all(|f| !f.ends_with(".db")));
+}
+
+#[test]
+fn page_links_survive_renames_and_moves_and_wikilinks_resolve_by_title() {
+    let (_dir, mut ws) = temp_workspace();
+    let a = ws.create_page(None, "Source").unwrap();
+    let b = ws.create_page(None, "Target").unwrap();
+    let c = ws.create_page(None, "Wiki Target").unwrap();
+    let folder = ws.create_page(None, "Folder").unwrap();
+    ws.ensure_persisted_id(&b.id).unwrap();
+    save(
+        &mut ws,
+        &a.id,
+        &format!("See [Target](forma://page/{}) and [[wiki target]].\n", b.id),
+    );
+    let ids = |hits: Vec<super::types::PageHit>| hits.into_iter().map(|h| h.id).collect::<Vec<_>>();
+    assert_eq!(ids(ws.backlinks(&b.id).unwrap()), vec![a.id.clone()]);
+    assert_eq!(ids(ws.backlinks(&c.id).unwrap()), vec![a.id.clone()]);
+
+    ws.set_title(&b.id, "Renamed target").unwrap();
+    ws.move_page(&b.id, Some(&folder.id), None).unwrap();
+    assert_eq!(ids(ws.backlinks(&b.id).unwrap()), vec![a.id.clone()]);
+    let info = &ws.resolve_pages(std::slice::from_ref(&b.id))[0];
+    assert_eq!(info.title.as_deref(), Some("Renamed target"));
+
+    let wiki = ws.resolve_wikilinks(&[
+        "Wiki Target".into(),
+        "Folder/Renamed target".into(),
+        "Nothing".into(),
+    ]);
+    assert_eq!(wiki[0].target.as_ref().unwrap().id, c.id);
+    assert_eq!(wiki[1].target.as_ref().unwrap().id, b.id, "path suffix");
+    assert_eq!((wiki[2].matches, wiki[2].target.is_none()), (0, true));
+
+    ws.create_page(None, "Wiki Target").unwrap();
+    let ambiguous = ws.resolve_wikilinks(&["wiki target".into()]);
+    assert_eq!(
+        (ambiguous[0].matches, ambiguous[0].target.is_none()),
+        (2, true)
+    );
+    assert!(
+        ws.backlinks(&c.id).unwrap().is_empty(),
+        "an ambiguous wikilink links nowhere"
+    );
+}
+
+#[test]
+fn links_to_trashed_pages_heal_on_restore() {
+    let (_dir, mut ws) = temp_workspace();
+    let page = ws.create_page(None, "Going away").unwrap();
+    ws.ensure_persisted_id(&page.id).unwrap();
+    let entry = ws.trash_page(&page.id).unwrap();
+    let info = &ws.resolve_pages(std::slice::from_ref(&page.id))[0];
+    assert_eq!(info.state, super::types::LinkState::Trashed);
+    assert_eq!(info.title.as_deref(), Some("Going away"));
+    let missing = &ws.resolve_pages(&["11111111-1111-4111-8111-111111111111".into()])[0];
+    assert_eq!(missing.state, super::types::LinkState::Missing);
+    ws.restore_trash(&entry.entry_id).unwrap();
+    let info = &ws.resolve_pages(std::slice::from_ref(&page.id))[0];
+    assert_eq!(info.state, super::types::LinkState::Ok);
+}
+
+#[test]
+fn a_rebuilt_index_equals_the_incremental_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let mut ws = Workspace::open_with(dir.path(), Some(cache.path())).unwrap();
+    let a = ws.create_page(None, "Alpha").unwrap();
+    let b = ws.create_page(Some(&a.id), "Beta").unwrap();
+    ws.ensure_persisted_id(&b.id).unwrap();
+    save(
+        &mut ws,
+        &a.id,
+        &format!("Link to [Beta](forma://page/{}) and [[Gamma]].\n", b.id),
+    );
+    save(&mut ws, &b.id, "中文内容 and words\n");
+    fs::create_dir(dir.path().join("Loose folder")).unwrap();
+    fs::write(
+        dir.path().join("Loose folder/Note.md"),
+        "---\ntags: [x, y]\nStatus: Done\n---\nText\n",
+    )
+    .unwrap();
+    ws.reconcile();
+
+    let before = ws.db.dump();
+    ws.rebuild_index().unwrap();
+    assert_eq!(ws.db.dump(), before);
+    assert!(!cache.path().read_dir().unwrap().flatten().any(|d| {
+        d.path()
+            .read_dir()
+            .unwrap()
+            .flatten()
+            .any(|f| f.file_name().to_string_lossy().contains("rebuild"))
+    }));
+    assert_eq!(titles(&ws.search("中文内容", 10)), vec!["Beta"]);
+}
+
+// ------------------------------------------------------- Phase 3: collections
+
+use super::collections::{
+    CollectionViews, FilterRule, SchemaOp, SortDirection, SortRule, ViewKind,
+};
+use crate::collection::{Cell, CellInput, PropertyType};
+
+fn add_property(ws: &mut Workspace, collection: &str, name: &str, kind: PropertyType) -> String {
+    let schema = ws
+        .update_schema(
+            collection,
+            &SchemaOp::AddProperty {
+                name: name.into(),
+                kind,
+            },
+        )
+        .unwrap();
+    schema
+        .properties
+        .iter()
+        .find(|p| p.name == name)
+        .unwrap()
+        .id
+        .clone()
+}
+
+fn add_option(ws: &mut Workspace, collection: &str, property: &str, name: &str) -> String {
+    let schema = ws
+        .update_schema(
+            collection,
+            &SchemaOp::AddOption {
+                property_id: property.into(),
+                name: name.into(),
+            },
+        )
+        .unwrap();
+    let p = schema.properties.iter().find(|p| p.id == property).unwrap();
+    p.options
+        .iter()
+        .find(|o| o.name == name)
+        .unwrap()
+        .id
+        .clone()
+}
+
+fn cell(ws: &Workspace, collection: &str, entry: &str, property: &str) -> Cell {
+    let data = ws.get_collection(collection).unwrap();
+    data.rows.iter().find(|r| r.id == entry).unwrap().cells[property].clone()
+}
+
+#[test]
+fn collections_hold_typed_values_that_persist() {
+    let (dir, mut ws) = temp_workspace();
+    let papers = ws.create_collection(None, "Papers").unwrap();
+    assert!(papers.is_collection);
+    let index = fs::read_to_string(dir.path().join("Papers/index.md")).unwrap();
+    assert!(
+        index.contains("collection:\n  version: 1\n  properties: []\n"),
+        "{index}"
+    );
+
+    let status = add_property(&mut ws, &papers.id, "Status", PropertyType::Select);
+    add_option(&mut ws, &papers.id, &status, "To read");
+    add_option(&mut ws, &papers.id, &status, "Reading");
+    let year = add_property(&mut ws, &papers.id, "Year", PropertyType::Number);
+    let authors = add_property(&mut ws, &papers.id, "Authors", PropertyType::MultiSelect);
+    add_option(&mut ws, &papers.id, &authors, "Vaswani");
+    let published = add_property(&mut ws, &papers.id, "Published", PropertyType::Date);
+    let read = add_property(&mut ws, &papers.id, "Read", PropertyType::Checkbox);
+    let notes = add_property(&mut ws, &papers.id, "Notes", PropertyType::Text);
+
+    let paper = ws
+        .create_page(Some(&papers.id), "Attention Is All You Need")
+        .unwrap();
+    for (property, input) in [
+        (
+            &status,
+            CellInput::Select {
+                value: "Reading".into(),
+            },
+        ),
+        (&year, CellInput::Number { value: 2017.0 }),
+        (
+            &authors,
+            CellInput::MultiSelect {
+                values: vec!["Vaswani".into()],
+            },
+        ),
+        (
+            &published,
+            CellInput::Date {
+                value: "2017-06-12".into(),
+            },
+        ),
+        (&read, CellInput::Checkbox { value: false }),
+        (
+            &notes,
+            CellInput::Text {
+                value: "yes".into(),
+            },
+        ),
+    ] {
+        ws.set_property(&paper.id, property, &input).unwrap();
+    }
+    let file = fs::read_to_string(dir.path().join("Papers/Attention Is All You Need.md")).unwrap();
+    for line in [
+        "Status: Reading\n",
+        "Year: 2017\n",
+        "Authors:\n  - Vaswani\n",
+        "Published: 2017-06-12\n",
+        "Read: false\n",
+        "Notes: \"yes\"\n",
+    ] {
+        assert!(file.contains(line), "missing {line:?} in\n{file}");
+    }
+    ws.set_property(&paper.id, &notes, &CellInput::Empty)
+        .unwrap();
+    let file = fs::read_to_string(dir.path().join("Papers/Attention Is All You Need.md")).unwrap();
+    assert!(!file.contains("Notes"), "an empty value is an absent key");
+    assert!(
+        ws.set_property(
+            &paper.id,
+            &status,
+            &CellInput::Select {
+                value: "Done".into()
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(
+        titles(&ws.search("vaswani", 10)),
+        vec!["Attention Is All You Need"]
+    );
+
+    drop(ws);
+    let ws = Workspace::open(dir.path()).unwrap();
+    assert_eq!(
+        cell(&ws, &papers.id, &paper.id, &year),
+        Cell::Number {
+            value: 2017.0,
+            from_text: false
+        }
+    );
+    assert_eq!(
+        cell(&ws, &papers.id, &paper.id, &status),
+        Cell::Select {
+            value: "Reading".into(),
+            known: true
+        }
+    );
+    assert_eq!(cell(&ws, &papers.id, &paper.id, &notes), Cell::Empty);
+    let data = ws.get_collection(&papers.id).unwrap();
+    assert_eq!(data.schema.unwrap().properties.len(), 6);
+    assert!(data.problem.is_none());
+    assert!(data.rows[0].editable);
+    let entry = ws.get_entry(&paper.id).unwrap().unwrap();
+    assert_eq!(entry.collection_id, papers.id);
+    assert_eq!(
+        entry.row.cells[&year],
+        Cell::Number {
+            value: 2017.0,
+            from_text: false
+        }
+    );
+    assert!(
+        ws.get_entry(&papers.id).unwrap().is_none(),
+        "the collection itself isn't an entry"
+    );
+}
+
+#[test]
+fn invalid_values_are_shown_and_never_rewritten() {
+    let (dir, mut ws) = temp_workspace();
+    let c = ws.create_collection(None, "Books").unwrap();
+    let year = add_property(&mut ws, &c.id, "Year", PropertyType::Number);
+    let read = add_property(&mut ws, &c.id, "Read", PropertyType::Checkbox);
+    fs::write(
+        dir.path().join("Books/Odd.md"),
+        "---\ntitle: Odd\nYear: twelve # hand-written\nOther: kept\n---\nBody\n",
+    )
+    .unwrap();
+    ws.reconcile();
+    let odd = ws.quick_open("odd", 1)[0].id.clone();
+    assert!(matches!(
+        cell(&ws, &c.id, &odd, &year),
+        Cell::Invalid { .. }
+    ));
+    ws.set_property(&odd, &read, &CellInput::Checkbox { value: true })
+        .unwrap();
+    let text = fs::read_to_string(dir.path().join("Books/Odd.md")).unwrap();
+    assert!(
+        text.contains("Year: twelve # hand-written\nOther: kept\n"),
+        "{text}"
+    );
+    assert!(text.contains("Read: true\n"));
+}
+
+#[test]
+fn renaming_a_property_or_option_rewrites_entries_as_one_batch() {
+    let (dir, mut ws) = temp_workspace();
+    let c = ws.create_collection(None, "Tasks").unwrap();
+    let state = add_property(&mut ws, &c.id, "State", PropertyType::Select);
+    add_option(&mut ws, &c.id, &state, "Todo");
+    let done = add_option(&mut ws, &c.id, &state, "Done");
+    let labels = add_property(&mut ws, &c.id, "Labels", PropertyType::MultiSelect);
+    let urgent = add_option(&mut ws, &c.id, &labels, "Urgent");
+    add_option(&mut ws, &c.id, &labels, "Later");
+    let a = ws.create_page(Some(&c.id), "A").unwrap();
+    let b = ws.create_page(Some(&c.id), "B").unwrap();
+    ws.set_property(
+        &a.id,
+        &state,
+        &CellInput::Select {
+            value: "Done".into(),
+        },
+    )
+    .unwrap();
+    ws.set_property(
+        &a.id,
+        &labels,
+        &CellInput::MultiSelect {
+            values: vec!["Urgent".into(), "Later".into()],
+        },
+    )
+    .unwrap();
+    ws.set_property(
+        &b.id,
+        &state,
+        &CellInput::Select {
+            value: "Todo".into(),
+        },
+    )
+    .unwrap();
+
+    ws.update_schema(
+        &c.id,
+        &SchemaOp::RenameProperty {
+            property_id: state.clone(),
+            name: "Status: now".into(),
+        },
+    )
+    .unwrap();
+    ws.update_schema(
+        &c.id,
+        &SchemaOp::RenameOption {
+            property_id: state.clone(),
+            option_id: done,
+            name: "Finished".into(),
+        },
+    )
+    .unwrap();
+    ws.update_schema(
+        &c.id,
+        &SchemaOp::RenameOption {
+            property_id: labels.clone(),
+            option_id: urgent,
+            name: "Now".into(),
+        },
+    )
+    .unwrap();
+    let a_text = fs::read_to_string(dir.path().join("Tasks/A.md")).unwrap();
+    assert!(a_text.contains("'Status: now': Finished\n"), "{a_text}");
+    assert!(a_text.contains("Labels:\n  - Now\n  - Later\n"), "{a_text}");
+    assert!(!a_text.contains("State:"));
+    let b_text = fs::read_to_string(dir.path().join("Tasks/B.md")).unwrap();
+    assert!(b_text.contains("'Status: now': Todo\n"), "{b_text}");
+    assert_eq!(
+        cell(&ws, &c.id, &a.id, &state),
+        Cell::Select {
+            value: "Finished".into(),
+            known: true
+        }
+    );
+    assert!(
+        fs::read_dir(dir.path().join(".forma/journal"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+
+    // An entry that already has a key with the new name would end up with two
+    // keys, so the rename is refused and nothing changes.
+    let a_file = dir.path().join("Tasks/A.md");
+    let with_priority = fs::read_to_string(&a_file)
+        .unwrap()
+        .replace("title: A\n", "title: A\nPriority: high\n");
+    fs::write(&a_file, &with_priority).unwrap();
+    ws.reconcile();
+    let b_before = fs::read_to_string(dir.path().join("Tasks/B.md")).unwrap();
+    let refused = ws.update_schema(
+        &c.id,
+        &SchemaOp::RenameProperty {
+            property_id: labels,
+            name: "priority".into(),
+        },
+    );
+    assert!(refused.is_err());
+    assert_eq!(fs::read_to_string(&a_file).unwrap(), with_priority);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Tasks/B.md")).unwrap(),
+        b_before
+    );
+}
+
+#[test]
+fn an_interrupted_rename_is_rolled_back_on_the_next_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut ws = Workspace::open(dir.path()).unwrap();
+    let c = ws.create_collection(None, "Tasks").unwrap();
+    let state = add_property(&mut ws, &c.id, "State", PropertyType::Text);
+    for title in ["A", "B", "C"] {
+        let page = ws.create_page(Some(&c.id), title).unwrap();
+        ws.set_property(&page.id, &state, &CellInput::Text { value: "x".into() })
+            .unwrap();
+    }
+    let snapshot = |dir: &Path| {
+        let mut files: Vec<(String, String)> = user_files(dir)
+            .into_iter()
+            .map(|f| (f.clone(), fs::read_to_string(dir.join(&f)).unwrap()))
+            .collect();
+        files.sort();
+        files
+    };
+    let before = snapshot(dir.path());
+    ws.crash_after_steps = Some(2);
+    ws.update_schema(
+        &c.id,
+        &SchemaOp::RenameProperty {
+            property_id: state,
+            name: "Renamed".into(),
+        },
+    )
+    .unwrap();
+    assert_ne!(
+        snapshot(dir.path()),
+        before,
+        "two files were rewritten before the crash"
+    );
+    drop(ws);
+
+    let mut ws = Workspace::open(dir.path()).unwrap();
+    assert_eq!(snapshot(dir.path()), before, "every file is back as it was");
+    assert!(ws.take_notices().iter().any(|n| n.contains("undone")));
+    assert!(
+        fs::read_dir(dir.path().join(".forma/journal"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+}
+
+#[test]
+fn a_collection_can_become_a_regular_page_again() {
+    let (dir, mut ws) = temp_workspace();
+    let page = ws.create_page(None, "Ideas").unwrap();
+    ws.convert_to_collection(&page.id).unwrap();
+    let p = add_property(&mut ws, &page.id, "Score", PropertyType::Number);
+    let entry = ws.create_page(Some(&page.id), "One").unwrap();
+    ws.set_property(&entry.id, &p, &CellInput::Number { value: 3.0 })
+        .unwrap();
+    ws.remove_collection(&page.id).unwrap();
+    assert!(!ws.get_page(&page.id).unwrap().is_collection);
+    assert!(ws.get_collection(&page.id).is_err());
+    let entry_text = fs::read_to_string(dir.path().join("Ideas/One.md")).unwrap();
+    assert!(
+        entry_text.contains("Score: 3\n"),
+        "values stay as plain keys"
+    );
+    // Adding the schema back brings the value back.
+    ws.convert_to_collection(&page.id).unwrap();
+    let p = add_property(&mut ws, &page.id, "Score", PropertyType::Number);
+    assert_eq!(
+        cell(&ws, &page.id, &entry.id, &p),
+        Cell::Number {
+            value: 3.0,
+            from_text: false
+        }
+    );
+}
+
+#[test]
+fn view_settings_round_trip_and_newer_schemas_are_read_only() {
+    let (dir, mut ws) = temp_workspace();
+    let c = ws.create_collection(None, "Views").unwrap();
+    assert_eq!(ws.get_views(&c.id), CollectionViews::default());
+    let mut views = CollectionViews {
+        active_view: ViewKind::List,
+        ..Default::default()
+    };
+    views.table.sort.push(SortRule {
+        property: "title".into(),
+        direction: SortDirection::Desc,
+    });
+    views.table.filter.push(FilterRule {
+        property: "x".into(),
+        op: "contains".into(),
+        value: Some("a".into()),
+    });
+    views.table.column_widths.insert("title".into(), 280);
+    ws.save_views(&c.id, &views).unwrap();
+    assert_eq!(ws.get_views(&c.id), views);
+    let json = fs::read_to_string(dir.path().join(".forma/views.json")).unwrap();
+    assert!(json.contains("\"active_view\": \"list\""), "{json}");
+
+    let file = dir.path().join("Views/index.md");
+    let text = fs::read_to_string(&file)
+        .unwrap()
+        .replace("version: 1", "version: 2");
+    fs::write(&file, text).unwrap();
+    ws.reconcile();
+    let data = ws.get_collection(&c.id).unwrap();
+    assert!(data.problem.unwrap().contains("newer"));
+    assert!(
+        ws.update_schema(
+            &c.id,
+            &SchemaOp::AddProperty {
+                name: "X".into(),
+                kind: PropertyType::Text
+            }
+        )
+        .is_err()
+    );
+}

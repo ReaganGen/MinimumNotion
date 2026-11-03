@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-convert-to-collection"
+description = "Enables the convert_to_collection command without any pre-configured scope."
+commands.allow = ["convert_to_collection"]
+
+[[permission]]
+identifier = "deny-convert-to-collection"
+description = "Denies the convert_to_collection command without any pre-configured scope."
+commands.deny = ["convert_to_collection"]

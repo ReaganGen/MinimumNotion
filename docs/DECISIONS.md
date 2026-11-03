@@ -382,7 +382,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-032: The Phase 2 page index lives in memory; SQLite arrives with search
 
-- **Status:** Accepted. **Date:** 2026-11-02 (Phase 2)
+- **Status:** Accepted; extended by ADR-035 (the in-memory index stays as the session's page tree, now loaded from the SQLite cache). **Date:** 2026-11-02 (Phase 2)
 - **Context:** ARCHITECTURE §5 places the index in SQLite. Phase 2 needs only the page tree and each page's facts (ID, title, icon, revision, status). Full-text search, backlinks and collections, which are what SQLite is for, start in Phase 3.
 - **Decision:** In Phase 2 the Document Service keeps the index in memory. Opening a workspace scans it. A rescan re-reads only files whose `(size, mtime)` signature changed, and reuses everything else, so outside edits cost a stat walk. Phase 3 adds the SQLite database from ARCHITECTURE §5 as a persistent cache of the same facts, plus FTS5.
 - **Alternatives:** SQLite from the start. It adds a schema, migrations-by-rebuild and a second writer before anything needs them.
@@ -419,3 +419,47 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Alternatives:** The `prosemirror-markdown` fallback. The problems found were local serializer rules, not structural, so the fallback would have cost more than the fixes.
 - **Rationale:** It is the maintained path, and the rules layer is small and fully covered by the corpus (23 fixtures; byte-identical output for canonical input).
 - **Consequences:** Upgrading `@tiptap/markdown` must re-run the corpus. Some valid Markdown is written back in Forma's canonical form, for example `*` list markers become `-` and tables are padded to aligned columns. Opening such a page shows a notice, and the original is snapshotted before the first save rewrites it (ARCHITECTURE §6.3).
+
+## ADR-035: The SQLite cache: loaded at open, written with every change, one connection
+
+- **Status:** Accepted. **Date:** 2026-11-03 (Phase 3)
+- **Context:** Phase 3 needs full-text search, backlinks and collection values across the workspace, and a fast second open. ARCHITECTURE §5 describes a SQLite cache with a writer task and a read pool.
+- **Decision:**
+  1. The cache lives at `~/Library/Application Support/<bundle-id>/index/<hash of workspace ID and path>/index.db` (ADR-003). It holds rows for pages, tags, links and the parsed frontmatter, plus two FTS5 tables (DATA_MODEL §9).
+  2. Opening a workspace loads the cached rows as the starting point of the scan, so files whose size and modification time are unchanged aren't read. The in-memory index (ADR-032) stays the session's page tree.
+  3. Every rescan, and every file Forma writes, updates the cache in one transaction, with the content of each file that was read.
+  4. One connection, owned by the Document Service and used under its lock. A read-only workspace (open in another window) keeps its index in memory. A broken cache file is deleted and rebuilt.
+  5. "Rebuild search index" re-reads every file into a side database and swaps it in when complete. It keeps page IDs that exist only in memory, so open pages don't change identity.
+- **Alternatives:** A dedicated index task with a read pool, so search keeps working during a rebuild and long indexing. Not needed at the measured cost (cold open of 5,000 pages 0.6 s, rebuild 0.6 s, searches 0.2–5 ms).
+- **Rationale:** The smallest design that meets the acceptance criteria, with one writer and no cross-thread coordination.
+- **Consequences:** During a rebuild or a cold first open, other workspace requests wait (under a second at 5,000 pages). A test checks that a rebuilt index equals the incrementally maintained one, row for row. If workspaces grow much larger, move indexing to its own task.
+
+## ADR-036: CJK search uses a trigram table with LIKE; words use unicode61
+
+- **Status:** Accepted. Resolves risk R6. **Date:** 2026-11-03 (Phase 3)
+- **Context:** The `unicode61` tokenizer treats a run of Chinese, Japanese or Korean text as a single token. In the Phase 3 spike, searching `注意力` in a sentence that contains it found nothing; only the entire sentence matched. Many Chinese words are two characters long, below the trigram minimum.
+- **Decision:**
+  1. Keep `pages_fts` (unicode61) for words: every term must match, the last as a prefix, ranked by BM25 with the title weighted highest.
+  2. Add `pages_trigram` (trigram, diacritics removed) holding title, body and property text.
+  3. A query with any CJK character uses `LIKE '%term%'` on the trigram table for every term. Three or more characters use the trigram index; one or two characters scan, bounded by the result limit. Snippets are cut in Rust.
+  4. A word query with no results whose terms have three or more characters falls back to the same substring search (`tention` finds `attention`).
+- **Measured** (5,000 synthetic pages, 20 MB of Markdown, release build): word queries 3.5–5 ms; `蛋白质` 0.3 ms; `知识` (two characters) 0.3 ms; substring fallback 0.25 ms. The index is 35 MB on disk, about 1.7 times the Markdown, mostly the trigram table.
+- **Alternatives:**
+  - A dictionary segmenter (jieba-style) for Chinese. Better relevance, but a large dependency and still wrong for names and new words.
+  - Trigram only. Simpler, but it loses word prefixes and BM25 ranking for English.
+  - Unicode61 only. Fails the CJK user entirely.
+- **Rationale:** Correct results for CJK at negligible cost, with no new dependency.
+- **Consequences:** CJK results are substring matches in no particular relevance order (title matches aren't ranked first). The index is larger than with one table. Revisit ranking for CJK if users ask.
+
+## ADR-037: Collections in the sidebar and in pages
+
+- **Status:** Accepted, following the plan's default proposal. **Date:** 2026-11-03 (Phase 3)
+- **Context:** IMPLEMENTATION_PLAN §6.1 asks to decide how a collection's entries show in the sidebar. A collection can hold thousands of entries.
+- **Decision:**
+  - In the sidebar, a collection shows with a table icon, and its entries are its children: collapsed by default and loaded when expanded, like any page. At most 50 are listed, followed by "N more — open the collection".
+  - A collection page shows its text, then the collection (table or list view). The table renders only the rows on screen.
+  - An entry page shows its properties under its title, with a link to its collection, and they're editable there too.
+  - "Turn into a collection" is in the page menu. "Turn into a regular page" is in the collection's menu and asks first.
+- **Alternatives:** Hiding entries from the sidebar entirely. Simpler, but entries then can't be dragged or reached from the tree.
+- **Consequences:** Entries past the 50th are reached through the collection, search or quick open.
+

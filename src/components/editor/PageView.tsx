@@ -1,10 +1,13 @@
 import { AlertTriangle, Info, X } from "lucide-react";
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { CollectionView } from "@/components/collections/CollectionView";
+import { EntryProperties } from "@/components/collections/EntryProperties";
 import { normalizeMarkdown, roundTripMarkdown } from "@/features/editor/markdown";
 import type { Conflict } from "@/features/editor/saveController";
 import { registerFlusher, useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import type { PageDocument } from "@/lib/ipc/bindings/PageDocument";
 import { ipc } from "@/lib/ipc/client";
+import { Backlinks } from "./Backlinks";
 import { PageEditor, type PageEditorHandle } from "./PageEditor";
 
 const TITLE_SAVE_DELAY_MS = 600;
@@ -179,7 +182,11 @@ export function PageView({ pageId }: { pageId: string }) {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <article className="mx-auto w-full max-w-(--reading-width) px-12 pt-14 pb-[30vh]">
+      <article
+        className="mx-auto w-full max-w-(--reading-width) px-12 pt-14 pb-[30vh]"
+        // A collection's table follows its text, so the text area stays short.
+        data-compact={page.is_collection || undefined}
+      >
         {readOnlyReason && <Banner tone="warning">{readOnlyReason}</Banner>}
         {conflict && <ConflictBanner conflict={conflict} onResolve={resolve} />}
         {reformatNotice && !conflict && editable && (
@@ -198,12 +205,15 @@ export function PageView({ pageId }: { pageId: string }) {
             publishCrumbs({ ...page, title });
           }}
         />
+        {page.collection_id && <EntryProperties pageId={page.id} editable={editable} />}
         <PageEditor
           ref={editorRef}
           page={page}
           editable={editable && !conflict}
           onConflict={enterConflict}
         />
+        {page.is_collection && <CollectionView id={page.id} editable={editable} />}
+        <Backlinks pageId={page.id} />
       </article>
     </div>
   );

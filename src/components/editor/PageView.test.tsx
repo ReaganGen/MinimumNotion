@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { Editor } from "@tiptap/core";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetLinkStoreForTests } from "@/features/links/linkStore";
 import {
   resetWorkspaceStoreForTests,
   useWorkspaceStore,
@@ -26,6 +27,11 @@ vi.mock("@/lib/ipc/client", () => ({
     takeNotices: vi.fn(),
     importAttachment: vi.fn(),
     openExternal: vi.fn(),
+    backlinks: vi.fn(),
+    resolvePages: vi.fn(),
+    resolveWikilinks: vi.fn(),
+    ensurePersistedId: vi.fn(),
+    quickOpen: vi.fn(),
   },
   assetUrl: (pageId: string, reference: string) => `forma-asset://localhost/${pageId}/${reference}`,
 }));
@@ -49,6 +55,8 @@ function page(overrides: Partial<PageDocument> = {}): PageDocument {
     status: { state: "ok" },
     favorite: false,
     ancestors: [],
+    is_collection: false,
+    collection_id: null,
     ...overrides,
   };
 }
@@ -58,6 +66,7 @@ const saved = (bodyRev: string) =>
 
 beforeEach(() => {
   resetWorkspaceStoreForTests();
+  resetLinkStoreForTests();
   useWorkspaceStore.setState({ status: "open", activePageId: ID });
   for (const fn of Object.values(ipc)) vi.mocked(fn).mockReset();
   vi.mocked(ipc.getPage).mockResolvedValue(page());
@@ -67,6 +76,9 @@ beforeEach(() => {
   vi.mocked(ipc.listChildren).mockResolvedValue([]);
   vi.mocked(ipc.listFavorites).mockResolvedValue([]);
   vi.mocked(ipc.takeNotices).mockResolvedValue([]);
+  vi.mocked(ipc.backlinks).mockResolvedValue([]);
+  vi.mocked(ipc.resolvePages).mockResolvedValue([]);
+  vi.mocked(ipc.resolveWikilinks).mockResolvedValue([]);
 });
 
 async function renderPage({ strict = false } = {}) {
@@ -165,6 +177,7 @@ describe("PageView", () => {
       has_children: false,
       favorite: false,
       status: { state: "ok" },
+      is_collection: false,
     });
     vi.mocked(ipc.getPage).mockResolvedValue(page({ id: RESTORED, body: "", body_rev: "e" }));
     vi.mocked(ipc.savePage).mockResolvedValue(saved("b3"));
@@ -191,6 +204,53 @@ describe("PageView", () => {
     expect(screen.getByRole("textbox", { name: "Page title" })).toHaveFocus();
     expect(screen.getByRole("textbox", { name: "Page title" })).toHaveValue("");
     expect(useWorkspaceStore.getState().focusTitleOf).toBeNull();
+  });
+
+  it("shows a page link with its target's current title and opens it on click", async () => {
+    const user = userEvent.setup();
+    const TARGET = "44444444-4444-4444-8444-444444444444";
+    vi.mocked(ipc.getPage).mockResolvedValue(
+      page({ body: `See [Old title](forma://page/${TARGET}).\n` }),
+    );
+    vi.mocked(ipc.resolvePages).mockResolvedValue([
+      { id: TARGET, title: "New title", icon: null, state: "ok" },
+    ]);
+    await renderPage();
+    const link = await screen.findByText("New title");
+    expect(link).toHaveAttribute("data-state", "ok");
+    await user.click(link);
+    expect(useWorkspaceStore.getState().activePageId).toBe(TARGET);
+  });
+
+  it("marks a link to a trashed page and doesn't follow it", async () => {
+    const user = userEvent.setup();
+    const GONE = "55555555-5555-4555-8555-555555555555";
+    vi.mocked(ipc.getPage).mockResolvedValue(page({ body: `[Gone](forma://page/${GONE})\n` }));
+    vi.mocked(ipc.resolvePages).mockResolvedValue([
+      { id: GONE, title: "Gone", icon: null, state: "trashed" },
+    ]);
+    await renderPage();
+    await waitFor(() => expect(screen.getByText("Gone")).toHaveAttribute("data-state", "trashed"));
+    await user.click(screen.getByText("Gone"));
+    expect(useWorkspaceStore.getState().activePageId).toBe(ID);
+  });
+
+  it("lists the pages that link here", async () => {
+    const user = userEvent.setup();
+    vi.mocked(ipc.backlinks).mockResolvedValue([
+      {
+        id: "66666666-6666-4666-8666-666666666666",
+        title: "Source",
+        icon: null,
+        path: ["Projects"],
+        snippet: null,
+      },
+    ]);
+    await renderPage();
+    const section = await screen.findByRole("region", { name: "Backlinks" });
+    expect(section).toHaveTextContent("1 page links here");
+    await user.click(screen.getByRole("button", { name: /Source/ }));
+    expect(useWorkspaceStore.getState().activePageId).toBe("66666666-6666-4666-8666-666666666666");
   });
 
   it("renames the page from the title field", async () => {

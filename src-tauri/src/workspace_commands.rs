@@ -5,9 +5,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use forma_core::collection::{CellInput, Schema};
 use forma_core::error::{ErrorCode, ErrorPayload};
+use forma_core::workspace::collections::{CollectionData, CollectionViews, EntryData, SchemaOp};
 use forma_core::workspace::types::{
-    PageDocument, PageSummary, RecoveryBuffer, SaveOutcome, TrashEntryInfo, WorkspaceInfo,
+    PageDocument, PageHit, PageLinkInfo, PageSummary, RecoveryBuffer, SaveOutcome, TrashEntryInfo,
+    WikiResolution, WorkspaceInfo,
 };
 use forma_core::workspace::{count_entries, is_workspace, percent_decode};
 use tauri::ipc::{InvokeBody, Request};
@@ -362,4 +365,135 @@ pub async fn open_external(url: String) -> Result<()> {
         .spawn()
         .map_err(|e| ErrorPayload::new(ErrorCode::Io, format!("Couldn't open the link: {e}")))?;
     Ok(())
+}
+
+// ------------------------------------------------------- search and links
+
+/// Full-text search (⌘K): titles, text, tags and property values.
+#[tauri::command]
+pub async fn search(session: State<'_, Session>, query: String) -> Result<Vec<PageHit>> {
+    session.read(|ws| Ok(ws.search(&query, 50)))
+}
+
+/// Titles only (⌘P).
+#[tauri::command]
+pub async fn quick_open(session: State<'_, Session>, query: String) -> Result<Vec<PageHit>> {
+    session.read(|ws| Ok(ws.quick_open(&query, 30)))
+}
+
+#[tauri::command]
+pub async fn backlinks(session: State<'_, Session>, id: String) -> Result<Vec<PageHit>> {
+    session.read(|ws| ws.backlinks(&id))
+}
+
+/// Current titles of linked pages, for live link labels.
+#[tauri::command]
+pub async fn resolve_pages(
+    session: State<'_, Session>,
+    ids: Vec<String>,
+) -> Result<Vec<PageLinkInfo>> {
+    session.read(|ws| Ok(ws.resolve_pages(&ids)))
+}
+
+#[tauri::command]
+pub async fn resolve_wikilinks(
+    session: State<'_, Session>,
+    texts: Vec<String>,
+) -> Result<Vec<WikiResolution>> {
+    session.read(|ws| Ok(ws.resolve_wikilinks(&texts)))
+}
+
+/// Writes a page's ID into its file before anything links to it (ADR-005).
+#[tauri::command]
+pub async fn ensure_persisted_id(
+    app: AppHandle,
+    session: State<'_, Session>,
+    id: String,
+) -> Result<()> {
+    session.mutate(&app, |ws| ws.ensure_persisted_id(&id))
+}
+
+#[tauri::command]
+pub async fn rebuild_index(app: AppHandle, session: State<'_, Session>) -> Result<()> {
+    session.mutate(&app, |ws| ws.rebuild_index())
+}
+
+// ------------------------------------------------------------ collections
+
+#[tauri::command]
+pub async fn get_collection(session: State<'_, Session>, id: String) -> Result<CollectionData> {
+    session.read(|ws| ws.get_collection(&id))
+}
+
+/// An entry page's properties, or null when the page isn't in a collection.
+#[tauri::command]
+pub async fn get_entry(session: State<'_, Session>, id: String) -> Result<Option<EntryData>> {
+    session.read(|ws| ws.get_entry(&id))
+}
+
+#[tauri::command]
+pub async fn create_collection(
+    app: AppHandle,
+    session: State<'_, Session>,
+    parent_id: Option<String>,
+    title: String,
+) -> Result<PageSummary> {
+    session.mutate(&app, |ws| {
+        ws.create_collection(parent_id.as_deref(), &title)
+    })
+}
+
+#[tauri::command]
+pub async fn convert_to_collection(
+    app: AppHandle,
+    session: State<'_, Session>,
+    id: String,
+) -> Result<()> {
+    session.mutate(&app, |ws| ws.convert_to_collection(&id))
+}
+
+/// "Turn into a regular page".
+#[tauri::command]
+pub async fn remove_collection(
+    app: AppHandle,
+    session: State<'_, Session>,
+    id: String,
+) -> Result<()> {
+    session.mutate(&app, |ws| ws.remove_collection(&id))
+}
+
+#[tauri::command]
+pub async fn update_schema(
+    app: AppHandle,
+    session: State<'_, Session>,
+    id: String,
+    op: SchemaOp,
+) -> Result<Schema> {
+    session.mutate(&app, |ws| ws.update_schema(&id, &op))
+}
+
+#[tauri::command]
+pub async fn set_property(
+    app: AppHandle,
+    session: State<'_, Session>,
+    page_id: String,
+    property_id: String,
+    value: CellInput,
+) -> Result<()> {
+    session.mutate(&app, |ws| ws.set_property(&page_id, &property_id, &value))
+}
+
+#[tauri::command]
+pub async fn get_views(session: State<'_, Session>, id: String) -> Result<CollectionViews> {
+    session.read(|ws| Ok(ws.get_views(&id)))
+}
+
+#[tauri::command]
+pub async fn save_views(
+    app: AppHandle,
+    session: State<'_, Session>,
+    id: String,
+    views: CollectionViews,
+) -> Result<()> {
+    session.mutate(&app, |ws| ws.save_views(&id, &views))
 }

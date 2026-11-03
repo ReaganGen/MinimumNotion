@@ -1,15 +1,19 @@
 //! Discovers pages on disk (DATA_MODEL §3.2) into an in-memory index.
 //!
-//! Phase 2 keeps the index in memory and rebuilds it on open (ADR-032). A
-//! rescan re-reads only files whose size or modification time changed, so
-//! reconciling after an edit costs a directory walk, not a full parse.
+//! The in-memory index is the session's view of the page tree. It starts
+//! from the SQLite cache (ADR-035), and a rescan re-reads only files whose
+//! size or modification time changed, so reconciling after an edit costs a
+//! directory walk, not a full parse. Files that were read also yield their
+//! content (text, links, frontmatter) for the SQLite index.
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use crate::extract::extract;
 use crate::frontmatter::{self, Parsed};
+use crate::index::PageContent;
 
 use super::naming::is_markdown_extension;
 use super::types::{PageKind, PageStatus};
@@ -33,6 +37,8 @@ pub struct Entry {
     pub status: PageStatus,
     pub signature: Option<Signature>,
     pub rev: Option<String>,
+    /// The frontmatter has a `collection:` schema (DATA_MODEL §6.1).
+    pub is_collection: bool,
 }
 
 impl Entry {
@@ -92,15 +98,21 @@ pub struct FileFacts {
     pub icon: Option<String>,
     pub status: PageStatus,
     pub rev: String,
+    pub is_collection: bool,
+    pub content: PageContent,
 }
 
 pub fn read_facts(path: &Path) -> std::io::Result<FileFacts> {
-    let bytes = fs::read(path)?;
-    let rev = hash_rev(&bytes);
-    let text = String::from_utf8_lossy(&bytes);
+    Ok(facts_from_bytes(&fs::read(path)?))
+}
+
+/// What a page file's bytes say about the page.
+pub fn facts_from_bytes(bytes: &[u8]) -> FileFacts {
+    let rev = hash_rev(bytes);
+    let text = String::from_utf8_lossy(bytes);
     let split = frontmatter::split(&text);
     let (fields, status) = match split.yaml.map(frontmatter::parse) {
-        None => (Default::default(), PageStatus::Ok),
+        None => (frontmatter::Fields::default(), PageStatus::Ok),
         Some(Parsed::Editable { fields, .. }) => (fields, PageStatus::Ok),
         Some(Parsed::ReadOnly { fields }) => (fields, PageStatus::MetadataReadOnly),
         Some(Parsed::Invalid { message }) => (
@@ -108,13 +120,35 @@ pub fn read_facts(path: &Path) -> std::io::Result<FileFacts> {
             PageStatus::InvalidFrontmatter { message },
         ),
     };
-    Ok(FileFacts {
+    let json = match (&status, split.yaml) {
+        (PageStatus::InvalidFrontmatter { .. }, _) => None,
+        (_, Some(yaml)) => frontmatter::to_json(yaml),
+        (_, None) => Some(serde_json::Map::new()),
+    };
+    let extracted = extract(split.body);
+    FileFacts {
         id: fields.id,
         title: fields.title.filter(|t| !t.trim().is_empty()),
         icon: fields.icon,
         status,
         rev,
-    })
+        is_collection: json.as_ref().is_some_and(|j| j.contains_key("collection")),
+        content: PageContent {
+            text: extracted.text,
+            tags: fields.tags,
+            links: extracted.links,
+            frontmatter: json,
+        },
+    }
+}
+
+/// The result of a scan.
+pub struct Scanned {
+    pub index: Index,
+    /// Things worth telling the user, such as copied pages.
+    pub notices: Vec<String>,
+    /// The content of every file that was read, by file path.
+    pub fresh: HashMap<PathBuf, PageContent>,
 }
 
 struct Scanner<'a> {
@@ -124,16 +158,13 @@ struct Scanner<'a> {
     /// A directory that just moved: (old path, new path).
     remap: Option<(PathBuf, PathBuf)>,
     found: Vec<Entry>,
+    fresh: HashMap<PathBuf, PageContent>,
 }
 
 /// Walks `root` and builds a fresh index. Entries from `previous` are reused
 /// for unchanged files, and memory-only IDs survive as long as the path does
 /// (or moved along `remap`). Returns the index and user-facing notices.
-pub fn scan(
-    root: &Path,
-    previous: &Index,
-    remap: Option<(PathBuf, PathBuf)>,
-) -> (Index, Vec<String>) {
+pub fn scan(root: &Path, previous: &Index, remap: Option<(PathBuf, PathBuf)>) -> Scanned {
     let previous_by_location = previous
         .entries
         .values()
@@ -144,6 +175,7 @@ pub fn scan(
         previous_by_location,
         remap,
         found: Vec::new(),
+        fresh: HashMap::new(),
     };
     scanner.walk(root, None, false);
     let notices = scanner.resolve_duplicate_ids();
@@ -157,7 +189,11 @@ pub fn scan(
             .push(entry.id.clone());
         index.entries.insert(entry.id.clone(), entry);
     }
-    (index, notices)
+    Scanned {
+        index,
+        notices,
+        fresh: scanner.fresh,
+    }
 }
 
 impl Scanner<'_> {
@@ -255,6 +291,8 @@ impl Scanner<'_> {
                         message: format!("the file couldn't be read: {err}"),
                     },
                     rev: String::new(),
+                    is_collection: false,
+                    content: PageContent::default(),
                 }
             }
         };
@@ -265,6 +303,7 @@ impl Scanner<'_> {
                 None => (new_id(), false),
             },
         };
+        self.fresh.insert(file.to_path_buf(), facts.content);
         self.found.push(Entry {
             id: id.clone(),
             id_persisted,
@@ -277,6 +316,7 @@ impl Scanner<'_> {
             status: facts.status,
             signature,
             rev: Some(facts.rev).filter(|r| !r.is_empty()),
+            is_collection: facts.is_collection,
         });
         id
     }
@@ -299,6 +339,7 @@ impl Scanner<'_> {
             status: PageStatus::Ok,
             signature: None,
             rev: None,
+            is_collection: false,
         });
         id
     }

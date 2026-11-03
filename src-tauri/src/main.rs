@@ -158,6 +158,22 @@ fn main() {
             workspace_commands::snapshot_text,
             workspace_commands::take_notices,
             workspace_commands::open_external,
+            workspace_commands::search,
+            workspace_commands::quick_open,
+            workspace_commands::backlinks,
+            workspace_commands::resolve_pages,
+            workspace_commands::resolve_wikilinks,
+            workspace_commands::ensure_persisted_id,
+            workspace_commands::rebuild_index,
+            workspace_commands::get_collection,
+            workspace_commands::get_entry,
+            workspace_commands::create_collection,
+            workspace_commands::convert_to_collection,
+            workspace_commands::remove_collection,
+            workspace_commands::update_schema,
+            workspace_commands::set_property,
+            workspace_commands::get_views,
+            workspace_commands::save_views,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Forma");

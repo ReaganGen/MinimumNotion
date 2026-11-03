@@ -1,9 +1,7 @@
 // The "/" menu: a short list of blocks, filtered as you type (spec §7).
 import { type Editor, Extension, type Range } from "@tiptap/core";
-import { ReactRenderer } from "@tiptap/react";
-import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
-import { forwardRef, useImperativeHandle, useState } from "react";
-import { cn } from "@/lib/utils";
+import Suggestion from "@tiptap/suggestion";
+import { suggestionPopup } from "./suggestionMenu";
 
 interface SlashItem {
   title: string;
@@ -95,79 +93,6 @@ export function filterSlashItems(query: string): SlashItem[] {
   return SLASH_ITEMS.filter((item) => `${item.title} ${item.keywords}`.toLowerCase().includes(q));
 }
 
-interface MenuHandle {
-  onKeyDown: (props: SuggestionKeyDownProps) => boolean;
-}
-
-const SlashMenuList = forwardRef<MenuHandle, SuggestionProps<SlashItem>>(
-  function SlashMenuList(props, ref) {
-    const [selected, setSelected] = useState(0);
-    // A new query starts the selection over at the top.
-    const [shownItems, setShownItems] = useState(props.items);
-    if (shownItems !== props.items) {
-      setShownItems(props.items);
-      setSelected(0);
-    }
-
-    const choose = (index: number) => {
-      const item = props.items[index];
-      if (item) props.command(item);
-    };
-
-    useImperativeHandle(ref, () => ({
-      onKeyDown: ({ event }) => {
-        const count = props.items.length;
-        if (count === 0) return false;
-        if (event.key === "ArrowDown") {
-          setSelected((s) => (s + 1) % count);
-          return true;
-        }
-        if (event.key === "ArrowUp") {
-          setSelected((s) => (s + count - 1) % count);
-          return true;
-        }
-        if (event.key === "Enter") {
-          choose(selected);
-          return true;
-        }
-        return false;
-      },
-    }));
-
-    if (props.items.length === 0) {
-      return (
-        <div className="forma-popover px-3 py-2 text-[13px] text-muted-foreground">
-          No matching blocks
-        </div>
-      );
-    }
-    return (
-      <div role="listbox" aria-label="Insert a block" className="forma-popover w-60 p-1">
-        {props.items.map((item, index) => (
-          <button
-            key={item.title}
-            type="button"
-            role="option"
-            aria-selected={index === selected}
-            onMouseEnter={() => setSelected(index)}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              choose(index);
-            }}
-            className={cn(
-              "flex h-8 w-full items-center justify-between rounded-md px-2 text-left text-[13.5px]",
-              index === selected && "bg-accent",
-            )}
-          >
-            <span>{item.title}</span>
-            <span className="font-mono text-[11.5px] text-faint-foreground">{item.hint}</span>
-          </button>
-        ))}
-      </div>
-    );
-  },
-);
-
 export const SlashCommands = Extension.create({
   name: "slashCommands",
   addProseMirrorPlugins() {
@@ -183,39 +108,17 @@ export const SlashCommands = Extension.create({
         },
         items: ({ query }) => filterSlashItems(query),
         command: ({ editor, range, props }) => props.run(editor, range),
-        render: () => {
-          let renderer: ReactRenderer<MenuHandle, SuggestionProps<SlashItem>> | null = null;
-          let host: HTMLDivElement | null = null;
-          const place = (props: SuggestionProps<SlashItem>) => {
-            const rect = props.clientRect?.();
-            if (!host || !rect) return;
-            host.style.left = `${rect.left}px`;
-            host.style.top = `${rect.bottom + 6}px`;
-          };
-          return {
-            onStart: (props) => {
-              renderer = new ReactRenderer(SlashMenuList, { props, editor: props.editor });
-              host = document.createElement("div");
-              host.style.position = "fixed";
-              host.style.zIndex = "60";
-              host.append(renderer.element);
-              document.body.append(host);
-              place(props);
-            },
-            onUpdate: (props) => {
-              renderer?.updateProps(props);
-              place(props);
-            },
-            // Escape is handled by the suggestion plugin, which then calls onExit.
-            onKeyDown: (props) => renderer?.ref?.onKeyDown(props) ?? false,
-            onExit: () => {
-              host?.remove();
-              renderer?.destroy();
-              host = null;
-              renderer = null;
-            },
-          };
-        },
+        render: suggestionPopup<SlashItem>({
+          label: "Insert a block",
+          empty: "No matching blocks",
+          itemKey: (item) => item.title,
+          renderItem: (item) => (
+            <>
+              <span className="flex-1">{item.title}</span>
+              <span className="font-mono text-[11.5px] text-faint-foreground">{item.hint}</span>
+            </>
+          ),
+        }),
       }),
     ];
   },

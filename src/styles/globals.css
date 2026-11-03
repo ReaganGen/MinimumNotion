@@ -29,6 +29,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-destructive: var(--destructive);
   --color-link: var(--link);
+  --color-highlight: var(--highlight);
   --color-overlay: var(--overlay);
 
   --radius-sm: calc(var(--radius) - 2px);
@@ -102,6 +103,10 @@
     background: var(--popover);
     color: var(--popover-foreground);
     box-shadow: var(--shadow-popover);
+  }
+
+  [data-compact] .forma-editor {
+    min-height: 2.5rem;
   }
 
   .forma-editor {
@@ -262,6 +267,31 @@
     color: var(--muted-foreground);
     background: transparent;
   }
+  /* Page links and resolved wikilinks: the page's current title (ARCHITECTURE §6.5). */
+  .forma-editor .page-link,
+  .forma-editor .wiki-link[data-state="ok"] {
+    color: var(--foreground);
+    text-decoration: underline;
+    text-decoration-color: var(--faint-foreground);
+    text-underline-offset: 3px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .forma-editor .page-link:hover,
+  .forma-editor .wiki-link[data-state="ok"]:hover {
+    background: var(--accent);
+  }
+  .forma-editor .page-link[data-state="trashed"],
+  .forma-editor .page-link[data-state="missing"],
+  .forma-editor .wiki-link[data-state="unresolved"] {
+    color: var(--muted-foreground);
+    text-decoration-style: dashed;
+    cursor: default;
+  }
+  .forma-editor .page-link[data-state="trashed"] {
+    text-decoration-line: line-through;
+  }
+
   .forma-editor .raw-inline {
     color: var(--muted-foreground);
     background: transparent;

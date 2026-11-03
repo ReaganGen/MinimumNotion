@@ -47,3 +47,8 @@ if (!("ResizeObserver" in window)) {
     value: ResizeObserverStub,
   });
 }
+
+// ProseMirror asks where a click landed; jsdom has no layout, so nothing is there.
+if (!document.elementFromPoint) {
+  document.elementFromPoint = () => null;
+}

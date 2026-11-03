@@ -2,15 +2,24 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings } from "./bindings/AppSettings";
+import type { CellInput } from "./bindings/CellInput";
+import type { CollectionData } from "./bindings/CollectionData";
+import type { CollectionViews } from "./bindings/CollectionViews";
+import type { EntryData } from "./bindings/EntryData";
 import type { ErrorPayload } from "./bindings/ErrorPayload";
 import type { PageDocument } from "./bindings/PageDocument";
+import type { PageHit } from "./bindings/PageHit";
+import type { PageLinkInfo } from "./bindings/PageLinkInfo";
 import type { PageSummary } from "./bindings/PageSummary";
 import type { RecoveryBuffer } from "./bindings/RecoveryBuffer";
 import type { SaveOutcome } from "./bindings/SaveOutcome";
+import type { Schema } from "./bindings/Schema";
+import type { SchemaOp } from "./bindings/SchemaOp";
 import type { SettingsSnapshot } from "./bindings/SettingsSnapshot";
 import type { SettingsUpdate } from "./bindings/SettingsUpdate";
 import type { ThemePreference } from "./bindings/ThemePreference";
 import type { TrashEntryInfo } from "./bindings/TrashEntryInfo";
+import type { WikiResolution } from "./bindings/WikiResolution";
 import type { WorkspaceChanges } from "./bindings/WorkspaceChanges";
 import type { WorkspaceInfo } from "./bindings/WorkspaceInfo";
 
@@ -94,6 +103,27 @@ export const ipc = {
   snapshotText: (id: string, text: string, reason: string) =>
     call<void>("snapshot_text", { id, text, reason }),
   openExternal: (url: string) => call<void>("open_external", { url }),
+
+  search: (query: string) => call<PageHit[]>("search", { query }),
+  quickOpen: (query: string) => call<PageHit[]>("quick_open", { query }),
+  backlinks: (id: string) => call<PageHit[]>("backlinks", { id }),
+  resolvePages: (ids: string[]) => call<PageLinkInfo[]>("resolve_pages", { ids }),
+  resolveWikilinks: (texts: string[]) => call<WikiResolution[]>("resolve_wikilinks", { texts }),
+  /** Writes the page's ID into its file before a link to it is created. */
+  ensurePersistedId: (id: string) => call<void>("ensure_persisted_id", { id }),
+  rebuildIndex: () => call<void>("rebuild_index"),
+
+  getCollection: (id: string) => call<CollectionData>("get_collection", { id }),
+  getEntry: (id: string) => call<EntryData | null>("get_entry", { id }),
+  createCollection: (parentId: string | null, title: string) =>
+    call<PageSummary>("create_collection", { parentId, title }),
+  convertToCollection: (id: string) => call<void>("convert_to_collection", { id }),
+  removeCollection: (id: string) => call<void>("remove_collection", { id }),
+  updateSchema: (id: string, op: SchemaOp) => call<Schema>("update_schema", { id, op }),
+  setProperty: (pageId: string, propertyId: string, value: CellInput) =>
+    call<void>("set_property", { pageId, propertyId, value }),
+  getViews: (id: string) => call<CollectionViews>("get_views", { id }),
+  saveViews: (id: string, views: CollectionViews) => call<void>("save_views", { id, views }),
 
   /** Sends the file's bytes raw (no JSON encoding) and returns the Markdown reference. */
   importAttachment: async (pageId: string, file: File): Promise<string> => {

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ensure-persisted-id"
+description = "Enables the ensure_persisted_id command without any pre-configured scope."
+commands.allow = ["ensure_persisted_id"]
+
+[[permission]]
+identifier = "deny-ensure-persisted-id"
+description = "Denies the ensure_persisted_id command without any pre-configured scope."
+commands.deny = ["ensure_persisted_id"]

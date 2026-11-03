@@ -226,6 +226,8 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 
 ## 6. Phase 3: Collections, Links, and Search
 
+> **Status (2026-11-03):** implemented; see PROGRESS.md. Decisions: ADR-035 (SQLite cache, one connection; rebuild holds the workspace lock), ADR-036 (CJK search via trigram + LIKE), ADR-037 (collections in the sidebar). Recent pages in ⌘P are kept for the session only. The manual checks (§6.2) are for the user.
+
 ### 6.1 Tasks
 
 1. **Collections.**

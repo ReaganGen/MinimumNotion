@@ -25,6 +25,7 @@
     "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "3.14.25",
     "@tauri-apps/api": "2.12.4",
     "@tiptap/core": "3.32.2",
     "@tiptap/extension-code-block": "3.32.2",

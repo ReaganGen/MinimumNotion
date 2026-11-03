@@ -46,6 +46,8 @@ pub struct PageSummary {
     pub has_children: bool,
     pub favorite: bool,
     pub status: PageStatus,
+    /// The page is a collection; its children are its entries (DATA_MODEL §6).
+    pub is_collection: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -69,6 +71,9 @@ pub struct PageDocument {
     pub favorite: bool,
     /// Root first, excluding this page.
     pub ancestors: Vec<PageRef>,
+    pub is_collection: bool,
+    /// The collection this page is an entry of: its parent, when that is one.
+    pub collection_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -134,4 +139,49 @@ pub struct RecoveryBuffer {
     pub saved_at: String,
     pub reason: String,
     pub body: String,
+}
+
+/// A page found by search or quick open. `snippet` marks matches with
+/// U+0001 … U+0002; the UI turns them into highlights, never HTML.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct PageHit {
+    pub id: String,
+    pub title: String,
+    pub icon: Option<String>,
+    /// Ancestor titles, root first.
+    pub path: Vec<String>,
+    pub snippet: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum LinkState {
+    Ok,
+    /// In the trash: the link heals when the page is restored.
+    Trashed,
+    /// No page has this ID.
+    Missing,
+}
+
+/// What a `forma://page/<id>` link points at, for live titles (ARCHITECTURE §6.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct PageLinkInfo {
+    pub id: String,
+    pub title: Option<String>,
+    pub icon: Option<String>,
+    pub state: LinkState,
+}
+
+/// How a `[[wikilink]]` resolves (DATA_MODEL §5.4). Exactly one match links;
+/// none or several leave it unresolved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct WikiResolution {
+    pub text: String,
+    pub target: Option<PageRef>,
+    /// How many pages matched (0, 1, or more).
+    pub matches: u32,
 }

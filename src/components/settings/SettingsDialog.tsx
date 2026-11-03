@@ -72,11 +72,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               anywhere.
             </PendingSection>
           )}
-          {section === "data" && (
-            <PendingSection title="Data">
-              Export, backup and restore come in a later build.
-            </PendingSection>
-          )}
+          {section === "data" && <DataSection />}
         </div>
       </DialogContent>
     </Dialog>
@@ -163,15 +159,68 @@ function WorkspaceSection() {
   );
 }
 
-function SettingsButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+function SettingsButton({
+  onClick,
+  children,
+  disabled,
+}: {
+  onClick: () => void;
+  children: ReactNode;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md px-3 py-1.5 text-[13px] text-foreground shadow-popover hover:bg-accent"
+      disabled={disabled}
+      className="rounded-md px-3 py-1.5 text-[13px] text-foreground shadow-popover hover:bg-accent disabled:opacity-50"
     >
       {children}
     </button>
+  );
+}
+
+function DataSection() {
+  const hasWorkspace = useWorkspaceStore((s) => s.status === "open");
+  const [state, setState] = useState<"idle" | "working" | "done" | string>("idle");
+
+  async function rebuild() {
+    setState("working");
+    try {
+      await ipc.rebuildIndex();
+      setState("done");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <section aria-labelledby="settings-data">
+      <h2 id="settings-data" className="text-[15px] font-semibold">
+        Data
+      </h2>
+      <div className="mt-5 border-t pt-4">
+        <p className="text-[14px]">Search index</p>
+        <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
+          Search, backlinks and collections use an index Forma keeps outside your workspace. It's
+          rebuilt from your files alone, so rebuilding is always safe.
+        </p>
+        <div className="mt-3 flex items-center gap-3">
+          <SettingsButton
+            onClick={() => void rebuild()}
+            disabled={!hasWorkspace || state === "working"}
+          >
+            {state === "working" ? "Rebuilding…" : "Rebuild search index"}
+          </SettingsButton>
+          <span role="status" className="text-[13px] text-muted-foreground">
+            {state === "done" ? "Rebuilt." : state === "idle" || state === "working" ? "" : state}
+          </span>
+        </div>
+        <p className="mt-6 text-[13px] leading-5 text-muted-foreground">
+          Export, backup and restore come in a later build.
+        </p>
+      </div>
+    </section>
   );
 }
 

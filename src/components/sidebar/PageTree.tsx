@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   Star,
+  Table2,
   Trash2,
 } from "lucide-react";
 import { type DragEvent, type KeyboardEvent, useState } from "react";
@@ -33,16 +34,24 @@ import { MoveDialog } from "./MoveDialog";
 
 const DRAG_TYPE = "application/x-forma-page";
 const INDENT = 14;
+/** A collection's entries beyond this many are reached from the collection itself. */
+const COLLECTION_PREVIEW = 50;
 
 export function PageTree({
   parentId = null,
   depth = 0,
+  collection = false,
 }: {
   parentId?: string | null;
   depth?: number;
+  /** The parent is a collection: show its first entries only. */
+  collection?: boolean;
 }) {
-  const pages = useWorkspaceStore((s) => s.children[parentId ?? ROOT]);
-  if (!pages) return null;
+  const all = useWorkspaceStore((s) => s.children[parentId ?? ROOT]);
+  const openPage = useWorkspaceStore((s) => s.openPage);
+  if (!all) return null;
+  const pages = collection ? all.slice(0, COLLECTION_PREVIEW) : all;
+  const hidden = all.length - pages.length;
   if (pages.length === 0) {
     return depth === 0 ? (
       <p className="px-2 py-1 text-[13px] text-muted-foreground">No pages yet.</p>
@@ -60,6 +69,18 @@ export function PageTree({
       {pages.map((page) => (
         <PageRow key={page.id} page={page} parentId={parentId} depth={depth} siblings={pages} />
       ))}
+      {hidden > 0 && parentId && (
+        <li>
+          <button
+            type="button"
+            onClick={() => openPage(parentId)}
+            className="py-1 text-left text-[12.5px] text-faint-foreground hover:text-foreground"
+            style={{ paddingLeft: 30 + depth * INDENT }}
+          >
+            {hidden} more — open the collection
+          </button>
+        </li>
+      )}
     </ul>
   );
 }
@@ -73,6 +94,10 @@ function usePageActions(page: PageSummary) {
     addChild: run(() => createPage(page.id)),
     duplicate: run(() => ipc.duplicatePage(page.id)),
     toggleFavorite: run(() => ipc.setFavorite(page.id, !page.favorite)),
+    makeCollection: run(async () => {
+      await ipc.convertToCollection(page.id);
+      useWorkspaceStore.getState().openPage(page.id);
+    }),
     trash: run(async () => {
       await flushAllEdits();
       await ipc.trashPage(page.id);
@@ -144,6 +169,11 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
       <Item onSelect={() => setMoving(true)}>
         <FolderInput aria-hidden /> Move to…
       </Item>
+      {!page.is_collection && (
+        <Item onSelect={actions.makeCollection}>
+          <Table2 aria-hidden /> Turn into a collection
+        </Item>
+      )}
       <Item onSelect={actions.toggleFavorite}>
         <Star aria-hidden /> {page.favorite ? "Remove from Favorites" : "Add to Favorites"}
       </Item>
@@ -199,6 +229,8 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
             <span className="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
               {page.icon ? (
                 <span className="text-[15px] leading-none">{page.icon}</span>
+              ) : page.is_collection ? (
+                <Table2 className="size-4" aria-label="Collection" />
               ) : (
                 <FileText className="size-4" aria-hidden />
               )}
@@ -254,7 +286,9 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
           {items(ContextMenuItem, ContextMenuSeparator)}
         </ContextMenuContent>
       </ContextMenu>
-      {expanded && <PageTree parentId={page.id} depth={depth + 1} />}
+      {expanded && (
+        <PageTree parentId={page.id} depth={depth + 1} collection={page.is_collection} />
+      )}
       <MoveDialog page={page} currentParentId={parentId} open={moving} onOpenChange={setMoving} />
     </li>
   );

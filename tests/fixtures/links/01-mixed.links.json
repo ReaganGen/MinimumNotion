@@ -1,0 +1,7 @@
+[
+  { "kind": "page", "target": "550e8400-e29b-41d4-a716-446655440000", "label": "Attention" },
+  { "kind": "wiki", "target": "Reading List", "label": "Reading List" },
+  { "kind": "wiki", "target": "Papers/Old", "label": "the old one" },
+  { "kind": "page", "target": "0c6a5f3e-6c1d-4b8e-9a63-2f1d1b0a9e77", "label": "Another Page" },
+  { "kind": "wiki", "target": "Table Link", "label": "Table Link" }
+]

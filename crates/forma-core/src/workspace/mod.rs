@@ -2,10 +2,15 @@
 //! workspace files. Callers serialize access (one writer at a time) by
 //! holding a `Workspace` behind a mutex.
 
+pub mod collections;
 mod history;
+mod indexing;
+mod journal;
+mod links;
 pub mod naming;
 mod refs;
 mod scan;
+mod search;
 mod state;
 pub mod types;
 pub mod watcher;
@@ -24,9 +29,10 @@ use serde::{Deserialize, Serialize};
 use crate::atomic::write_atomic_staged;
 use crate::error::{CoreError, CoreResult, io_at};
 use crate::frontmatter::{self, Change, Parsed, Value};
+use crate::index::IndexDb;
 
 use naming::{name_key, sanitize_stem, taken_stems, unique_stem};
-use scan::{Entry, Index, hash_rev, natural_key, new_id, scan, signature};
+use scan::{Entry, Index, Scanned, hash_rev, natural_key, new_id, scan, signature};
 use state::{FORMAT_VERSION, TreeState, WorkspaceMeta, load_json, order_key, save_json};
 use types::{
     PageDocument, PageKind, PageRef, PageStatus, PageSummary, RecoveryBuffer, SaveOutcome,
@@ -41,6 +47,10 @@ pub struct Workspace {
     meta: WorkspaceMeta,
     tree: TreeState,
     index: Index,
+    /// The SQLite cache: search, links, frontmatter (ADR-035).
+    db: IndexDb,
+    /// Where `db` lives on disk; `None` keeps it in memory.
+    db_path: Option<PathBuf>,
     /// Held for the life of the workspace; dropping it releases the flock.
     _lock: Option<File>,
     read_only_reason: Option<String>,
@@ -51,6 +61,9 @@ pub struct Workspace {
     /// any other revision was produced outside this session.
     written: HashMap<String, String>,
     last_autosave_snapshot: HashMap<String, SystemTime>,
+    /// Tests stop a batch after this many files, as if Forma had crashed.
+    #[cfg(test)]
+    crash_after_steps: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -101,7 +114,15 @@ impl Workspace {
     }
 
     /// Opens `root` as a workspace. Writes only inside `.forma/`.
+    /// Opens a workspace with its index in memory (tests, and fallbacks).
     pub fn open(root: &Path) -> CoreResult<Self> {
+        Self::open_with(root, None)
+    }
+
+    /// Opens a workspace whose index is cached under `index_dir` (the app's
+    /// Application Support folder). A read-only workspace keeps it in memory,
+    /// so two windows never write the same cache.
+    pub fn open_with(root: &Path, index_dir: Option<&Path>) -> CoreResult<Self> {
         let root = fs::canonicalize(root).map_err(io_at(root))?;
         if !root.is_dir() {
             return Err(CoreError::Invalid(format!(
@@ -112,7 +133,7 @@ impl Workspace {
         refuse_unsuitable_folder(&root)?;
 
         let forma = root.join(".forma");
-        for sub in ["tmp", "history", "trash", "recovery"] {
+        for sub in ["tmp", "history", "trash", "recovery", "journal"] {
             let dir = forma.join(sub);
             fs::create_dir_all(&dir).map_err(io_at(&dir))?;
         }
@@ -183,17 +204,26 @@ impl Workspace {
             }
         };
 
+        let db_path = index_dir
+            .filter(|_| read_only_reason.is_none())
+            .map(|dir| indexing::index_path(dir, &meta.id, &root));
+        let db = indexing::open_db(db_path.as_deref());
+        let index = indexing::cached_index(&root, &db);
         let mut workspace = Self {
             root,
             meta,
             tree,
-            index: Index::default(),
+            index,
+            db,
+            db_path,
             _lock: lock,
             read_only_reason,
             notices,
             pending: WorkspaceChanges::default(),
             written: HashMap::new(),
             last_autosave_snapshot: HashMap::new(),
+            #[cfg(test)]
+            crash_after_steps: None,
         };
         if workspace.read_only_reason.is_none() {
             workspace.recover_after_crash();
@@ -217,6 +247,8 @@ impl Workspace {
 
     /// Cleans up after an interrupted session (ARCHITECTURE §4.10).
     fn recover_after_crash(&mut self) {
+        // Batches that stopped halfway are undone first (DATA_MODEL §7.6).
+        self.roll_back_journals();
         // Leftover temp files from interrupted atomic writes.
         if let Ok(read) = fs::read_dir(self.staging()) {
             for item in read.flatten() {
@@ -283,6 +315,7 @@ impl Workspace {
             has_children: !self.index.children_of(Some(&entry.id)).is_empty(),
             favorite: self.tree.favorites.contains(&entry.id),
             status: entry.status.clone(),
+            is_collection: entry.is_collection,
         }
     }
 
@@ -379,6 +412,11 @@ impl Workspace {
             status: entry.status.clone(),
             favorite: self.tree.favorites.contains(&entry.id),
             ancestors: self.ancestors(id),
+            is_collection: entry.is_collection,
+            collection_id: entry
+                .parent
+                .clone()
+                .filter(|p| self.index.get(p).is_some_and(|e| e.is_collection)),
         })
     }
 
@@ -392,9 +430,14 @@ impl Workspace {
     }
 
     fn rescan(&mut self, remap: Option<(PathBuf, PathBuf)>) {
-        let (index, notices) = scan(&self.root, &self.index, remap);
+        let Scanned {
+            index,
+            notices,
+            fresh,
+        } = scan(&self.root, &self.index, remap);
         let changes = diff(&self.index, &index);
-        self.index = index;
+        let old = std::mem::replace(&mut self.index, index);
+        self.sync_index(&old, fresh, &changes.removed);
         for notice in notices {
             if !self.notices.contains(&notice) {
                 self.notices.push(notice);
@@ -451,8 +494,12 @@ impl Workspace {
         let rev = hash_rev(text.as_bytes());
         self.written.insert(id.to_string(), rev.clone());
         if let Some(entry) = self.index.entries.get_mut(id) {
+            let facts = scan::facts_from_bytes(text.as_bytes());
             entry.rev = Some(rev.clone());
             entry.signature = signature(file);
+            entry.is_collection = facts.is_collection;
+            entry.status = facts.status;
+            self.index_page(id, facts.content);
         }
         Ok(rev)
     }
@@ -1294,6 +1341,7 @@ impl Workspace {
             reason,
             &self.staging(),
         )
+        .map(|_| ())
     }
 }
 

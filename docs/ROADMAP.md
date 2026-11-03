@@ -6,8 +6,8 @@
 |---|---|---|---|
 | 0 | Architecture and Project Planning | Architecture, data model, decisions, plan, development rules | Complete |
 | 1 | macOS Application Foundation | A polished three-panel app shell with themes, shortcuts and a settings foundation | Complete |
-| 2 | Document System and Editor | Reliable local Markdown pages: nesting, autosave, history, trash, external-change safety | Implemented; awaiting approval |
-| 3 | Collections, Links, and Search | Simple databases (list and table views), ID-stable page links, backlinks, FTS5 search | Not started |
+| 2 | Document System and Editor | Reliable local Markdown pages: nesting, autosave, history, trash, external-change safety | Complete |
+| 3 | Collections, Links, and Search | Simple databases (list and table views), ID-stable page links, backlinks, FTS5 search | Implemented; awaiting approval |
 | 4 | AI Provider Integration | OpenAI, Anthropic, OpenAI-compatible endpoints, Ollama and LM Studio; Keychain credentials; streaming chat | Not started |
 | 5 | AI Knowledge Retrieval | Read-only Q&A, summaries and cited answers over the user's notes | Not started |
 | 6 | AI Agent and Knowledge Management | Proposed changes with diff preview, approval, conflict checks and undo | Not started |

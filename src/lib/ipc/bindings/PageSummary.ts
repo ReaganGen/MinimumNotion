@@ -2,4 +2,8 @@
 import type { PageKind } from "./PageKind";
 import type { PageStatus } from "./PageStatus";
 
-export type PageSummary = { id: string, title: string, icon: string | null, kind: PageKind, has_children: boolean, favorite: boolean, status: PageStatus, };
+export type PageSummary = { id: string, title: string, icon: string | null, kind: PageKind, has_children: boolean, favorite: boolean, status: PageStatus, 
+/**
+ * The page is a collection; its children are its entries (DATA_MODEL §6).
+ */
+is_collection: boolean, };

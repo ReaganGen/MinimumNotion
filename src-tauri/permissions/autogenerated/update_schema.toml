@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-schema"
+description = "Enables the update_schema command without any pre-configured scope."
+commands.allow = ["update_schema"]
+
+[[permission]]
+identifier = "deny-update-schema"
+description = "Denies the update_schema command without any pre-configured scope."
+commands.deny = ["update_schema"]

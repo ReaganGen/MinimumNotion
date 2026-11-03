@@ -168,6 +168,48 @@ fn string_list(value: &YamlOwned) -> Vec<String> {
     }
 }
 
+/// The top-level mapping as JSON, for the index cache and collection values.
+/// YAML 1.2 core types map directly; dates stay strings. Returns `None` when
+/// the frontmatter isn't a valid mapping.
+pub fn to_json(yaml: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let docs = YamlOwned::load_from_str(yaml).ok()?;
+    match docs.into_iter().next() {
+        None | Some(YamlOwned::Value(ScalarOwned::Null)) => Some(serde_json::Map::new()),
+        Some(YamlOwned::Mapping(mapping)) => {
+            let mut out = serde_json::Map::new();
+            for (key, value) in &mapping {
+                if let Some(key) = scalar_string(key) {
+                    out.insert(key, yaml_to_json(value));
+                }
+            }
+            Some(out)
+        }
+        Some(_) => None,
+    }
+}
+
+fn yaml_to_json(value: &YamlOwned) -> serde_json::Value {
+    use serde_json::Value as J;
+    match value {
+        YamlOwned::Value(ScalarOwned::Null) => J::Null,
+        YamlOwned::Value(ScalarOwned::Boolean(b)) => J::Bool(*b),
+        YamlOwned::Value(ScalarOwned::Integer(i)) => J::from(*i),
+        YamlOwned::Value(ScalarOwned::FloatingPoint(f)) => serde_json::Number::from_f64(f.0)
+            .map(J::Number)
+            .unwrap_or_else(|| J::String(f.0.to_string())),
+        YamlOwned::Value(ScalarOwned::String(s)) => J::String(s.clone()),
+        YamlOwned::Sequence(items) => J::Array(items.iter().map(yaml_to_json).collect()),
+        YamlOwned::Mapping(mapping) => J::Object(
+            mapping
+                .iter()
+                .filter_map(|(k, v)| Some((scalar_string(k)?, yaml_to_json(v))))
+                .collect(),
+        ),
+        YamlOwned::Tagged(_, inner) => yaml_to_json(inner),
+        other => scalar_string(other).map_or(J::Null, J::String),
+    }
+}
+
 /// Finds the byte range of every top-level key. A key's range covers its line
 /// and the lines of its value, but not trailing blank lines or column-0
 /// comments, which stay where they are. Returns `None` for layouts it can't
@@ -575,5 +617,27 @@ mod tests {
         let split = split(&file);
         assert_eq!(split.yaml, Some("title: T\n"));
         assert_eq!(split.body, "Body\n");
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use super::*;
+
+    #[test]
+    fn converts_the_top_level_mapping() {
+        let json = to_json(
+            "title: Paper\nYear: 2017\nScore: 4.5\nRead: false\nPublished: 2017-06-12\n\
+             Authors:\n  - Vaswani\n  - Shazeer\nEmpty:\n",
+        )
+        .unwrap();
+        assert_eq!(json["Year"], 2017);
+        assert_eq!(json["Score"], 4.5);
+        assert_eq!(json["Read"], false);
+        assert_eq!(json["Published"], "2017-06-12");
+        assert_eq!(json["Authors"], serde_json::json!(["Vaswani", "Shazeer"]));
+        assert!(json["Empty"].is_null());
+        assert!(to_json("- a list\n").is_none());
+        assert!(to_json("").unwrap().is_empty());
     }
 }

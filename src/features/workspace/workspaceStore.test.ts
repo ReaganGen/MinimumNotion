@@ -26,6 +26,7 @@ function summary(id: string, title: string, extra: Partial<PageSummary> = {}): P
     has_children: false,
     favorite: false,
     status: { state: "ok" },
+    is_collection: false,
     ...extra,
   };
 }

@@ -1,7 +1,7 @@
 // Markdown that the editor can't represent is kept byte for byte
-// (DATA_MODEL §5.2): raw HTML, footnotes and wikilinks become atom nodes
+// (DATA_MODEL §5.2): raw HTML and footnotes become atom nodes
 // that display their source and write it back unchanged. Raw HTML is shown as
-// text and never rendered (ARCHITECTURE §2.1).
+// text and never rendered (ARCHITECTURE §2.1). Wikilinks are in pageLink.ts.
 import { Extension, Node } from "@tiptap/core";
 
 /** HTML block start: a tag, closing tag, comment, declaration or processing instruction at line start. */
@@ -13,8 +13,6 @@ const FOOTNOTE_DEFINITION = /^\[\^[^\]\s]+\]:[^\n]*(?:\n(?: {4}|\t)[^\n]*)*(?:\n
 const INLINE_HTML = /^(?:<!--[\s\S]*?-->|<\/?(?!br\b)[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*?)?\/?>)/i;
 /** Footnote reference `[^label]`. */
 const FOOTNOTE_REFERENCE = /^\[\^[^\]\s]+\](?!:)/;
-/** Wikilink `[[Target]]` or `[[Target|alias]]`; resolved by title in Phase 3. */
-const WIKILINK = /^\[\[[^[\]\n]+\]\]/;
 
 export const RawBlock = Node.create({
   name: "rawBlock",
@@ -124,23 +122,6 @@ export const FootnoteReference = Extension.create({
       const match = FOOTNOTE_REFERENCE.exec(src);
       if (!match) return undefined;
       return { type: "footnoteReference", raw: match[0], text: match[0] };
-    },
-  },
-  parseMarkdown: (token) => rawInline(token.raw),
-});
-
-/** `[[Wikilinks]]` written by other tools, kept exactly as written (ADR-007). */
-export const Wikilink = Extension.create({
-  name: "wikilink",
-  markdownTokenName: "wikilink",
-  markdownTokenizer: {
-    name: "wikilink",
-    level: "inline",
-    start: (src: string) => src.indexOf("[["),
-    tokenize: (src: string) => {
-      const match = WIKILINK.exec(src);
-      if (!match) return undefined;
-      return { type: "wikilink", raw: match[0], text: match[0] };
     },
   },
   parseMarkdown: (token) => rawInline(token.raw),
