@@ -5,6 +5,7 @@ import type { AppSettings } from "./bindings/AppSettings";
 import type { ErrorPayload } from "./bindings/ErrorPayload";
 import type { SettingsSnapshot } from "./bindings/SettingsSnapshot";
 import type { SettingsUpdate } from "./bindings/SettingsUpdate";
+import type { ThemePreference } from "./bindings/ThemePreference";
 
 /** Emitted by the native menu with a command ID payload (src-tauri/src/menu.rs). */
 export const MENU_EVENT = "forma://menu";
@@ -41,6 +42,8 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 export const ipc = {
   getSettings: () => call<SettingsSnapshot>("get_settings"),
   saveSettings: (update: SettingsUpdate) => call<AppSettings>("save_settings", { update }),
+  /** Sets the native window appearance without saving (used while settings are read-only). */
+  applyWindowTheme: (theme: ThemePreference) => call<void>("apply_window_theme", { theme }),
   /** Tells the shell the first frame is rendered so it can show the window. */
   appReady: () => call<void>("app_ready"),
 };

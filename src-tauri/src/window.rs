@@ -57,3 +57,24 @@ pub fn show_if_frontend_stalls<R: Runtime>(window: WebviewWindow<R>) {
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    /// `data-tauri-drag-region` invokes these window commands: `start_dragging` on
+    /// mousedown and, on macOS, `internal_toggle_maximize` on double-click
+    /// (tauri/src/window/scripts/drag.js). Without them the title bar can't
+    /// drag or zoom the window.
+    #[test]
+    fn capabilities_allow_title_bar_drag_and_zoom() {
+        let capabilities = include_str!("../capabilities/default.json");
+        for permission in [
+            "\"core:window:allow-start-dragging\"",
+            "\"core:window:allow-internal-toggle-maximize\"",
+        ] {
+            assert!(
+                capabilities.contains(permission),
+                "{permission} missing from capabilities/default.json"
+            );
+        }
+    }
+}

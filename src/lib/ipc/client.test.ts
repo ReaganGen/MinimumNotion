@@ -17,6 +17,16 @@ describe("ipc client", () => {
     expect(received).toEqual({ command: "save_settings", args: { update } });
   });
 
+  it("passes the theme under the `theme` argument", async () => {
+    let received: unknown;
+    mockIPC((command, args) => {
+      received = { command, args };
+      return null;
+    });
+    await ipc.applyWindowTheme("dark");
+    expect(received).toEqual({ command: "apply_window_theme", args: { theme: "dark" } });
+  });
+
   it("turns backend error payloads into IpcError", async () => {
     mockIPC(() => {
       throw { code: "read_only", message: "settings are read-only" };

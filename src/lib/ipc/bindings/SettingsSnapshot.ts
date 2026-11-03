@@ -10,6 +10,6 @@ export type SettingsSnapshot = { settings: AppSettings,
  */
 notice: string | null, 
 /**
- * True when the stored file comes from a newer Forma and won't be overwritten.
+ * Set when changes can't be saved, explaining why. `None` means writable.
  */
-read_only: boolean, };
+read_only_reason: string | null, };

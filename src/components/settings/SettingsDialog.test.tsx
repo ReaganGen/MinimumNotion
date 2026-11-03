@@ -7,7 +7,12 @@ import { ipc } from "@/lib/ipc/client";
 import { SettingsDialog } from "./SettingsDialog";
 
 vi.mock("@/lib/ipc/client", () => ({
-  ipc: { saveSettings: vi.fn(), getSettings: vi.fn(), appReady: vi.fn() },
+  ipc: {
+    saveSettings: vi.fn(),
+    applyWindowTheme: vi.fn(),
+    getSettings: vi.fn(),
+    appReady: vi.fn(),
+  },
 }));
 
 beforeEach(() => {
@@ -17,6 +22,8 @@ beforeEach(() => {
     ...defaultSettings(),
     ...update,
   }));
+  vi.mocked(ipc.applyWindowTheme).mockReset();
+  vi.mocked(ipc.applyWindowTheme).mockResolvedValue(undefined);
 });
 
 function renderOpen() {
@@ -62,11 +69,22 @@ describe("SettingsDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("explains when settings are read-only", () => {
+  it("shows why settings are read-only, and still switches the window theme", async () => {
+    const user = userEvent.setup();
+    const reason = "Forma couldn't open its settings (permission denied).";
     useSettingsStore
       .getState()
-      .hydrate({ settings: defaultSettings(), notice: null, read_only: true });
+      .hydrate({ settings: defaultSettings(), notice: null, read_only_reason: reason });
     renderOpen();
-    expect(screen.getByText(/saved by a newer version of Forma/)).toBeInTheDocument();
+    expect(screen.getByText(reason)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    expect(ipc.applyWindowTheme).toHaveBeenCalledWith("dark");
+    expect(ipc.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("shows no read-only message when settings are writable", () => {
+    renderOpen();
+    expect(screen.queryByText(/won't be saved/)).toBeNull();
   });
 });

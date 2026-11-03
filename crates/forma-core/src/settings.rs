@@ -152,15 +152,15 @@ pub struct SettingsSnapshot {
     pub settings: AppSettings,
     /// Set when the stored file had to be reset or can't be written by this build.
     pub notice: Option<String>,
-    /// True when the stored file comes from a newer Forma and won't be overwritten.
-    pub read_only: bool,
+    /// Set when changes can't be saved, explaining why. `None` means writable.
+    pub read_only_reason: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
     #[error("could not access settings at {path}: {source}")]
     Io { path: PathBuf, source: io::Error },
-    #[error("settings were written by a newer version of Forma and are read-only")]
+    #[error("settings are read-only")]
     ReadOnly,
 }
 
@@ -179,10 +179,32 @@ impl From<&SettingsError> for ErrorPayload {
 pub struct SettingsStore {
     path: PathBuf,
     settings: AppSettings,
-    read_only: bool,
+    /// Why changes can't be saved, or `None` when the file is writable.
+    read_only_reason: Option<String>,
 }
 
 impl SettingsStore {
+    /// Like [`SettingsStore::load`], but never fails. If the settings folder
+    /// can't be used, Forma still opens: it runs on defaults, read-only, and
+    /// the returned notice says why.
+    pub fn load_or_fallback(dir: &Path) -> (Self, Option<String>) {
+        Self::load(dir).unwrap_or_else(|err| Self::unavailable(&err.to_string()))
+    }
+
+    /// Read-only defaults for when the settings folder is unusable. `cause`
+    /// is shown to the user. Nothing is ever written.
+    pub fn unavailable(cause: &str) -> (Self, Option<String>) {
+        let reason = format!(
+            "Forma couldn't open its settings ({cause}). Defaults are in use, and changes won't be saved."
+        );
+        let store = Self {
+            path: PathBuf::new(),
+            settings: AppSettings::default(),
+            read_only_reason: Some(reason.clone()),
+        };
+        (store, Some(reason))
+    }
+
     /// Loads settings from `dir/settings.json`, creating `dir` if needed.
     ///
     /// Never fails because of bad file contents: a corrupt file is renamed to
@@ -200,19 +222,19 @@ impl SettingsStore {
         let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                return Ok((Self::with(path, AppSettings::default(), false), None));
+                return Ok((Self::with(path, AppSettings::default(), None), None));
             }
             Err(e) => return Err(io_err(e)),
         };
 
         match serde_json::from_slice::<AppSettings>(&bytes) {
             Ok(settings) => {
-                let read_only = settings.format_version > SETTINGS_FORMAT_VERSION;
-                let notice = read_only.then(|| {
-                    "Settings were saved by a newer version of Forma. Changes made here won't be saved."
+                let reason = (settings.format_version > SETTINGS_FORMAT_VERSION).then(|| {
+                    "These settings were saved by a newer version of Forma, so changes made here won't be saved."
                         .to_string()
                 });
-                Ok((Self::with(path, settings.normalized(), read_only), notice))
+                let notice = reason.clone();
+                Ok((Self::with(path, settings.normalized(), reason), notice))
             }
             Err(_) => {
                 let backup = path.with_file_name(format!(
@@ -227,19 +249,16 @@ impl SettingsStore {
                     "Your settings file couldn't be read, so Forma reset it to defaults. The old file was kept as {}.",
                     backup.file_name().unwrap_or_default().to_string_lossy()
                 );
-                Ok((
-                    Self::with(path, AppSettings::default(), false),
-                    Some(notice),
-                ))
+                Ok((Self::with(path, AppSettings::default(), None), Some(notice)))
             }
         }
     }
 
-    fn with(path: PathBuf, settings: AppSettings, read_only: bool) -> Self {
+    fn with(path: PathBuf, settings: AppSettings, read_only_reason: Option<String>) -> Self {
         Self {
             path,
             settings,
-            read_only,
+            read_only_reason,
         }
     }
 
@@ -247,8 +266,8 @@ impl SettingsStore {
         &self.settings
     }
 
-    pub fn is_read_only(&self) -> bool {
-        self.read_only
+    pub fn read_only_reason(&self) -> Option<&str> {
+        self.read_only_reason.as_deref()
     }
 
     pub fn path(&self) -> &Path {
@@ -258,7 +277,7 @@ impl SettingsStore {
     /// Applies `update`, persists atomically, and returns the stored result.
     /// On a write failure the in-memory settings are left unchanged.
     pub fn update(&mut self, update: SettingsUpdate) -> Result<&AppSettings, SettingsError> {
-        if self.read_only {
+        if self.read_only_reason.is_some() {
             return Err(SettingsError::ReadOnly);
         }
         let mut next = self.settings.clone();
@@ -426,7 +445,7 @@ mod tests {
         fs::write(&path, original).unwrap();
 
         let (mut store, notice) = SettingsStore::load(dir.path()).unwrap();
-        assert!(store.is_read_only());
+        assert!(store.read_only_reason().unwrap().contains("newer version"));
         assert!(notice.is_some());
         assert_eq!(store.settings().appearance.theme, ThemePreference::Dark);
         assert!(matches!(
@@ -461,5 +480,55 @@ mod tests {
         fs::write(&stale, b"partial").unwrap();
         SettingsStore::load(dir.path()).unwrap();
         assert!(!stale.exists());
+    }
+
+    #[test]
+    fn writable_folder_is_not_read_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, notice) = SettingsStore::load_or_fallback(dir.path());
+        assert!(store.read_only_reason().is_none());
+        assert!(notice.is_none());
+    }
+
+    #[test]
+    fn unreadable_folder_falls_back_to_read_only_defaults() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let settings_dir = dir.path().join("config");
+        fs::create_dir(&settings_dir).unwrap();
+        let original = br#"{"format_version":1,"appearance":{"theme":"dark"}}"#;
+        fs::write(settings_dir.join(SETTINGS_FILE_NAME), original).unwrap();
+
+        fs::set_permissions(&settings_dir, fs::Permissions::from_mode(0o000)).unwrap();
+        let (mut store, notice) = SettingsStore::load_or_fallback(&settings_dir);
+        let update_refused = matches!(
+            store.update(update_with(ThemePreference::Light, 260)),
+            Err(SettingsError::ReadOnly)
+        );
+        fs::set_permissions(&settings_dir, fs::Permissions::from_mode(0o700)).unwrap();
+
+        // The app still opens, on defaults, and says why changes won't stick.
+        assert_eq!(store.settings(), &AppSettings::default());
+        let reason = store.read_only_reason().unwrap();
+        assert!(reason.contains("couldn't open its settings"), "{reason}");
+        assert_eq!(notice.as_deref(), Some(reason));
+        assert!(update_refused);
+        // The existing file is left untouched.
+        assert_eq!(
+            fs::read(settings_dir.join(SETTINGS_FILE_NAME)).unwrap(),
+            original
+        );
+    }
+
+    #[test]
+    fn unavailable_store_is_read_only_defaults() {
+        let (mut store, notice) = SettingsStore::unavailable("no home directory");
+        assert!(notice.unwrap().contains("no home directory"));
+        assert_eq!(store.settings(), &AppSettings::default());
+        assert!(matches!(
+            store.update(update_with(ThemePreference::Dark, 260)),
+            Err(SettingsError::ReadOnly)
+        ));
     }
 }

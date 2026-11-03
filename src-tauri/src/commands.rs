@@ -1,7 +1,7 @@
 //! IPC commands. Each one is a thin wrapper around `forma-core`.
 
 use forma_core::error::{ErrorCode, ErrorPayload};
-use forma_core::settings::{AppSettings, SettingsSnapshot, SettingsUpdate};
+use forma_core::settings::{AppSettings, SettingsSnapshot, SettingsUpdate, ThemePreference};
 use tauri::{Manager, State, WebviewWindow};
 
 use crate::AppState;
@@ -18,7 +18,7 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<SettingsSnapshot, Erro
     Ok(SettingsSnapshot {
         settings: store.settings().for_ui(),
         notice,
-        read_only: store.is_read_only(),
+        read_only_reason: store.read_only_reason().map(str::to_owned),
     })
 }
 
@@ -35,6 +35,13 @@ pub fn save_settings(
         .for_ui();
     window::apply_theme(&webview_window, saved.appearance.theme);
     Ok(saved)
+}
+
+/// Sets the native window appearance without saving anything. Used while
+/// settings are read-only, so the title bar still matches the chosen theme.
+#[tauri::command]
+pub fn apply_window_theme(webview_window: WebviewWindow, theme: ThemePreference) {
+    window::apply_theme(&webview_window, theme);
 }
 
 /// Called by the frontend once its first frame is rendered with the right theme.

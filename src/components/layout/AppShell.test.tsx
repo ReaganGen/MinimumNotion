@@ -9,7 +9,12 @@ import { ipc } from "@/lib/ipc/client";
 import { AppShell } from "./AppShell";
 
 vi.mock("@/lib/ipc/client", () => ({
-  ipc: { saveSettings: vi.fn(), getSettings: vi.fn(), appReady: vi.fn() },
+  ipc: {
+    saveSettings: vi.fn(),
+    applyWindowTheme: vi.fn(),
+    getSettings: vi.fn(),
+    appReady: vi.fn(),
+  },
 }));
 
 beforeEach(() => {
@@ -75,9 +80,11 @@ describe("AppShell", () => {
 
   it("shows a settings notice and lets the user dismiss it", async () => {
     const user = userEvent.setup();
-    useSettingsStore
-      .getState()
-      .hydrate({ settings: defaultSettings(), notice: "Settings were reset.", read_only: false });
+    useSettingsStore.getState().hydrate({
+      settings: defaultSettings(),
+      notice: "Settings were reset.",
+      read_only_reason: null,
+    });
     renderShell();
 
     expect(screen.getByRole("status")).toHaveTextContent("Settings were reset.");

@@ -89,7 +89,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 function AppearanceSection() {
   const theme = useSettingsStore((s) => s.settings.appearance.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
-  const readOnly = useSettingsStore((s) => s.readOnly);
+  const readOnlyReason = useSettingsStore((s) => s.readOnlyReason);
 
   return (
     <section aria-labelledby="settings-appearance">
@@ -124,10 +124,8 @@ function AppearanceSection() {
           ))}
         </ToggleGroup>
       </div>
-      {readOnly && (
-        <p className="mt-4 text-[13px] text-muted-foreground">
-          These settings were saved by a newer version of Forma, so changes made here won't be kept.
-        </p>
+      {readOnlyReason && (
+        <p className="selectable mt-4 text-[13px] text-muted-foreground">{readOnlyReason}</p>
       )}
     </section>
   );

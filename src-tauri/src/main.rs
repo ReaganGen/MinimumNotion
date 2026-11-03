@@ -29,8 +29,12 @@ fn main() {
                 .build(),
         )
         .setup(|app| {
-            let config_dir = app.path().app_config_dir()?;
-            let (store, notice) = SettingsStore::load(&config_dir)?;
+            // Settings problems never stop the app from opening: it falls back
+            // to read-only defaults and the UI shows the notice.
+            let (store, notice) = match app.path().app_config_dir() {
+                Ok(config_dir) => SettingsStore::load_or_fallback(&config_dir),
+                Err(err) => SettingsStore::unavailable(&err.to_string()),
+            };
             let theme = store.settings().appearance.theme;
             app.manage(AppState {
                 settings: Mutex::new(store),
@@ -53,6 +57,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::save_settings,
+            commands::apply_window_theme,
             commands::app_ready,
         ])
         .run(tauri::generate_context!())

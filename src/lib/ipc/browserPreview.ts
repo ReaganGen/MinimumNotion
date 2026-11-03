@@ -27,7 +27,7 @@ export function installBrowserPreview() {
     (command, args) => {
       switch (command) {
         case "get_settings": {
-          const snapshot = { settings, notice, read_only: false };
+          const snapshot = { settings, notice, read_only_reason: null };
           notice = null;
           return snapshot;
         }
@@ -36,6 +36,7 @@ export function installBrowserPreview() {
           settings = { ...settings, ...update };
           return settings;
         }
+        case "apply_window_theme":
         case "app_ready":
           return null;
         default:

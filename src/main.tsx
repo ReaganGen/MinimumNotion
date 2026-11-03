@@ -13,11 +13,8 @@ async function loadSettings(): Promise<SettingsSnapshot> {
   try {
     return await ipc.getSettings();
   } catch (error) {
-    return {
-      settings: defaultSettings(),
-      notice: `Settings couldn't be loaded (${(error as Error).message}). Defaults are in use and won't be saved.`,
-      read_only: true,
-    };
+    const reason = `Settings couldn't be loaded (${(error as Error).message}). Defaults are in use, and changes won't be saved.`;
+    return { settings: defaultSettings(), notice: reason, read_only_reason: reason };
   }
 }
 

@@ -6,9 +6,10 @@
   "permissions": [
     "core:event:default",
     "core:window:allow-start-dragging",
-    "core:window:allow-toggle-maximize",
+    "core:window:allow-internal-toggle-maximize",
     "allow-get-settings",
     "allow-save-settings",
+    "allow-apply-window-theme",
     "allow-app-ready"
   ]
 }

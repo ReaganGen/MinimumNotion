@@ -10,7 +10,8 @@ export const SAVE_DEBOUNCE_MS = 300;
 
 interface SettingsState {
   settings: AppSettings;
-  readOnly: boolean;
+  /** Why changes can't be saved, or null when they can. */
+  readOnlyReason: string | null;
   /** One-time message from the backend, e.g. "settings were reset". */
   notice: string | null;
   saveError: string | null;
@@ -30,8 +31,8 @@ let revision = 0;
 export const useSettingsStore = create<SettingsState>()((set, get) => {
   async function persist() {
     saveTimer = undefined;
-    const { settings, readOnly } = get();
-    if (readOnly) return;
+    const { settings, readOnlyReason } = get();
+    if (readOnlyReason !== null) return;
     const sentRevision = revision;
     try {
       const saved = await ipc.saveSettings({
@@ -66,17 +67,27 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
 
   return {
     settings: defaultSettings(),
-    readOnly: false,
+    readOnlyReason: null,
     notice: null,
     saveError: null,
 
     hydrate: (snapshot) =>
-      set({ settings: snapshot.settings, readOnly: snapshot.read_only, notice: snapshot.notice }),
+      set({
+        settings: snapshot.settings,
+        readOnlyReason: snapshot.read_only_reason,
+        notice: snapshot.notice,
+      }),
 
     setTheme: (theme) => {
-      const { settings } = get();
+      const { settings, readOnlyReason } = get();
       set({ settings: { ...settings, appearance: { ...settings.appearance, theme } } });
-      // Saved right away: the native window appearance follows this setting.
+      if (readOnlyReason !== null) {
+        // Nothing can be saved, but the title bar should still match the content.
+        // A failure here is cosmetic: the page itself has already switched theme.
+        ipc.applyWindowTheme(theme).catch(() => {});
+        return;
+      }
+      // Saved right away: saving also updates the native window appearance.
       schedule(true);
     },
 
@@ -103,7 +114,7 @@ export function resetSettingsStoreForTests() {
   revision = 0;
   useSettingsStore.setState({
     settings: defaultSettings(),
-    readOnly: false,
+    readOnlyReason: null,
     notice: null,
     saveError: null,
   });

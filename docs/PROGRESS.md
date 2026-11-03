@@ -6,7 +6,7 @@ Phase 1: macOS Application Foundation
 
 ## Status
 
-Implemented and verified (details below). **Awaiting user approval** to proceed to Phase 2.
+Implemented and verified (details below). An implementation audit ([IMPLEMENTATION_AUDIT.md](IMPLEMENTATION_AUDIT.md)) found four defects, F1–F4, which were fixed in a Phase 1.1 batch. **Awaiting user approval** to proceed to Phase 2.
 
 ## Completed Phases
 
@@ -46,26 +46,40 @@ Implemented and verified (details below). **Awaiting user approval** to proceed 
 - **Development-only browser preview:** `npm run dev` opened in a browser uses an in-memory stand-in for the backend. Verified to be absent from the production bundle.
 - **New decisions:** ADR-029 (custom resize handles) and ADR-030 (menu-accelerator shortcuts).
 
+### Phase 1.1: audit fixes (2026-11-02)
+
+- **F1, title-bar double-click zoom.** The capability granted `core:window:allow-toggle-maximize`, but Tauri's drag-region script needs `core:window:allow-internal-toggle-maximize`. The grant is corrected, and a test guards both title-bar permissions (`src-tauri/src/window.rs`).
+- **F2, bundle signature.** The bundle was only linker-signed and failed `codesign --verify --strict`. With `bundle.macOS.signingIdentity: "-"`, Tauri now ad-hoc signs the whole bundle (with hardened runtime). Strict verification passes. It isn't notarized, so Gatekeeper on other Macs still warns.
+- **F3, settings startup panic.** If the settings folder can't be used, the app now opens on read-only defaults and explains why (`SettingsStore::load_or_fallback` / `unavailable`) instead of panicking during setup.
+- **F4, native theme while read-only.** A new `apply_window_theme` command changes only the native window appearance. Read-only mode uses it, so the title bar follows the chosen theme. The IPC snapshot's `read_only: bool` became `read_only_reason: string | null`, so the UI can say why settings are read-only.
+
 ### Phase 0
 
 The architecture documents and CLAUDE.md. See the git history.
 
 ## Tests
 
-Run on 2026-11-02 after the final change:
+Run on 2026-11-02 after the Phase 1.1 fixes:
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` (app and Vite config) | Pass |
 | `npx biome check .` | Pass, 0 diagnostics |
-| `npx vitest run` | 8 files, **40 tests passed** |
+| `npx vitest run` | 8 files, **45 tests passed** |
 | `cargo fmt --all --check` | Pass |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
-| `cargo test --workspace` | **26 passed**: 24 in `forma-core`, 2 in the shell |
+| `cargo test --workspace` | **30 passed**: 27 in `forma-core` (18 behavior tests + 9 generated binding exports) and 3 in the shell |
 | `npm audit` | 0 vulnerabilities |
-| `npx tauri build --bundles app` | Pass. `Forma.app` is 5.2 MiB: arm64, ad-hoc signed, `LSMinimumSystemVersion` 13.0 |
+| `npx tauri build` | Pass. `Forma.app` is 5.2 MiB, arm64, `LSMinimumSystemVersion` 13.0 |
+| `codesign --verify --deep --strict Forma.app` | Pass: "valid on disk", flags `adhoc,runtime`, `Info.plist` bound, resources sealed. Not notarized |
+
+(Before Phase 1.1 this table said "ad-hoc signed", but the bundle actually failed strict verification. See audit finding F2.)
 
 Manual and runtime checks:
+
+- **Phase 1.1, re-signed app:** visible 0.53–0.80 s after launch over three runs.
+- **Phase 1.1, F3:** with the settings folder temporarily set to mode `000`, the app opened in 0.52 s, kept running and quit cleanly. Permissions were restored afterwards, and the settings files were confirmed unchanged by hash. Whether the notice appears in the native window is **Unverified**: the session can't take screenshots.
+- **Phase 1.1, F1:** the generated ACL (`src-tauri/gen/schemas/capabilities.json`) contains `core:window:allow-internal-toggle-maximize`. The double-click itself is **Unverified** at runtime, because the session can't send mouse input.
 
 - **Release app launch, measured with a CoreGraphics window-list probe:** the window became visible 0.6–1.0 s after launch over three runs. That is well before the 3 s fallback, so the production JavaScript runs under the CSP and the `get_settings` and `app_ready` IPC calls are permitted.
   - The first build revealed a bug: `requestAnimationFrame` never fires in a hidden WKWebView window, so the window only appeared through the fallback, after 3.6 s. It's fixed by signalling from a post-commit effect.
@@ -91,6 +105,7 @@ Manual and runtime checks:
 5. **Accelerator labels:** the labels in `SHORTCUTS` (TypeScript) mirror the accelerators in `menu.rs` by hand. A test checks the command IDs but not the key labels.
 6. **The dev browser preview** can't show ⌘, inside the Claude desktop app's browser pane, because the host app captures that key. This doesn't affect the real app, where ⌘, is a native menu item.
 7. **Uncommitted outside edit:** CLAUDE.md gained an "Execution Transparency & Explainability" section during Phase 1 that didn't come from Claude. It is left uncommitted pending the user's confirmation.
+8. **Open audit items** (not part of Phase 1.1): F5 (atomic replace drops file metadata, which must be decided before Phase 2), F7 (no logging), F10 (constants duplicated across TypeScript and Rust), and the unconfirmed format decisions in audit §5.2. See [IMPLEMENTATION_AUDIT.md](IMPLEMENTATION_AUDIT.md) §8.
 
 ## Next Phase
 

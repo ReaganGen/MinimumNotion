@@ -6,10 +6,16 @@ import { defaultSettings, WIDTH_RANGES } from "./defaults";
 import { resetSettingsStoreForTests, SAVE_DEBOUNCE_MS, useSettingsStore } from "./settingsStore";
 
 vi.mock("@/lib/ipc/client", () => ({
-  ipc: { saveSettings: vi.fn(), getSettings: vi.fn(), appReady: vi.fn() },
+  ipc: {
+    saveSettings: vi.fn(),
+    applyWindowTheme: vi.fn(),
+    getSettings: vi.fn(),
+    appReady: vi.fn(),
+  },
 }));
 
 const saveSettings = vi.mocked(ipc.saveSettings);
+const applyWindowTheme = vi.mocked(ipc.applyWindowTheme);
 
 /** Behaves like the backend: stores the update and echoes it back. */
 function echoSave(update: SettingsUpdate): Promise<AppSettings> {
@@ -22,6 +28,8 @@ beforeEach(() => {
   resetSettingsStoreForTests();
   saveSettings.mockReset();
   saveSettings.mockImplementation(echoSave);
+  applyWindowTheme.mockReset();
+  applyWindowTheme.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -79,11 +87,33 @@ describe("settings store", () => {
   });
 
   it("never saves read-only settings", () => {
-    state().hydrate({ settings: defaultSettings(), notice: "newer", read_only: true });
+    state().hydrate({ settings: defaultSettings(), notice: "newer", read_only_reason: "newer" });
     state().setTheme("light");
     state().togglePanel("sidebar");
     expect(saveSettings).not.toHaveBeenCalled();
     expect(state().settings.appearance.theme).toBe("light");
+  });
+
+  it("still updates the native window theme while read-only", () => {
+    state().hydrate({ settings: defaultSettings(), notice: null, read_only_reason: "unavailable" });
+    state().setTheme("dark");
+    expect(applyWindowTheme).toHaveBeenCalledWith("dark");
+    expect(saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("ignores a failed native theme update while read-only", async () => {
+    applyWindowTheme.mockRejectedValueOnce(new Error("no window"));
+    state().hydrate({ settings: defaultSettings(), notice: null, read_only_reason: "unavailable" });
+    state().setTheme("dark");
+    await Promise.resolve();
+    expect(state().settings.appearance.theme).toBe("dark");
+    expect(state().saveError).toBeNull();
+  });
+
+  it("uses the save path, not the theme-only path, when writable", () => {
+    state().setTheme("dark");
+    expect(saveSettings).toHaveBeenCalledTimes(1);
+    expect(applyWindowTheme).not.toHaveBeenCalled();
   });
 
   it("reports a failed save", async () => {
@@ -96,7 +126,7 @@ describe("settings store", () => {
   });
 
   it("keeps the notice from hydration until dismissed", () => {
-    state().hydrate({ settings: defaultSettings(), notice: "reset", read_only: false });
+    state().hydrate({ settings: defaultSettings(), notice: "reset", read_only_reason: null });
     expect(state().notice).toBe("reset");
     state().dismissNotice();
     expect(state().notice).toBeNull();
