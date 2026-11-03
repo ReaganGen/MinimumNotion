@@ -44,6 +44,9 @@
   --selection: rgb(53 103 212 / 0.18);
   /* Search matches: a quiet marker, not a bright accent */
   --highlight: rgb(232 190 60 / 0.3);
+  /* Proposed changes: added and removed text */
+  --diff-insert: rgb(68 160 100 / 0.2);
+  --diff-delete: rgb(212 76 71 / 0.16);
 
   /* Elevation */
   --overlay: rgb(15 15 14 / 0.28);
@@ -111,6 +114,8 @@
   --link: #7ea6f0;
   --selection: rgb(120 162 240 / 0.28);
   --highlight: rgb(232 190 60 / 0.24);
+  --diff-insert: rgb(90 190 125 / 0.22);
+  --diff-delete: rgb(230 100 95 / 0.2);
 
   --overlay: rgb(0 0 0 / 0.5);
   --shadow-popover:

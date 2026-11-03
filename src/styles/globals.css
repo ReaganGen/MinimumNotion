@@ -30,6 +30,8 @@
   --color-destructive: var(--destructive);
   --color-link: var(--link);
   --color-highlight: var(--highlight);
+  --color-diff-insert: var(--diff-insert);
+  --color-diff-delete: var(--diff-delete);
   --color-overlay: var(--overlay);
 
   --radius-sm: calc(var(--radius) - 2px);

@@ -17,6 +17,7 @@ pulldown-cmark = { version = "0.13.6", default-features = false }
 rusqlite = { version = "0.41.1", features = ["bundled"] }
 saphyr = "0.3.3"
 serde.workspace = true
+similar = { version = "3.2.1", features = ["unicode"] }
 serde_json.workspace = true
 thiserror.workspace = true
 ts-rs.workspace = true

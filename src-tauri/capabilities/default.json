@@ -67,6 +67,10 @@
     "allow-ai-model-capabilities",
     "allow-ai-test-connection",
     "allow-ai-chat",
-    "allow-ai-cancel"
+    "allow-ai-cancel",
+    "allow-apply-changeset",
+    "allow-reject-changeset",
+    "allow-list-operations",
+    "allow-undo-operation"
   ]
 }

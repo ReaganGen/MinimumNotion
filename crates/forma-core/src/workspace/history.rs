@@ -15,13 +15,15 @@ const STAMP: &str = "%Y%m%dT%H%M%SZ";
 /// Snapshots younger than this are never pruned.
 const KEEP_ALL_DAYS: i64 = 30;
 
-/// Writes a snapshot of `text` and prunes old ones.
+/// Writes a snapshot of `text` and prunes old ones, except those `keep`
+/// names (an operation's protected snapshots, DATA_MODEL §7.5).
 pub fn snapshot(
     history_root: &Path,
     page_id: &str,
     text: &str,
     reason: &str,
     staging: &Path,
+    keep: &dyn Fn(&str) -> bool,
 ) -> CoreResult<PathBuf> {
     let dir = history_root.join(page_id);
     fs::create_dir_all(&dir).map_err(io_at(&dir))?;
@@ -32,7 +34,7 @@ pub fn snapshot(
     );
     let path = dir.join(name);
     write_atomic_staged(&path, text.as_bytes(), Some(staging)).map_err(io_at(&path))?;
-    prune(&dir, Utc::now());
+    prune(&dir, Utc::now(), keep);
     Ok(path)
 }
 
@@ -43,9 +45,9 @@ fn taken_at(file_name: &str) -> Option<DateTime<Utc>> {
         .map(|t| t.and_utc())
 }
 
-/// Keeps every snapshot from the last 30 days, and the newest one per day
-/// before that.
-pub fn prune(dir: &Path, now: DateTime<Utc>) {
+/// Keeps every snapshot from the last 30 days, the newest one per day
+/// before that, and every one `keep` names.
+pub fn prune(dir: &Path, now: DateTime<Utc>, keep: &dyn Fn(&str) -> bool) {
     let Ok(read) = fs::read_dir(dir) else { return };
     let mut names: Vec<String> = read
         .flatten()
@@ -60,7 +62,7 @@ pub fn prune(dir: &Path, now: DateTime<Utc>) {
         let Some(when) = taken_at(&name) else {
             continue;
         };
-        if when >= cutoff {
+        if when >= cutoff || keep(&name) {
             continue;
         }
         if !kept_days.insert(when.date_naive()) {
@@ -87,6 +89,7 @@ mod tests {
             "---\ntitle: A\n---\nBody\n",
             "external",
             &staging,
+            &|_| false,
         )
         .unwrap();
         let files: Vec<_> = fs::read_dir(root.path().join("p1"))
@@ -108,6 +111,7 @@ mod tests {
         for name in [
             "20260101T080000Z_aaaa_autosave.md",
             "20260101T090000Z_bbbb_autosave.md", // same old day: only the newest stays
+            "20260101T070000Z_ffff_ai.md",       // protected by an operation
             "20260102T080000Z_cccc_autosave.md",
             "20261101T080000Z_dddd_autosave.md", // recent: kept
             "20261101T090000Z_eeee_autosave.md", // recent: kept
@@ -115,7 +119,7 @@ mod tests {
             fs::write(dir.path().join(name), "x").unwrap();
         }
         let now = "2026-11-02T00:00:00Z".parse().unwrap();
-        prune(dir.path(), now);
+        prune(dir.path(), now, &|name| name.ends_with("_ffff_ai.md"));
         let mut left: Vec<_> = fs::read_dir(dir.path())
             .unwrap()
             .flatten()
@@ -125,6 +129,7 @@ mod tests {
         assert_eq!(
             left,
             [
+                "20260101T070000Z_ffff_ai.md",
                 "20260101T090000Z_bbbb_autosave.md",
                 "20260102T080000Z_cccc_autosave.md",
                 "20261101T080000Z_dddd_autosave.md",

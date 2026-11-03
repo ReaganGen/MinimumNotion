@@ -3,6 +3,7 @@ import {
   BookOpen,
   Cloud,
   FileText,
+  History,
   Laptop,
   RotateCcw,
   Search,
@@ -24,17 +25,26 @@ import { useSettingsStore } from "@/features/settings/settingsStore";
 import { useUiStore } from "@/features/ui/uiStore";
 import { useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import type { ContextReport } from "@/lib/ipc/bindings/ContextReport";
+import type { ModelCapabilities } from "@/lib/ipc/bindings/ModelCapabilities";
 import type { ProviderConfig } from "@/lib/ipc/bindings/ProviderConfig";
 import type { Source } from "@/lib/ipc/bindings/Source";
 import { ipc } from "@/lib/ipc/client";
 import { cn } from "@/lib/utils";
+import { ChangeHistory } from "./ChangeHistory";
+import { ProposalCard } from "./ChangeReview";
 import { ChatMarkdown } from "./ChatMarkdown";
+
+/** What a follow-up asks when a proposal met pages that changed. */
+export const ASK_AGAIN =
+  "Some pages changed after you proposed those changes, so none were applied. Read them again and propose the changes against their current content.";
 
 /** The AI assistant panel: chat with the active provider about your notes. */
 export function AiPanel() {
   const ai = useSettingsStore((s) => s.settings.ai);
   const turns = useAiChatStore((s) => s.turns);
   const clear = useAiChatStore((s) => s.clear);
+  const hasWorkspace = useWorkspaceStore((s) => s.info !== null);
+  const [history, setHistory] = useState(false);
   const ready = readiness(ai);
 
   return (
@@ -47,6 +57,11 @@ export function AiPanel() {
           AI assistant
         </h2>
         <div className="flex items-center">
+          {hasWorkspace && (
+            <IconButton label="AI changes" onClick={() => setHistory(true)}>
+              <History />
+            </IconButton>
+          )}
           {turns.length > 0 && (
             <IconButton label="Clear the conversation" onClick={clear}>
               <Trash2 />
@@ -93,6 +108,7 @@ export function AiPanel() {
       {(ready.state === "ready" || ready.state === "needs-agreement") && (
         <Conversation provider={ready.provider} agreed={ready.state === "ready"} />
       )}
+      <ChangeHistory open={history} onOpenChange={setHistory} />
     </div>
   );
 }
@@ -299,6 +315,16 @@ function Turn({
           <p className="text-[13px] text-muted-foreground">Waiting for {provider.model}…</p>
         )
       )}
+      {turn.proposal && (
+        <ProposalCard
+          turn={turn}
+          onAskAgain={() => {
+            const chat = useAiChatStore.getState();
+            chat.setMode("edit");
+            void chat.send(ASK_AGAIN, provider);
+          }}
+        />
+      )}
       {turn.status !== "streaming" && turn.sources.length > 0 && <Sources turn={turn} />}
       {turn.status === "stopped" && (
         <p className="mt-1 text-[12px] text-muted-foreground">Stopped.</p>
@@ -391,7 +417,15 @@ function SourceList({ label, sources }: { label: string; sources: Source[] }) {
   );
 }
 
-function Destination({ provider, notes }: { provider: ProviderConfig; notes: boolean }) {
+function Destination({
+  provider,
+  notes,
+  editing,
+}: {
+  provider: ProviderConfig;
+  notes: boolean;
+  editing: boolean;
+}) {
   const local = isLocalUrl(provider.base_url);
   const Icon = local ? Laptop : Cloud;
   return (
@@ -399,9 +433,71 @@ function Destination({ provider, notes }: { provider: ProviderConfig; notes: boo
       <Icon className="mt-0.5 size-3 shrink-0" aria-hidden />
       <span>
         {destinationLabel(provider)} · {provider.model} ·{" "}
-        {notes ? "with passages from your notes" : "no notes included"}
+        {editing
+          ? "reads your notes and proposes changes for you to review"
+          : notes
+            ? "with passages from your notes"
+            : "no notes included"}
       </span>
     </p>
+  );
+}
+
+/** Whether the model can call tools: the user's setting, else what the provider says. */
+function useToolCalling(provider: ProviderConfig): boolean {
+  const [caps, setCaps] = useState<ModelCapabilities | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: another model has other capabilities
+  useEffect(() => {
+    let current = true;
+    setCaps(null);
+    ipc
+      .aiModelCapabilities(provider.id)
+      .then((c) => current && setCaps(c))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [provider.id, provider.model]);
+  return provider.options.tool_calling_override ?? caps?.tool_calling === "yes";
+}
+
+function ModeSwitch({ provider }: { provider: ProviderConfig }) {
+  const mode = useAiChatStore((s) => s.mode);
+  const setMode = useAiChatStore((s) => s.setMode);
+  const canEdit = useToolCalling(provider);
+  // A mode the model can't do falls back to Ask.
+  useEffect(() => {
+    if (!canEdit && mode === "edit") setMode("ask");
+  }, [canEdit, mode, setMode]);
+  const option = (value: "ask" | "edit", label: string, title: string, disabled = false) => (
+    <button
+      type="button"
+      aria-pressed={mode === value}
+      disabled={disabled}
+      title={title}
+      onClick={() => setMode(value)}
+      className={cn(
+        "rounded px-1.5 py-0.5 text-[12px] disabled:opacity-40",
+        mode === value
+          ? "bg-background text-foreground shadow-popover"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <fieldset aria-label="Mode" className="inline-flex rounded-md border-0 bg-muted p-0.5">
+      {option("ask", "Ask", "Answers from your notes. Changes nothing.")}
+      {option(
+        "edit",
+        "Edit",
+        canEdit
+          ? "Proposes changes to your notes. Nothing changes until you review and apply them."
+          : `${provider.model} can't call tools, which Edit needs. If it can, turn on “Look things up in your notes” in Settings → AI.`,
+        !canEdit,
+      )}
+    </fieldset>
   );
 }
 
@@ -439,6 +535,7 @@ function Composer({ provider, hasWorkspace }: { provider: ProviderConfig; hasWor
   const page = useAiChatStore((s) => s.page);
   const selection = useAiChatStore((s) => s.selection);
   const searchNotes = useAiChatStore((s) => s.searchNotes);
+  const mode = useAiChatStore((s) => s.mode);
   const focusRequest = useAiChatStore((s) => s.focusRequest);
   const { send, stop, setDraft, attachPage, attachSelection, setSearchNotes } =
     useAiChatStore.getState();
@@ -467,13 +564,15 @@ function Composer({ provider, hasWorkspace }: { provider: ProviderConfig; hasWor
     }
   }
 
-  const notes = hasWorkspace && (searchNotes || page !== null || selection !== null);
+  const editing = hasWorkspace && mode === "edit";
+  const notes = hasWorkspace && (searchNotes || editing || page !== null || selection !== null);
   const canAddPage = hasWorkspace && openPage !== null && page?.id !== openPage.id;
   return (
     <div className="shrink-0 px-3 pb-3">
       <div className="rounded-lg px-2.5 py-2 shadow-popover">
         {hasWorkspace && (
           <div className="mb-1.5 flex flex-wrap items-center gap-1">
+            <ModeSwitch provider={provider} />
             {selection && (
               <Chip
                 icon={<TextQuote aria-hidden />}
@@ -500,24 +599,26 @@ function Composer({ provider, hasWorkspace }: { provider: ProviderConfig; hasWor
                 <span className="truncate">Add “{openPage.title}”</span>
               </button>
             )}
-            <button
-              type="button"
-              aria-pressed={searchNotes}
-              onClick={() => setSearchNotes(!searchNotes)}
-              title={
-                searchNotes
-                  ? "Each message searches your notes for passages to include"
-                  : "Messages don't search your notes"
-              }
-              className={cn(
-                "ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] [&_svg]:size-3",
-                searchNotes
-                  ? "text-foreground hover:bg-accent"
-                  : "text-faint-foreground line-through hover:bg-accent",
-              )}
-            >
-              <Search aria-hidden /> Search notes
-            </button>
+            {!editing && (
+              <button
+                type="button"
+                aria-pressed={searchNotes}
+                onClick={() => setSearchNotes(!searchNotes)}
+                title={
+                  searchNotes
+                    ? "Each message searches your notes for passages to include"
+                    : "Messages don't search your notes"
+                }
+                className={cn(
+                  "ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] [&_svg]:size-3",
+                  searchNotes
+                    ? "text-foreground hover:bg-accent"
+                    : "text-faint-foreground line-through hover:bg-accent",
+                )}
+              >
+                <Search aria-hidden /> Search notes
+              </button>
+            )}
           </div>
         )}
         <div className="flex items-end gap-1.5">
@@ -528,7 +629,7 @@ function Composer({ provider, hasWorkspace }: { provider: ProviderConfig; hasWor
             value={text}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={`Message ${provider.model}`}
+            placeholder={editing ? "Ask for changes to your notes" : `Message ${provider.model}`}
             className="max-h-40 min-h-6 flex-1 resize-none bg-transparent text-[13.5px] leading-6 outline-none [field-sizing:content] placeholder:text-faint-foreground"
           />
           {busy ? (
@@ -542,7 +643,7 @@ function Composer({ provider, hasWorkspace }: { provider: ProviderConfig; hasWor
           )}
         </div>
       </div>
-      <Destination provider={provider} notes={notes} />
+      <Destination provider={provider} notes={notes} editing={editing} />
     </div>
   );
 }

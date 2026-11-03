@@ -21,4 +21,8 @@ search_notes: boolean,
  * The number of the first new source key, so keys stay unique in a
  * conversation.
  */
-first_source: number, };
+first_source: number, 
+/**
+ * Edit mode: the model may also propose changes, for the user to review.
+ */
+edit: boolean, };

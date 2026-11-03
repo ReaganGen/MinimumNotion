@@ -207,6 +207,10 @@ fn main() {
             ai_commands::ai_test_connection,
             ai_commands::ai_chat,
             ai_commands::ai_cancel,
+            ai_commands::apply_changeset,
+            ai_commands::reject_changeset,
+            ai_commands::list_operations,
+            ai_commands::undo_operation,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Forma");

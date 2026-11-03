@@ -4,11 +4,15 @@
 // exactly what it sent.
 import { create } from "zustand";
 import { cursorBlockText } from "@/features/editor/activeEditor";
+import { flushAllEdits, useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import type { AiError } from "@/lib/ipc/bindings/AiError";
 import type { AskContext } from "@/lib/ipc/bindings/AskContext";
+import type { ChangeConflict } from "@/lib/ipc/bindings/ChangeConflict";
+import type { ChangeSetPreview } from "@/lib/ipc/bindings/ChangeSetPreview";
 import type { ChatStreamEvent } from "@/lib/ipc/bindings/ChatStreamEvent";
 import type { ContextReport } from "@/lib/ipc/bindings/ContextReport";
 import type { Message } from "@/lib/ipc/bindings/Message";
+import type { OperationInfo } from "@/lib/ipc/bindings/OperationInfo";
 import type { ProviderConfig } from "@/lib/ipc/bindings/ProviderConfig";
 import type { Source } from "@/lib/ipc/bindings/Source";
 import type { ToolActivity } from "@/lib/ipc/bindings/ToolActivity";
@@ -17,6 +21,20 @@ import { nextSourceNumber } from "./citations";
 import { destinationLabel } from "./providers";
 
 export type TurnStatus = "streaming" | "done" | "truncated" | "stopped" | "failed";
+
+export type ChatMode = "ask" | "edit";
+
+/** Changes an answer proposed, and what became of them. */
+export interface Proposal {
+  preview: ChangeSetPreview;
+  status: "pending" | "applying" | "applied" | "rejected" | "conflicts";
+  /** Why the last attempt to apply it didn't. */
+  conflicts?: ChangeConflict[];
+  error?: string;
+  /** Once applied. */
+  operation?: OperationInfo;
+  undo?: "undoing" | "undone" | { conflicts: ChangeConflict[] } | { error: string };
+}
 
 export interface ChatTurn {
   id: string;
@@ -30,8 +48,10 @@ export interface ChatTurn {
   context?: ContextReport;
   /** For assistant turns: the notes given to the model, under the keys it cites. */
   sources: Source[];
-  /** For assistant turns: what the model looked up. */
+  /** For assistant turns: what the model looked up or proposed. */
   activity: ToolActivity[];
+  /** For assistant turns in Edit mode: the changes proposed. */
+  proposal?: Proposal;
 }
 
 export interface PageAttachment {
@@ -53,6 +73,8 @@ interface AiChatState {
   selection: SelectionAttachment | null;
   /** Search the notes for each message. */
   searchNotes: boolean;
+  /** Ask answers; Edit also proposes changes for review. */
+  mode: ChatMode;
   /** The composer's text, so actions can fill it in. */
   draft: string;
   /** Bumped when an action wants the message box focused. */
@@ -61,6 +83,12 @@ interface AiChatState {
   attachPage: (page: PageAttachment | null) => void;
   attachSelection: (selection: SelectionAttachment | null) => void;
   setSearchNotes: (on: boolean) => void;
+  setMode: (mode: ChatMode) => void;
+  /** Applies the chosen changes of a turn's proposal, all or none. */
+  applyProposal: (turnId: string, changeIds: string[]) => Promise<void>;
+  rejectProposal: (turnId: string) => void;
+  /** Undoes an applied proposal. */
+  undoProposal: (turnId: string) => Promise<void>;
   requestFocus: () => void;
   send: (text: string, provider: ProviderConfig) => Promise<void>;
   stop: () => void;
@@ -99,9 +127,57 @@ export const useAiChatStore = create<AiChatState>()((set, get) => {
     page: null,
     selection: null,
     searchNotes: true,
+    mode: "ask",
     draft: "",
     focusRequest: 0,
     setDraft: (draft) => set({ draft }),
+    setMode: (mode) => set({ mode }),
+
+    applyProposal: async (turnId, changeIds) => {
+      const turn = get().turns.find((t) => t.id === turnId);
+      const proposal = turn?.proposal;
+      if (!proposal || proposal.status === "applying" || proposal.status === "applied") return;
+      const change = (next: Partial<Proposal>) =>
+        update(turnId, (t) => (t.proposal ? { ...t, proposal: { ...t.proposal, ...next } } : t));
+      change({ status: "applying", error: undefined });
+      try {
+        // Typed text reaches the disk first, so a page edited since the
+        // proposal shows up as a conflict instead of being overwritten.
+        await flushAllEdits();
+        const outcome = await ipc.applyChangeset(proposal.preview.id, changeIds);
+        if (outcome.outcome === "applied") {
+          change({ status: "applied", operation: outcome.operation, conflicts: undefined });
+        } else {
+          change({ status: "conflicts", conflicts: outcome.conflicts });
+        }
+      } catch (error) {
+        change({ status: "pending", error: (error as Error).message });
+      }
+    },
+
+    rejectProposal: (turnId) => {
+      const proposal = get().turns.find((t) => t.id === turnId)?.proposal;
+      if (!proposal || proposal.status === "applied") return;
+      void ipc.rejectChangeset(proposal.preview.id).catch(() => {});
+      update(turnId, (t) =>
+        t.proposal ? { ...t, proposal: { ...t.proposal, status: "rejected" } } : t,
+      );
+    },
+
+    undoProposal: async (turnId) => {
+      const proposal = get().turns.find((t) => t.id === turnId)?.proposal;
+      if (!proposal?.operation || proposal.undo === "undoing" || proposal.undo === "undone") return;
+      const setUndo = (undo: Proposal["undo"]) =>
+        update(turnId, (t) => (t.proposal ? { ...t, proposal: { ...t.proposal, undo } } : t));
+      setUndo("undoing");
+      try {
+        await flushAllEdits();
+        const outcome = await ipc.undoOperation(proposal.operation.op_id);
+        setUndo(outcome.outcome === "applied" ? "undone" : { conflicts: outcome.conflicts });
+      } catch (error) {
+        setUndo({ error: (error as Error).message });
+      }
+    },
     attachPage: (page) => set({ page }),
     // Rust refuses a longer one; this keeps the start instead.
     attachSelection: (selection) =>
@@ -116,7 +192,7 @@ export const useAiChatStore = create<AiChatState>()((set, get) => {
 
     send: async (text, provider) => {
       const content = text.trim();
-      const { turns, requestId: running, page, selection, searchNotes } = get();
+      const { turns, requestId: running, page, selection, searchNotes, mode } = get();
       if (!content || running !== null) return;
       const question: ChatTurn = {
         id: turnId(),
@@ -139,8 +215,10 @@ export const useAiChatStore = create<AiChatState>()((set, get) => {
         page_id: page?.id ?? null,
         selection: selection ? { page_id: selection.pageId, text: selection.text } : null,
         focus: page ? cursorBlockText(page.id) : null,
-        search_notes: searchNotes,
+        // Edit mode reads notes to propose changes.
+        search_notes: searchNotes || mode === "edit",
         first_source: nextSourceNumber(turns.flatMap((t) => t.sources)),
+        edit: mode === "edit" && useWorkspaceStore.getState().info !== null,
       };
       const messages = history([...turns, question]);
       const requestId = newRequestId();
@@ -156,6 +234,12 @@ export const useAiChatStore = create<AiChatState>()((set, get) => {
             return;
           case "tool":
             update(answer.id, (t) => ({ ...t, activity: [...t.activity, event.activity] }));
+            return;
+          case "proposal":
+            update(answer.id, (t) => ({
+              ...t,
+              proposal: { preview: event.proposal, status: "pending" },
+            }));
             return;
           case "text":
             update(answer.id, (t) => ({ ...t, content: t.content + event.text }));
@@ -226,6 +310,12 @@ export const useAiChatStore = create<AiChatState>()((set, get) => {
 
     clear: () => {
       get().stop();
+      // Proposals not applied are forgotten in Rust as well.
+      for (const turn of get().turns) {
+        if (turn.proposal?.status === "pending" || turn.proposal?.status === "conflicts") {
+          void ipc.rejectChangeset(turn.proposal.preview.id).catch(() => {});
+        }
+      }
       set({ turns: [], requestId: null, page: null, selection: null });
     },
   };
@@ -238,6 +328,7 @@ export function resetAiChatStoreForTests() {
     page: null,
     selection: null,
     searchNotes: true,
+    mode: "ask",
     draft: "",
     focusRequest: 0,
   });

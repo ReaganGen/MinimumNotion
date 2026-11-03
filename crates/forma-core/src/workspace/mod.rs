@@ -2,6 +2,7 @@
 //! workspace files. Callers serialize access (one writer at a time) by
 //! holding a `Workspace` behind a mutex.
 
+pub mod changeset;
 pub mod collections;
 mod history;
 mod indexing;
@@ -15,6 +16,7 @@ mod scan;
 mod search;
 pub use search::is_cjk;
 mod state;
+mod tx;
 pub mod types;
 pub mod watcher;
 
@@ -64,9 +66,17 @@ pub struct Workspace {
     /// any other revision was produced outside this session.
     written: HashMap<String, String>,
     last_autosave_snapshot: HashMap<String, SystemTime>,
-    /// Tests stop a batch after this many files, as if Forma had crashed.
+    /// The transaction being applied, if any (`tx.rs`).
+    tx: Option<tx::Tx>,
+    /// Snapshots that recorded operations refer to, relative to `.forma/`.
+    /// Pruning keeps them (DATA_MODEL §7.5).
+    protected: HashSet<String>,
+    /// Tests stop a batch after this many files (or a transaction after
+    /// this many actions), as if Forma had crashed.
     #[cfg(test)]
     crash_after_steps: Option<usize>,
+    #[cfg(test)]
+    simulated_crash: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -136,7 +146,14 @@ impl Workspace {
         refuse_unsuitable_folder(&root)?;
 
         let forma = root.join(".forma");
-        for sub in ["tmp", "history", "trash", "recovery", "journal"] {
+        for sub in [
+            "tmp",
+            "history",
+            "trash",
+            "recovery",
+            "journal",
+            "operations",
+        ] {
             let dir = forma.join(sub);
             fs::create_dir_all(&dir).map_err(io_at(&dir))?;
         }
@@ -225,12 +242,17 @@ impl Workspace {
             pending: WorkspaceChanges::default(),
             written: HashMap::new(),
             last_autosave_snapshot: HashMap::new(),
+            tx: None,
+            protected: HashSet::new(),
             #[cfg(test)]
             crash_after_steps: None,
+            #[cfg(test)]
+            simulated_crash: false,
         };
         if workspace.read_only_reason.is_none() {
             workspace.recover_after_crash();
         }
+        workspace.load_protected();
         workspace.rescan(None);
         workspace.pending = WorkspaceChanges::default();
         Ok(workspace)
@@ -467,7 +489,9 @@ impl Workspace {
         previous: Option<(&str, &str)>,
         force_reason: Option<&str>,
     ) -> CoreResult<String> {
-        if let Some((old_text, old_rev)) = previous {
+        if self.in_tx() {
+            self.record_page_write(id, file, text, previous)?;
+        } else if let Some((old_text, old_rev)) = previous {
             let now = SystemTime::now();
             let reason = if force_reason.is_some() {
                 force_reason
@@ -481,13 +505,7 @@ impl Workspace {
                 None
             };
             if let Some(reason) = reason {
-                history::snapshot(
-                    &self.forma().join("history"),
-                    id,
-                    old_text,
-                    reason,
-                    &self.staging(),
-                )?;
+                self.take_snapshot(id, old_text, reason)?;
                 if reason == "autosave" {
                     self.last_autosave_snapshot.insert(id.to_string(), now);
                 }
@@ -764,7 +782,7 @@ impl Workspace {
                 PageKind::Leaf => parent_dir.join(format!("{new_stem}.md")),
                 _ => parent_dir.join(&new_stem),
             };
-            fs::rename(&location, &new_location).map_err(io_at(&location))?;
+            self.rename_path(&location, &new_location)?;
             self.rescan(Some((location, new_location)));
         } else {
             self.rescan(None);
@@ -834,9 +852,9 @@ impl Workspace {
                 "A folder named “{stem}” already exists next to this page. Rename one of them first."
             )));
         }
-        fs::create_dir(&dir).map_err(io_at(&dir))?;
+        self.make_dir(&dir)?;
         let index_file = dir.join("index.md");
-        fs::rename(&file, &index_file).map_err(io_at(&file))?;
+        self.rename_path(&file, &index_file)?;
         // Hand-written relative references now need one more "../".
         let bytes = fs::read(&index_file).map_err(io_at(&index_file))?;
         let text = String::from_utf8_lossy(&bytes).into_owned();
@@ -928,7 +946,7 @@ impl Workspace {
         };
         let stem = unique_stem(&stem, &taken_stems(&target_dir), None);
         let new_location = target_dir.join(format!("{stem}{extension}"));
-        fs::rename(&location, &new_location).map_err(io_at(&location))?;
+        self.rename_path(&location, &new_location)?;
         self.rescan(Some((location, new_location)));
 
         let old_key = order_key(old_parent.as_deref());
@@ -1066,10 +1084,10 @@ impl Workspace {
             page_ids,
         };
         let trash_dir = self.forma().join("trash").join(&record.entry_id);
-        fs::create_dir_all(&trash_dir).map_err(io_at(&trash_dir))?;
-        save_json(&trash_dir.join("entry.json"), &record, &self.staging())?;
+        self.make_dir(&trash_dir)?;
+        self.save_record(&trash_dir.join("entry.json"), &record)?;
         let name = location.file_name().expect("pages have names");
-        fs::rename(&location, trash_dir.join(name)).map_err(io_at(&location))?;
+        self.rename_path(&location, &trash_dir.join(name))?;
         self.rescan(None);
         Ok(TrashEntryInfo {
             entry_id: record.entry_id,
@@ -1145,8 +1163,8 @@ impl Workspace {
         };
         let stem = unique_stem(&stem, &taken_stems(&target_dir), None);
         let destination = target_dir.join(format!("{stem}{extension}"));
-        fs::rename(&item, &destination).map_err(io_at(&item))?;
-        fs::remove_dir_all(&trash_dir).map_err(io_at(&trash_dir))?;
+        self.rename_path(&item, &destination)?;
+        self.discard_dir(&trash_dir)?;
         self.rescan(None);
         let restored = record
             .root_page_id
@@ -1337,14 +1355,24 @@ impl Workspace {
     /// Saves `text` as a history snapshot ("Use theirs" keeps the discarded buffer).
     pub fn snapshot_text(&self, page_id: &str, text: &str, reason: &str) -> CoreResult<()> {
         validate_uuid(page_id, "Page")?;
+        self.take_snapshot(page_id, text, reason).map(|_| ())
+    }
+
+    /// Snapshots `text` into the page's history, keeping protected snapshots
+    /// when older ones are pruned.
+    fn take_snapshot(&self, page_id: &str, text: &str, reason: &str) -> CoreResult<PathBuf> {
+        let keep = |name: &str| {
+            self.protected
+                .contains(&format!("history/{page_id}/{name}"))
+        };
         history::snapshot(
             &self.forma().join("history"),
             page_id,
             text,
             reason,
             &self.staging(),
+            &keep,
         )
-        .map(|_| ())
     }
 }
 

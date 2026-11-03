@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use forma_core::settings::{AiSettings, ProviderConfig, ProviderKind};
+use forma_core::workspace::changeset::{ChangeSet, ChangeSetPreview};
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
@@ -29,6 +30,10 @@ const ANSWER_RESERVE: u32 = 1024;
 pub const DEFAULT_WINDOW: u32 = 8192;
 /// Rounds of tool calls in one answer (ARCHITECTURE §10.2 allows 12).
 pub const MAX_TOOL_ROUNDS: usize = 6;
+/// Edit mode reads, then proposes, so it gets the full 12.
+pub const MAX_EDIT_ROUNDS: usize = 12;
+/// Proposals kept for review; older ones are dropped.
+const KEEP_PROPOSALS: usize = 20;
 /// After this, the model gets no more tools and must answer.
 const TOOL_DEADLINE: Duration = Duration::from_secs(10 * 60);
 /// The connection test's request may take this long, including a model load.
@@ -47,9 +52,14 @@ pub enum ChatStreamEvent {
     Sources {
         sources: Vec<Source>,
     },
-    /// The model looked something up.
+    /// The model looked something up, or proposed a change.
     Tool {
         activity: ToolActivity,
+    },
+    /// Edit mode: changes proposed for the user to review. Nothing has
+    /// been written; `apply_changeset` is the user's to call.
+    Proposal {
+        proposal: ChangeSetPreview,
     },
     Text {
         text: String,
@@ -82,6 +92,8 @@ pub struct AiService {
     /// (provider ID, model) → what the provider reported.
     capabilities: Mutex<HashMap<(String, String), ModelCapabilities>>,
     running: Mutex<HashMap<String, CancellationToken>>,
+    /// Proposals awaiting review, newest last. Holding one changes nothing.
+    proposals: Mutex<Vec<ChangeSet>>,
 }
 
 fn not_configured(message: impl Into<String>) -> AiError {
@@ -100,7 +112,30 @@ impl AiService {
             keys: Mutex::default(),
             capabilities: Mutex::default(),
             running: Mutex::default(),
+            proposals: Mutex::default(),
         }
+    }
+
+    /// A proposal awaiting review.
+    pub fn proposal(&self, id: &str) -> Option<ChangeSet> {
+        self.proposals
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+    }
+
+    /// Forgets a proposal: rejected, or applied.
+    pub fn discard_proposal(&self, id: &str) {
+        self.proposals.lock().unwrap().retain(|s| s.id != id);
+    }
+
+    fn keep_proposal(&self, set: ChangeSet) {
+        let mut kept = self.proposals.lock().unwrap();
+        kept.push(set);
+        let extra = kept.len().saturating_sub(KEEP_PROPOSALS);
+        kept.drain(..extra);
     }
 
     /// Stores `key` for `provider_id` in the Keychain.
@@ -361,14 +396,28 @@ impl AiService {
             });
         }
         let tools_on = packed.report.tools;
+        let edit = packed.report.edit;
         log::info!(
-            "AI request to {} ({}, {} messages, {} sources, tools {})",
+            "AI request to {} ({}, {} messages, {} sources, tools {}{})",
             host_of(&config.base_url),
             config.model,
             packed.turns.len(),
             packed.book.sources.len(),
-            if tools_on { "on" } else { "off" }
+            if tools_on { "on" } else { "off" },
+            if edit { ", edit mode" } else { "" }
         );
+        let request_text = input
+            .messages
+            .last()
+            .map(|m| m.content.clone())
+            .unwrap_or_default();
+        let mut proposal = ChangeSet::new(&request_text, &config.name, &config.model);
+        let max_rounds = if edit {
+            MAX_EDIT_ROUNDS
+        } else {
+            MAX_TOOL_ROUNDS
+        };
+        let specs = if edit { tools::act_specs } else { tools::specs };
 
         let provider = Provider::new(config, key.as_deref(), &self.client);
         let mut turns = packed.turns;
@@ -376,18 +425,18 @@ impl AiService {
         let mut used = packed.tokens;
         let started = Instant::now();
         let mut wrote_text = false;
-        for round in 0..=MAX_TOOL_ROUNDS {
+        for round in 0..=max_rounds {
             let tools_now = tools_on
-                && round < MAX_TOOL_ROUNDS
+                && round < max_rounds
                 && used < budget.saturating_mul(9) / 10
                 && started.elapsed() < TOOL_DEADLINE;
             let mut request =
                 Self::request(config, Some(packed.system.clone()), turns.clone(), window);
             if tools_now {
-                request.tools = tools::specs();
+                request.tools = specs();
             } else if tools_on && round > 0 {
                 // Earlier rounds called tools: keep them defined, but answer now.
-                request.tools = tools::specs();
+                request.tools = specs();
                 request.allow_tool_calls = false;
             }
             let mut text = String::new();
@@ -432,6 +481,14 @@ impl AiService {
                 } else {
                     stop
                 };
+                if !proposal.is_empty()
+                    && let Some(preview) =
+                        library.and_then(|l| l.read(|view| proposal.preview(view)))
+                {
+                    log::info!("AI proposed {} change(s)", proposal.changes.len());
+                    self.keep_proposal(proposal);
+                    on_event(ChatStreamEvent::Proposal { proposal: preview });
+                }
                 on_event(ChatStreamEvent::Done { stop_reason });
                 return Ok(());
             }
@@ -453,7 +510,13 @@ impl AiService {
                     .saturating_sub(used)
                     .saturating_sub(tokens::PER_MESSAGE);
                 let first_new = book.sources.len();
-                let output = run_tool(library, &call, &mut book, room);
+                let output = run_tool(
+                    library,
+                    &call,
+                    &mut book,
+                    edit.then_some(&mut proposal),
+                    room,
+                );
                 used += tokens::estimate(&output.content) + tokens::PER_MESSAGE;
                 on_event(ChatStreamEvent::Tool {
                     activity: output.activity,
@@ -558,10 +621,19 @@ fn run_tool(
     library: Option<&Library>,
     call: &ToolCall,
     book: &mut SourceBook,
+    proposal: Option<&mut ChangeSet>,
     room: u32,
 ) -> tools::ToolOutput {
     library
-        .and_then(|l| l.read(|view| tools::run(view, &call.name, &call.arguments, book, room)))
+        .and_then(|l| {
+            l.read(|view| match proposal {
+                // Proposal tools exist only in Edit mode; elsewhere their
+                // names are unknown tools.
+                Some(set) => tools::run_proposal(view, &call.name, &call.arguments, set)
+                    .unwrap_or_else(|| tools::run(view, &call.name, &call.arguments, book, room)),
+                None => tools::run(view, &call.name, &call.arguments, book, room),
+            })
+        })
         .unwrap_or_else(|| tools::ToolOutput {
             content: serde_json::json!({ "error": "No workspace is open." }).to_string(),
             is_error: true,

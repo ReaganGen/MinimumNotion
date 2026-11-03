@@ -30,6 +30,11 @@ impl<'a> ReadView<'a> {
         self.workspace.get_page(id)
     }
 
+    /// Whether the page's ID is in its file (ADR-005); `None` if no such page.
+    pub fn id_persisted(&self, id: &str) -> Option<bool> {
+        self.workspace.index.get(id).map(|e| e.id_persisted)
+    }
+
     pub fn title(&self, id: &str) -> Option<String> {
         self.workspace.index.get(id).map(|e| e.title.clone())
     }
@@ -56,6 +61,11 @@ impl<'a> ReadView<'a> {
             .unwrap_or_default();
         map.retain(|key, _| !RESERVED_KEYS.contains(&key.as_str()));
         map
+    }
+
+    /// A collection's schema, when it can be changed.
+    pub fn schema(&self, collection_id: &str) -> Option<crate::collection::Schema> {
+        self.workspace.editable_schema(collection_id).ok()
     }
 
     pub fn page_count(&self) -> usize {

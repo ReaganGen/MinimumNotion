@@ -460,7 +460,7 @@ Ollama uses its native API because the OpenAI-compatible endpoint can't set `num
 
 The agent runtime holds a **read-only handle** to the Document Service plus a ChangeSet builder. It has no reference to any mutation API, so authorization is enforced by construction, not by prompt instructions. Applying a change is the `apply_changeset` IPC command, which only the approval UI calls.
 
-Act mode needs a model with tool calling. When tool support is `No` or `Unknown`, Act mode is unavailable and the UI says why. Ask mode still works with any model through pre-retrieval (§11).
+Act mode (called **Edit** in the panel) needs a model with tool calling. When tool support is `No` or `Unknown`, Act mode is unavailable and the UI says why. Ask mode still works with any model through pre-retrieval (§11).
 
 **As built in Phase 5 (Ask mode, ADR-042).** The read-only handle is `forma_core::workspace::read::ReadView`: it has no method that writes. `Workspace` also has a few `&self` methods that write (recovery buffers, snapshots), so the type matters, not just the `&`. `forma_ai::knowledge::Library` wraps the session's workspace slot and hands out only a `ReadView`, briefly, per read. Each Ask tool is a `ReadTool` whose `run` takes that view and its arguments, and a test pins the registry to that type. Tool use follows the provider's report or the user's setting (Settings → AI → "Look things up in your notes"). With "Search notes" turned off in the panel, no tools are offered.
 
@@ -474,12 +474,12 @@ Each tool has a name, a description, an input JSON Schema (generated from Rust t
 | `read_page(page_id, part?)` | Read | Body Markdown as a numbered source. Long pages come in parts of about 2,400 tokens, cut between passages |
 | `list_pages(parent_id?)` | Read | Children: ID, title, whether it has subpages, whether it's a collection (at most 100) |
 | `get_page_metadata(page_id)` | Read | Title, path, parent, tags, properties, dates, collection, body revision |
-| `create_page(title, parent_id?, content)` | Propose | |
-| `edit_page(page_id, base_rev, edits)` | Propose | `edits` = exact `{old, new}` replacements (each `old` must match exactly once) or `{replace_all_body}` |
-| `move_page(page_id, new_parent_id)` | Propose | Cycle check |
-| `create_collection(title, parent_id?, schema)` | Propose | |
-| `update_page_properties(page_id, base_rev, set, unset)` | Propose | Typed against the schema |
-| `link_pages(source_id, target_id, context?)` | Propose | Becomes an edit that inserts a page link |
+| `create_page(title, parent_id?, content?)` | Propose | Returns `new-N`, usable as a page ID in later proposals |
+| `edit_page(page_id, edits \| replace_all_body)` | Propose | `edits` = exact `{old, new}` replacements (each `old` must match exactly once). The body revision is captured when proposed, not passed |
+| `move_page(page_id, new_parent_id?)` | Propose | Cycle check, counting pages proposed in the set |
+| `create_collection(title, parent_id?, properties)` | Propose | Properties: name, type, options |
+| `update_page_properties(page_id, set?, unset?)` | Propose | By property name, typed against the schema (option names case-insensitive) |
+| `link_pages(source_id, target_id, text?)` | Propose | An edit that turns `text` (once in the page) into a page link, or adds the link as a last line. Applying writes the target's ID if it isn't in its file |
 
 - Tools accept **page IDs only, never paths**. Every ID is resolved through the index and the Document Service, which is how workspace boundaries are enforced.
 - Invalid arguments come back to the model as structured tool errors, so it can correct them. The runtime never panics or partially applies a change.
@@ -500,7 +500,15 @@ User request → context retrieval → model ⇄ read tools → proposal tools �
 ```
 
 - **Conflicts.** If any selected operation's `base_rev` no longer matches, none of the selected operations are applied. The preview marks the conflicting ones and offers to refresh the proposal against the current content.
-- **Undo** restores each affected page from its snapshot, but only if the page is still at the revision the operation left it in. Otherwise it reports the conflict for that page and does nothing to it. Created pages are moved to the trash, moved pages are moved back, and new collections are reverted to regular pages. An undo is itself a recorded operation, so it can be redone.
+- **Undo** restores each affected page from its snapshot, but only if the page is still at the revision the operation left it in. Created pages are moved to the trash and moved pages are moved back. An undo is itself a recorded operation, so it can be redone.
+
+**As built in Phase 6 (ADR-043).**
+
+- **Edit mode** in the panel (Ask | Edit) offers the read tools and the six proposal tools, for models that can call tools. The model's proposals build a `forma_core::workspace::changeset::ChangeSet` in memory; at the end of the answer, Rust keeps the set (the last 20) and sends its preview. `apply_changeset(changeset_id, change_ids)`, `reject_changeset`, `list_operations` and `undo_operation` are the commands; only the review dialog and the history dialog call them.
+- **Transactions** (`workspace/tx.rs`). Applying and undoing open a transaction: every file action the Document Service takes is added to a journal in `.forma/journal/` (with a snapshot of any file it overwrites) before it's done. A failure undoes the recorded actions newest first; after a crash, the next start does the same. Each step back checks the file first and leaves one changed since alone. The Document Service's own methods (create, move, trash, restore, collections) are transaction-aware, so a set uses the same code as the UI.
+- **Undo is all or nothing.** If any page isn't as the operation left it, nothing is undone, and the conflicts are listed (not page by page, as first planned: a half-reverted set would match no record). A created page goes to the trash; a page it had been put in keeps its folder form.
+- **Before applying or undoing,** the panel saves text being typed, so a page edited since shows up as a conflict.
+- **History:** the panel's "AI changes" dialog lists the recorded operations, newest first, with Undo, or Redo for an undo.
 
 ### 10.4 Prompt-injection posture
 
@@ -573,7 +581,7 @@ Expected future work, intentionally deferred: identity and authorship metadata, 
 | R7 | Keychain access prompts during development (ad-hoc signatures change between builds) | High in dev / Low | Documented. Keys are read once per session. Release builds use a stable signing identity | 4, 7 |
 | R8 | Provider API drift (OpenAI Chat Completions vs Responses, Anthropic versions, Ollama endpoints) | Medium / Medium | **Checked in Phase 4** (ADR-038). Protocols isolated in modules with stream-fixture tests; an ignored live test checks the cloud APIs' auth and TLS | 4 |
 | R9 | Local models silently truncate context (Ollama's `num_ctx` default) | High / Medium | **Phase 4:** native Ollama API with an explicit `num_ctx`. **Phase 5:** every request is packed to fit that window, and tool rounds stop before it fills | 4–5 |
-| R10 | Prompt injection through retrieved notes | High / Medium | §10.4. The structural guarantee doesn't depend on model behavior. **Phase 5:** sources are delimited data blocks that can't close themselves, the system prompt says to ignore instructions in them, and the assistant has only a read-only view | 5–6 |
+| R10 | Prompt injection through retrieved notes | High / Medium | §10.4. The structural guarantee doesn't depend on model behavior. **Phase 5:** sources are delimited data blocks that can't close themselves, the system prompt says to ignore instructions in them, and the assistant has only a read-only view. **Phase 6:** proposals are data; only the review dialog applies them; tests run a model that obeys an injected note and check that nothing changes | 5–6 |
 | R11 | XSS in the webview defeats the approval boundary | Low / High | No raw HTML, strict CSP, sanitized link schemes, security tests | 2, 6 |
 | R12 | Lazy ID persistence leaves links pointing at index-only IDs | Low / Medium | Invariant: `ensure_persisted_id` runs before any durable reference is created, covered by tests | 2–3 |
 | R13 | Distribution: unsigned or un-notarized DMG is blocked by Gatekeeper | High / Medium | Needs an Apple Developer ID (user decision). Otherwise ship ad-hoc-signed with documented steps, and report the status accurately | 7 |

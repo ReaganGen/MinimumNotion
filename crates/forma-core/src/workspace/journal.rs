@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use crate::atomic::write_atomic_staged;
 use crate::error::{CoreResult, io_at};
 
-use super::history;
 use super::scan::{hash_rev, new_id};
 use super::state::{FORMAT_VERSION, load_json, save_json};
 use super::{Workspace, now_rfc3339};
@@ -54,13 +53,7 @@ impl Workspace {
         let forma = self.forma();
         let mut steps = Vec::new();
         for write in &writes {
-            let snapshot = history::snapshot(
-                &forma.join("history"),
-                &write.id,
-                &write.old_text,
-                "batch",
-                &self.staging(),
-            )?;
+            let snapshot = self.take_snapshot(&write.id, &write.old_text, "batch")?;
             steps.push(JournalStep {
                 page_id: write.id.clone(),
                 path: relative(&self.root, &write.file),
@@ -101,6 +94,15 @@ impl Workspace {
         for item in read.flatten() {
             let path = item.path();
             if path.extension().is_none_or(|e| e != "json") {
+                continue;
+            }
+            // Transactions (AI changes and their undos) journal file actions.
+            let is_tx = load_json::<serde_json::Value>(&path)
+                .ok()
+                .flatten()
+                .is_some_and(|v| v.get("actions").is_some());
+            if is_tx {
+                self.roll_back_tx_journal(&path);
                 continue;
             }
             let journal: JournalFile = match load_json(&path) {

@@ -11,10 +11,13 @@ import { defaultSettings } from "@/features/settings/defaults";
 import type { AiSettings } from "./bindings/AiSettings";
 import type { Cell } from "./bindings/Cell";
 import type { CellInput } from "./bindings/CellInput";
+import type { ChangeOutcome } from "./bindings/ChangeOutcome";
+import type { ChangeSetPreview } from "./bindings/ChangeSetPreview";
 import type { ChatInput } from "./bindings/ChatInput";
 import type { ChatStreamEvent } from "./bindings/ChatStreamEvent";
 import type { CollectionRow } from "./bindings/CollectionRow";
 import type { CollectionViews } from "./bindings/CollectionViews";
+import type { OperationInfo } from "./bindings/OperationInfo";
 import type { PageDocument } from "./bindings/PageDocument";
 import type { PageHit } from "./bindings/PageHit";
 import type { PageSummary } from "./bindings/PageSummary";
@@ -247,6 +250,31 @@ function memoryWorkspace() {
       );
     },
     page: (pageId: string) => pages.get(pageId) ?? null,
+    /** Edit mode stand-ins: write a body, add or remove a page. */
+    setBody: (pageId: string, body: string) => {
+      const page = get(pageId);
+      page.body = body;
+      page.rev += 1;
+      void emit("workspace://changed", {
+        content_changed: [pageId],
+        removed: [],
+        tree_changed: false,
+      });
+    },
+    addPage: (title: string, body: string) => {
+      counter += 1;
+      add(id(counter), null, title, body);
+      changed();
+      return id(counter);
+    },
+    removePage: (pageId: string) => {
+      pages.delete(pageId);
+      void emit("workspace://changed", {
+        content_changed: [],
+        removed: [pageId],
+        tree_changed: true,
+      });
+    },
     quickOpen: (query: string) =>
       [...pages.values()]
         .filter((p) => p.title.toLowerCase().includes(query.toLowerCase()))
@@ -374,6 +402,9 @@ function excerpt(text: string): string {
 /** An in-memory stand-in for the AI commands. Never touches the network. */
 function memoryAi(getAi: () => AiSettings, setAi: (ai: AiSettings) => void) {
   const running = new Map<string, () => void>();
+  const proposals = new Map<string, (chosen: string[]) => ChangeOutcome>();
+  const operations: OperationInfo[] = [];
+  const undos = new Map<string, () => void>();
   const update = (change: (ai: AiSettings) => AiSettings) => setAi(change(getAi()));
   const withProvider = (id: string, change: (p: AiSettings["providers"][number]) => void) =>
     update((ai) => {
@@ -461,6 +492,7 @@ function memoryAi(getAi: () => AiSettings, setAi: (ai: AiSettings) => void) {
           passages: found.length,
           left_out_turns: 0,
           tools: false,
+          edit: context.edit,
         },
       });
       if (sources.length > 0) onEvent({ type: "sources", sources });
@@ -468,7 +500,12 @@ function memoryAi(getAi: () => AiSettings, setAi: (ai: AiSettings) => void) {
         sources.length > 0
           ? `\n\nFrom your notes: “${sources[0]?.excerpt.slice(0, 60)}” [${sources[0]?.key}]. A key the model made up shows as unverified [S99].`
           : "";
-      const words = (CANNED_ANSWER + cited).split(/(?<= )/);
+      const proposal = context.edit ? this.propose(ws, attached ?? ws.page(id(1))) : null;
+      const text = proposal
+        ? `This is the **browser preview**, so no model was asked. It proposes a new page and an edit to “${proposal.changes[1]?.title}”, for you to review below. Nothing changes until you apply them.`
+        : CANNED_ANSWER + cited;
+      if (proposal) onEvent({ type: "proposal", proposal });
+      const words = text.split(/(?<= )/);
       return new Promise((resolve) => {
         let i = 0;
         const timer = setInterval(() => {
@@ -493,6 +530,134 @@ function memoryAi(getAi: () => AiSettings, setAi: (ai: AiSettings) => void) {
       });
     },
     cancel: (requestId: string) => running.get(requestId)?.(),
+
+    /** A made-up proposal: a new page with an external image, and an edit. */
+    propose(ws: PreviewWorkspace, target: { id: string; title: string; body: string } | null) {
+      if (!target) return null;
+      const added = "\n\nAdded in the preview, to show an edit.\n";
+      const preview: ChangeSetPreview = {
+        id: crypto.randomUUID(),
+        request: "Preview request",
+        changes: [
+          {
+            change_id: "1",
+            kind: "create_page",
+            page_id: null,
+            title: "Ideas from the preview",
+            summary: "Create the page “Ideas from the preview” at the top level",
+            location: [],
+            new_location: null,
+            diff: [
+              {
+                kind: "insert",
+                text: "- A first idea\n- ![chart](https://example.com/chart.png)\n",
+              },
+            ],
+            properties: [],
+            details: [],
+            external_images: ["https://example.com/chart.png"],
+            depends_on: [],
+          },
+          {
+            change_id: "2",
+            kind: "edit_page",
+            page_id: target.id,
+            title: target.title,
+            summary: `Edit “${target.title}”`,
+            location: [],
+            new_location: null,
+            diff: [
+              { kind: "equal", text: target.body.trimEnd() },
+              { kind: "insert", text: added },
+            ],
+            properties: [],
+            details: [],
+            external_images: [],
+            depends_on: [],
+          },
+        ],
+      };
+      const before = target.body;
+      proposals.set(preview.id, (chosen: string[]) => {
+        const page = ws.page(target.id);
+        if (chosen.includes("2") && page?.body !== before) {
+          return {
+            outcome: "conflicts",
+            conflicts: [
+              {
+                change_id: "2",
+                title: target.title,
+                message: "Its text changed after this was proposed.",
+              },
+            ],
+          } satisfies ChangeOutcome;
+        }
+        const undo: (() => void)[] = [];
+        let summary = [];
+        if (chosen.includes("1")) {
+          const created = ws.addPage(
+            "Ideas from the preview",
+            "- A first idea\n- ![chart](https://example.com/chart.png)\n",
+          );
+          undo.push(() => ws.removePage(created));
+          summary.push("created 1 page");
+        }
+        if (chosen.includes("2")) {
+          ws.setBody(target.id, `${before.trimEnd()}${added}`);
+          undo.push(() => ws.setBody(target.id, before));
+          summary.push("edited 1 page");
+        }
+        summary = summary.map((s, i) => (i === 0 ? s[0]?.toUpperCase() + s.slice(1) : s));
+        const operation: OperationInfo = {
+          op_id: crypto.randomUUID(),
+          applied_at: new Date().toISOString(),
+          source: "ai",
+          request: preview.request,
+          summary: summary.join(", "),
+          model: "preview",
+          undoes: null,
+          undone: false,
+          pages: [{ id: target.id, title: target.title }],
+        };
+        operations.unshift(operation);
+        undos.set(operation.op_id, () => {
+          for (const step of undo.reverse()) step();
+        });
+        return { outcome: "applied", operation } satisfies ChangeOutcome;
+      });
+      return preview;
+    },
+    apply: (changesetId: string, changeIds: string[]): ChangeOutcome => {
+      const apply = proposals.get(changesetId);
+      if (!apply)
+        throw { code: "invalid", message: "This proposal is no longer available. Ask again." };
+      const outcome = apply(changeIds);
+      if (outcome.outcome === "applied") proposals.delete(changesetId);
+      return outcome;
+    },
+    reject: (changesetId: string) => proposals.delete(changesetId),
+    operations: () => operations,
+    undo: (opId: string): ChangeOutcome => {
+      const op = operations.find((o) => o.op_id === opId);
+      const undo = undos.get(opId);
+      if (!op || !undo || op.undone) {
+        throw { code: "invalid", message: "The browser preview can't redo changes." };
+      }
+      undo();
+      undos.delete(opId);
+      op.undone = true;
+      const undoOp: OperationInfo = {
+        ...op,
+        op_id: crypto.randomUUID(),
+        applied_at: new Date().toISOString(),
+        source: "undo",
+        summary: `Undid: ${op.summary}`,
+        undoes: op.op_id,
+        undone: false,
+      };
+      operations.unshift(undoOp);
+      return { outcome: "applied", operation: undoOp };
+    },
   };
 }
 
@@ -571,6 +736,15 @@ export function installBrowserPreview() {
         case "ai_cancel":
           ai.cancel(str("requestId"));
           return null;
+        case "apply_changeset":
+          return ai.apply(str("changesetId"), a.changeIds as string[]);
+        case "reject_changeset":
+          ai.reject(str("changesetId"));
+          return null;
+        case "list_operations":
+          return ai.operations();
+        case "undo_operation":
+          return ai.undo(str("opId"));
         case "workspace_open_last":
         case "workspace_info":
           return ws.info;

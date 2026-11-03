@@ -64,6 +64,10 @@ fn main() {
             "ai_test_connection",
             "ai_chat",
             "ai_cancel",
+            "apply_changeset",
+            "reject_changeset",
+            "list_operations",
+            "undo_operation",
         ]),
     ))
     .expect("failed to run tauri-build");

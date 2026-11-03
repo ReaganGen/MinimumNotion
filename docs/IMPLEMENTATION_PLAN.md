@@ -58,7 +58,7 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 | `notify` / `notify-debouncer-full` | 8.2.1 / 0.7.0 | FSEvents backend |
 | `saphyr` (+ `saphyr-parser`) | 0.3.x | Span-aware YAML (ADR-028). `serde_yaml` is deprecated |
 | `pulldown-cmark` | 0.13.6 | Text and link extraction |
-| `similar` | 3.2.1 | Diffs for AI previews |
+| `similar` | 3.2.1, feature `unicode` | Diffs for AI previews; `unicode` splits words by Unicode rules (CJK per character). Re-checked 2026-11-03: the latest release, Apache-2.0 |
 | `serde` / `serde_json` | 1.0.229 / 1.0.154 | |
 | `thiserror` | 2.0.21 | |
 | `chrono` | 0.4.45 | RFC 3339 timestamps |
@@ -352,6 +352,8 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 ---
 
 ## 9. Phase 6: AI Agent and Knowledge Management
+
+> **Status (2026-11-03):** implemented; see PROGRESS.md. Decision: ADR-043 (proposals in memory; a journaled transaction for every file action; operation records; all-or-nothing undo and redo). Deviations: undo refuses as a whole when any page changed, instead of page by page; `edit_page` captures the body revision itself instead of taking `base_rev`; Edit mode gets 12 tool rounds. No real model has proposed changes yet (no keys or local models here).
 
 ### 9.1 Tasks
 

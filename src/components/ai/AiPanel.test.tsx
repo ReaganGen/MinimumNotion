@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,8 +9,10 @@ import { resetSettingsStoreForTests, useSettingsStore } from "@/features/setting
 import { useUiStore } from "@/features/ui/uiStore";
 import { useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import type { AiSettings } from "@/lib/ipc/bindings/AiSettings";
+import type { ChangeSetPreview } from "@/lib/ipc/bindings/ChangeSetPreview";
 import type { ChatStreamEvent } from "@/lib/ipc/bindings/ChatStreamEvent";
 import type { ContextReport } from "@/lib/ipc/bindings/ContextReport";
+import type { OperationInfo } from "@/lib/ipc/bindings/OperationInfo";
 import type { ProviderConfig } from "@/lib/ipc/bindings/ProviderConfig";
 import type { Source } from "@/lib/ipc/bindings/Source";
 import { ipc } from "@/lib/ipc/client";
@@ -21,6 +23,11 @@ vi.mock("@/lib/ipc/client", () => ({
     aiChat: vi.fn(),
     aiCancel: vi.fn(),
     aiAcknowledgeCloud: vi.fn(),
+    aiModelCapabilities: vi.fn(),
+    applyChangeset: vi.fn(),
+    rejectChangeset: vi.fn(),
+    undoOperation: vi.fn(),
+    listOperations: vi.fn(),
     openExternal: vi.fn(),
     saveSettings: vi.fn(),
   },
@@ -85,6 +92,13 @@ beforeEach(() => {
   useRevealStore.setState({ target: null });
   for (const fn of Object.values(ipc)) vi.mocked(fn).mockReset();
   vi.mocked(ipc.aiCancel).mockResolvedValue(undefined);
+  vi.mocked(ipc.rejectChangeset).mockResolvedValue(undefined);
+  vi.mocked(ipc.listOperations).mockResolvedValue([]);
+  vi.mocked(ipc.aiModelCapabilities).mockResolvedValue({
+    tool_calling: "yes",
+    context_window: null,
+    max_output_tokens: null,
+  });
   // Opening the panel saves the layout.
   vi.mocked(ipc.saveSettings).mockImplementation(async () => useSettingsStore.getState().settings);
 });
@@ -165,6 +179,7 @@ describe("AiPanel", () => {
           focus: null,
           search_notes: true,
           first_source: 1,
+          edit: false,
         },
       },
       expect.any(Function),
@@ -381,6 +396,169 @@ describe("AiPanel", () => {
       "Included part of the selection, part of “Plan” and 1 passage from your notes. 3 earlier messages were left out to fit.",
     );
   });
+
+  it("proposes in Edit mode, applies the chosen changes and undoes them", async () => {
+    const user = userEvent.setup();
+    setAi({ providers: [provider()] });
+    openWorkspacePage();
+    const chat = captureChat();
+    renderPanel();
+    const edit = await screen.findByRole("button", { name: "Edit" });
+    await waitFor(() => expect(edit).toBeEnabled());
+    await user.click(edit);
+    expect(screen.queryByRole("button", { name: "Search notes" })).toBeNull();
+    expect(screen.getByText(/proposes changes for you to review/)).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "Tidy up{Enter}");
+    expect(ipc.aiChat).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        context: expect.objectContaining({ edit: true, search_notes: true }),
+      }),
+      expect.any(Function),
+    );
+    chat.send?.({ type: "proposal", proposal: PROPOSAL });
+    chat.send?.({ type: "text", text: "I propose a folder and a move." });
+    chat.send?.({ type: "done", stop_reason: "end_turn" });
+    await act(async () => chat.finish?.());
+
+    const card = screen.getByRole("region", { name: "Proposed changes" });
+    expect(within(card).getByText("Proposed 3 changes")).toBeInTheDocument();
+    expect(
+      within(card).getByText("Nothing has changed yet. Review them first."),
+    ).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Review changes" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review proposed changes" });
+    // The image the proposal adds is flagged, shown as its address and never loaded.
+    expect(
+      within(dialog).getByText("https://evil.example/p.png", { selector: "li" }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText(/add images from other websites/)).toBeInTheDocument();
+    expect(within(dialog).getByText("shape").tagName).toBe("INS");
+    expect(within(dialog).getByText("carve").tagName).toBe("DEL");
+    expect(dialog.querySelector("img")).toBeNull();
+
+    // Leaving out the folder leaves out the move into it.
+    const folder = within(dialog).getByRole("checkbox", { name: /Create the page “Archive”/ });
+    await user.click(folder);
+    expect(within(dialog).getByRole("checkbox", { name: /Move “Glaciers”/ })).not.toBeChecked();
+    expect(within(dialog).getByRole("button", { name: "Apply 1 of 3" })).toBeEnabled();
+    await user.click(within(dialog).getByRole("checkbox", { name: /Move “Glaciers”/ }));
+    expect(folder).toBeChecked();
+
+    vi.mocked(ipc.applyChangeset).mockResolvedValue({ outcome: "applied", operation: OPERATION });
+    await user.click(within(dialog).getByRole("button", { name: "Apply 3 changes" }));
+    expect(ipc.applyChangeset).toHaveBeenCalledWith("set-1", ["1", "2", "3"]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(within(card).getByText("Changes applied")).toBeInTheDocument();
+    expect(
+      within(card).getByText("Created 1 page, edited 1 page, moved 1 page."),
+    ).toBeInTheDocument();
+
+    vi.mocked(ipc.undoOperation).mockResolvedValue({ outcome: "applied", operation: OPERATION });
+    await user.click(within(card).getByRole("button", { name: "Undo" }));
+    expect(ipc.undoOperation).toHaveBeenCalledWith("op-1");
+    expect(await within(card).findByText("Changes undone")).toBeInTheDocument();
+  });
+
+  it("reports conflicts, applies nothing, and offers to ask again", async () => {
+    const user = userEvent.setup();
+    setAi({ providers: [provider()] });
+    openWorkspacePage();
+    let chat = captureChat();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "Tidy up{Enter}");
+    chat.send?.({ type: "proposal", proposal: PROPOSAL });
+    chat.send?.({ type: "done", stop_reason: "end_turn" });
+    await act(async () => chat.finish?.());
+    vi.mocked(ipc.applyChangeset).mockResolvedValue({
+      outcome: "conflicts",
+      conflicts: [
+        { change_id: "2", title: "Glaciers", message: "Its text changed after this was proposed." },
+      ],
+    });
+    await user.click(screen.getByRole("button", { name: "Review changes" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Apply 3 changes" }));
+    expect(
+      await within(dialog).findByText("This page changed since the proposal."),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    const card = screen.getByRole("region", { name: "Proposed changes" });
+    expect(within(card).getByRole("alert")).toHaveTextContent("“Glaciers”: Its text changed");
+
+    chat = captureChat();
+    await user.click(within(card).getByRole("button", { name: "Ask for a new proposal" }));
+    expect(ipc.aiChat).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ context: expect.objectContaining({ edit: true }) }),
+      expect.any(Function),
+    );
+    chat.send?.({ type: "done", stop_reason: "end_turn" });
+  });
+
+  it("rejecting forgets the proposal", async () => {
+    const user = userEvent.setup();
+    setAi({ providers: [provider()] });
+    openWorkspacePage();
+    const chat = captureChat();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "Tidy up{Enter}");
+    chat.send?.({ type: "proposal", proposal: PROPOSAL });
+    chat.send?.({ type: "done", stop_reason: "end_turn" });
+    await act(async () => chat.finish?.());
+    await user.click(screen.getByRole("button", { name: "Reject" }));
+    expect(ipc.rejectChangeset).toHaveBeenCalledWith("set-1");
+    expect(ipc.applyChangeset).not.toHaveBeenCalled();
+    expect(screen.getByText("Changes rejected")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Review changes" })).toBeNull();
+  });
+
+  it("offers no Edit mode for a model that can't call tools", async () => {
+    vi.mocked(ipc.aiModelCapabilities).mockResolvedValue({
+      tool_calling: "no",
+      context_window: null,
+      max_output_tokens: null,
+    });
+    setAi({ providers: [provider()] });
+    openWorkspacePage();
+    renderPanel();
+    const edit = screen.getByRole("button", { name: "Edit" });
+    await waitFor(() => expect(ipc.aiModelCapabilities).toHaveBeenCalled());
+    expect(edit).toBeDisabled();
+    expect(edit.getAttribute("title")).toContain("can't call tools");
+  });
+
+  it("lists applied changes and undoes or redoes them", async () => {
+    const user = userEvent.setup();
+    setAi({ providers: [provider()] });
+    openWorkspacePage();
+    vi.mocked(ipc.listOperations).mockResolvedValue([
+      {
+        ...OPERATION,
+        op_id: "op-2",
+        source: "undo",
+        summary: "Undid: Edited 1 page",
+        undoes: "op-1",
+      },
+      { ...OPERATION, undone: true },
+    ]);
+    vi.mocked(ipc.undoOperation).mockResolvedValue({
+      outcome: "conflicts",
+      conflicts: [
+        { change_id: "p", title: "Glaciers", message: "It changed after the change was applied." },
+      ],
+    });
+    renderPanel();
+    await user.click(screen.getByRole("button", { name: "AI changes" }));
+    const list = await screen.findByRole("list", { name: "Applied changes" });
+    expect(within(list).getByText("Undone")).toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: "Undo" })).toBeNull();
+    await user.click(within(list).getByRole("button", { name: "Redo" }));
+    expect(ipc.undoOperation).toHaveBeenCalledWith("op-2");
+    expect(await within(list).findByRole("alert")).toHaveTextContent("Nothing was changed");
+  });
 });
 
 const PAGE = "0c6a5f3e-6c1d-4b8e-9a63-2f1d1b0a9e77";
@@ -403,6 +581,7 @@ function report(fields: Partial<ContextReport>): ContextReport {
     passages: 0,
     left_out_turns: 0,
     tools: false,
+    edit: false,
     ...fields,
   };
 }
@@ -410,3 +589,69 @@ function report(fields: Partial<ContextReport>): ContextReport {
 function source(key: string, title: string, section: string[] = []): Source {
   return { key, kind: "passage", page_id: PAGE, title, section, excerpt: `Text of ${key}` };
 }
+
+const PROPOSAL: ChangeSetPreview = {
+  id: "set-1",
+  request: "Tidy up",
+  changes: [
+    {
+      change_id: "1",
+      kind: "create_page",
+      page_id: null,
+      title: "Archive",
+      summary: "Create the page “Archive” at the top level",
+      location: [],
+      new_location: null,
+      diff: [{ kind: "insert", text: "![x](https://evil.example/p.png)" }],
+      properties: [],
+      details: [],
+      external_images: ["https://evil.example/p.png"],
+      depends_on: [],
+    },
+    {
+      change_id: "2",
+      kind: "edit_page",
+      page_id: PAGE,
+      title: "Glaciers",
+      summary: "Edit “Glaciers”",
+      location: [],
+      new_location: null,
+      diff: [
+        { kind: "equal", text: "Glaciers " },
+        { kind: "delete", text: "carve" },
+        { kind: "insert", text: "shape" },
+        { kind: "equal", text: " valleys." },
+      ],
+      properties: [],
+      details: [],
+      external_images: [],
+      depends_on: [],
+    },
+    {
+      change_id: "3",
+      kind: "move_page",
+      page_id: PAGE,
+      title: "Glaciers",
+      summary: "Move “Glaciers” into “Archive”",
+      location: [],
+      new_location: ["Archive"],
+      diff: [],
+      properties: [],
+      details: [],
+      external_images: [],
+      depends_on: ["1"],
+    },
+  ],
+};
+
+const OPERATION: OperationInfo = {
+  op_id: "op-1",
+  applied_at: "2026-11-03T10:00:00Z",
+  source: "ai",
+  request: "Tidy up",
+  summary: "Created 1 page, edited 1 page, moved 1 page",
+  model: "llama3.2",
+  undoes: null,
+  undone: false,
+  pages: [{ id: PAGE, title: "Glaciers" }],
+};

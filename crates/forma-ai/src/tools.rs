@@ -1,11 +1,16 @@
-//! The tools a model may call in Ask mode (ARCHITECTURE §10.2). They read
-//! only: each one's `run` gets a [`ReadView`], which has no way to change
-//! a page, and nothing else. Arguments are page IDs, never paths; every ID
-//! is looked up in the workspace index, so nothing outside it is reachable.
+//! The tools a model may call (ARCHITECTURE §10.2). Ask mode has read tools:
+//! each one's `run` gets a [`ReadView`], which has no way to change a page,
+//! and nothing else. Edit mode adds proposal tools: their `run` also gets a
+//! [`ChangeSet`], which is plain data in memory. Applying it is a command
+//! only the user's approval reaches, so no tool can change a page.
+//! Arguments are page IDs, never paths; every ID is looked up in the
+//! workspace index, so nothing outside it is reachable.
 //!
 //! Bad arguments come back to the model as a tool error it can correct.
 
+use forma_core::collection::PropertyType;
 use forma_core::passages::chunk;
+use forma_core::workspace::changeset::{ChangeSet, Edit, NewProperty};
 use forma_core::workspace::read::ReadView;
 use forma_core::workspace::retrieval::{RetrievalFilter, Retriever};
 use serde::de::DeserializeOwned;
@@ -141,6 +146,382 @@ pub fn specs() -> Vec<ToolSpec> {
             parameters: (t.parameters)(),
         })
         .collect()
+}
+
+/// Read tools and proposal tools, for Edit mode.
+pub fn act_specs() -> Vec<ToolSpec> {
+    let mut all = specs();
+    all.extend(PROPOSE_TOOLS.iter().map(|t| ToolSpec {
+        name: t.name.into(),
+        description: t.description.into(),
+        parameters: (t.parameters)(),
+    }));
+    all
+}
+
+type Propose = fn(ReadView<'_>, &Value, &mut ChangeSet) -> Result<String, ToolError>;
+
+/// A proposal tool. `run` adds to the change set and returns the panel's
+/// label; its only handles are the read-only view and the change set.
+pub struct ProposeTool {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub parameters: fn() -> Value,
+    pub run: Propose,
+}
+
+const PAGE_ID_HELP: &str = "A page ID from search_pages or list_pages, or new-N for a page proposed earlier in this answer.";
+
+/// The tools Edit mode adds. Each only proposes: nothing changes until the
+/// user reviews and applies the proposal.
+pub const PROPOSE_TOOLS: [ProposeTool; 6] = [
+    ProposeTool {
+        name: "create_page",
+        description: "Propose a new page. Returns its ID (new-N) for later proposals, such as moving pages into it.",
+        parameters: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string" },
+                    "parent_id": { "type": "string", "description": format!("The page to put it in; leave out for the top level. {PAGE_ID_HELP}") },
+                    "content": { "type": "string", "description": "The page's text, in Markdown." }
+                },
+                "required": ["title"],
+                "additionalProperties": false
+            })
+        },
+        run: create_page,
+    },
+    ProposeTool {
+        name: "edit_page",
+        description: "Propose changes to a page's text: exact replacements (read the page first and copy each passage you replace exactly; it must occur once), or a whole new text.",
+        parameters: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "page_id": { "type": "string", "description": PAGE_ID_HELP },
+                    "edits": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "old": { "type": "string", "description": "Text in the page now, exactly." },
+                                "new": { "type": "string", "description": "What replaces it (empty to delete it)." }
+                            },
+                            "required": ["old", "new"],
+                            "additionalProperties": false
+                        }
+                    },
+                    "replace_all_body": { "type": "string", "description": "The page's whole new text, in Markdown, instead of edits." }
+                },
+                "required": ["page_id"],
+                "additionalProperties": false
+            })
+        },
+        run: edit_page,
+    },
+    ProposeTool {
+        name: "move_page",
+        description: "Propose moving a page, with its subpages, into another page, or to the top level.",
+        parameters: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "page_id": { "type": "string", "description": PAGE_ID_HELP },
+                    "new_parent_id": { "type": ["string", "null"], "description": "The page to move it into; null for the top level." }
+                },
+                "required": ["page_id"],
+                "additionalProperties": false
+            })
+        },
+        run: move_page,
+    },
+    ProposeTool {
+        name: "create_collection",
+        description: "Propose a new collection (a page whose subpages are entries with properties). Returns its ID (new-N); entries are created with create_page inside it.",
+        parameters: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string" },
+                    "parent_id": { "type": "string", "description": PAGE_ID_HELP },
+                    "properties": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string" },
+                                "type": { "type": "string", "enum": ["text", "number", "date", "checkbox", "select", "multi_select"] },
+                                "options": { "type": "array", "items": { "type": "string" }, "description": "For select and multi_select." }
+                            },
+                            "required": ["name", "type"],
+                            "additionalProperties": false
+                        }
+                    }
+                },
+                "required": ["title", "properties"],
+                "additionalProperties": false
+            })
+        },
+        run: create_collection,
+    },
+    ProposeTool {
+        name: "update_page_properties",
+        description: "Propose property values for an entry of a collection. Values: text, number, YYYY-MM-DD dates, true/false, an option name, or a list of option names.",
+        parameters: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "page_id": { "type": "string", "description": PAGE_ID_HELP },
+                    "set": { "type": "object", "description": "Property name → value." },
+                    "unset": { "type": "array", "items": { "type": "string" }, "description": "Property names to clear." }
+                },
+                "required": ["page_id"],
+                "additionalProperties": false
+            })
+        },
+        run: update_page_properties,
+    },
+    ProposeTool {
+        name: "link_pages",
+        description: "Propose a link from one page to another: on `text` if given (it must occur once in the page), else as a new last line.",
+        parameters: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "source_id": { "type": "string", "description": PAGE_ID_HELP },
+                    "target_id": { "type": "string", "description": "The page to link to (an existing page)." },
+                    "text": { "type": "string" }
+                },
+                "required": ["source_id", "target_id"],
+                "additionalProperties": false
+            })
+        },
+        run: link_pages,
+    },
+];
+
+/// Runs a proposal tool, if `name` is one. The result tells the model what
+/// the set now holds.
+pub fn run_proposal(
+    view: ReadView<'_>,
+    name: &str,
+    arguments: &str,
+    set: &mut ChangeSet,
+) -> Option<ToolOutput> {
+    let tool = PROPOSE_TOOLS.iter().find(|t| t.name == name)?;
+    let result = match serde_json::from_str::<Value>(if arguments.trim().is_empty() {
+        "{}"
+    } else {
+        arguments
+    }) {
+        Ok(args) => (tool.run)(view, &args, set),
+        Err(_) => Err(invalid("The arguments aren't valid JSON.")),
+    };
+    Some(match result {
+        Ok(label) => ToolOutput {
+            content: cap(
+                format!(
+                    "Proposed. Nothing has changed yet: the user reviews the proposal.\n\n{}",
+                    set.describe(view)
+                ),
+                MAX_RESULT_TOKENS,
+            ),
+            is_error: false,
+            activity: ToolActivity {
+                tool: name.into(),
+                label,
+                failed: false,
+            },
+        },
+        Err(error) => ToolOutput {
+            content: json!({ "error": error.message }).to_string(),
+            is_error: true,
+            activity: ToolActivity {
+                tool: name.into(),
+                label: "A proposal was refused".into(),
+                failed: true,
+            },
+        },
+    })
+}
+
+fn proposal(message: String) -> ToolError {
+    ToolError {
+        label: "A proposal was refused".into(),
+        message,
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateArgs {
+    title: String,
+    parent_id: Option<String>,
+    content: Option<String>,
+}
+
+fn create_page(
+    view: ReadView<'_>,
+    value: &Value,
+    set: &mut ChangeSet,
+) -> Result<String, ToolError> {
+    let a: CreateArgs = args(value)?;
+    let id = set
+        .propose_page(
+            view,
+            a.parent_id.as_deref(),
+            &a.title,
+            a.content.as_deref().unwrap_or(""),
+        )
+        .map_err(proposal)?;
+    Ok(format!("Proposed a new page “{}” ({id})", a.title.trim()))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextEdit {
+    old: String,
+    new: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EditArgs {
+    page_id: String,
+    edits: Option<Vec<TextEdit>>,
+    replace_all_body: Option<String>,
+}
+
+fn edit_page(view: ReadView<'_>, value: &Value, set: &mut ChangeSet) -> Result<String, ToolError> {
+    let a: EditArgs = args(value)?;
+    let edit = match (a.edits, a.replace_all_body) {
+        (Some(edits), None) => Edit::Replace(edits.into_iter().map(|e| (e.old, e.new)).collect()),
+        (None, Some(body)) => Edit::Body(body),
+        _ => return Err(invalid("Give either edits or replace_all_body.")),
+    };
+    set.propose_edit(view, &a.page_id, &edit)
+        .map_err(proposal)?;
+    Ok(format!(
+        "Proposed an edit to {}",
+        quoted(&page_title(view, set, &a.page_id))
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MoveArgs {
+    page_id: String,
+    #[serde(default)]
+    new_parent_id: Option<String>,
+}
+
+fn move_page(view: ReadView<'_>, value: &Value, set: &mut ChangeSet) -> Result<String, ToolError> {
+    let a: MoveArgs = args(value)?;
+    set.propose_move(view, &a.page_id, a.new_parent_id.as_deref())
+        .map_err(proposal)?;
+    Ok(format!(
+        "Proposed moving {}",
+        quoted(&page_title(view, set, &a.page_id))
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PropertyArg {
+    name: String,
+    #[serde(rename = "type")]
+    kind: PropertyType,
+    #[serde(default)]
+    options: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CollectionArgs {
+    title: String,
+    parent_id: Option<String>,
+    properties: Vec<PropertyArg>,
+}
+
+fn create_collection(
+    view: ReadView<'_>,
+    value: &Value,
+    set: &mut ChangeSet,
+) -> Result<String, ToolError> {
+    let a: CollectionArgs = args(value)?;
+    let properties: Vec<NewProperty> = a
+        .properties
+        .into_iter()
+        .map(|p| NewProperty {
+            name: p.name,
+            kind: p.kind,
+            options: p.options,
+        })
+        .collect();
+    let id = set
+        .propose_collection(view, a.parent_id.as_deref(), &a.title, &properties)
+        .map_err(proposal)?;
+    Ok(format!(
+        "Proposed a new collection “{}” ({id})",
+        a.title.trim()
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PropertiesArgs {
+    page_id: String,
+    #[serde(default)]
+    set: serde_json::Map<String, Value>,
+    #[serde(default)]
+    unset: Vec<String>,
+}
+
+fn update_page_properties(
+    view: ReadView<'_>,
+    value: &Value,
+    set: &mut ChangeSet,
+) -> Result<String, ToolError> {
+    let a: PropertiesArgs = args(value)?;
+    set.propose_properties(view, &a.page_id, &a.set, &a.unset)
+        .map_err(proposal)?;
+    Ok(format!(
+        "Proposed property values for {}",
+        quoted(&page_title(view, set, &a.page_id))
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LinkArgs {
+    source_id: String,
+    target_id: String,
+    text: Option<String>,
+}
+
+fn link_pages(view: ReadView<'_>, value: &Value, set: &mut ChangeSet) -> Result<String, ToolError> {
+    let a: LinkArgs = args(value)?;
+    set.propose_link(view, &a.source_id, &a.target_id, a.text.as_deref())
+        .map_err(proposal)?;
+    Ok(format!(
+        "Proposed a link from {} to {}",
+        quoted(&page_title(view, set, &a.source_id)),
+        quoted(&page_title(view, set, &a.target_id))
+    ))
+}
+
+/// A page's title, for proposals: existing, or proposed in `set`.
+fn page_title(view: ReadView<'_>, set: &ChangeSet, id: &str) -> String {
+    match set.target(view, id) {
+        Ok(forma_core::workspace::changeset::Target::Existing(id)) => {
+            view.title(&id).unwrap_or_default()
+        }
+        Ok(forma_core::workspace::changeset::Target::New(n)) => {
+            set.preview_title(&n).unwrap_or_else(|| format!("new-{n}"))
+        }
+        Err(_) => id.to_string(),
+    }
 }
 
 /// Runs the tool `name` with `arguments` (JSON text), adding any notes it
@@ -621,6 +1002,18 @@ mod tests {
             &items[(self.next() % items.len() as u64) as usize]
         }
         fn value(&mut self, depth: u32, ids: &[String]) -> Value {
+            let keys = [
+                "query",
+                "limit",
+                "page_id",
+                "part",
+                "parent_id",
+                "path",
+                "extra",
+            ];
+            self.value_with(depth, ids, &keys)
+        }
+        fn value_with(&mut self, depth: u32, ids: &[String], keys: &[&str]) -> Value {
             let strings = [
                 "",
                 " ",
@@ -650,22 +1043,16 @@ mod tests {
                 5 => json!(self.pick(ids)),
                 6 => Value::Array(
                     (0..self.next() % 4)
-                        .map(|_| self.value(depth + 1, ids))
+                        .map(|_| self.value_with(depth + 1, ids, keys))
                         .collect(),
                 ),
                 _ => {
-                    let keys = [
-                        "query",
-                        "limit",
-                        "page_id",
-                        "part",
-                        "parent_id",
-                        "path",
-                        "extra",
-                    ];
                     let mut map = serde_json::Map::new();
                     for _ in 0..self.next() % 4 {
-                        map.insert((*self.pick(&keys)).into(), self.value(depth + 1, ids));
+                        map.insert(
+                            (*self.pick(keys)).into(),
+                            self.value_with(depth + 1, ids, keys),
+                        );
                     }
                     Value::Object(map)
                 }
@@ -719,5 +1106,216 @@ mod tests {
         }
         assert!(errors > 1000, "{errors}");
         assert_eq!(snapshot(dir.path()), before, "a read tool changed a file");
+    }
+
+    #[test]
+    fn edit_tools_only_get_a_read_view_and_a_change_set() {
+        // Every proposal tool's `run` has this type: the read-only view, its
+        // arguments, and the change set, which is data in memory. Applying a
+        // set needs `&mut Workspace`, which no tool is given.
+        let runs: [Propose; 6] = PROPOSE_TOOLS.map(|t| t.run);
+        assert_eq!(runs.len(), 6);
+        let names: Vec<_> = PROPOSE_TOOLS.iter().map(|t| t.name).collect();
+        assert_eq!(
+            names,
+            [
+                "create_page",
+                "edit_page",
+                "move_page",
+                "create_collection",
+                "update_page_properties",
+                "link_pages"
+            ]
+        );
+        // Ask mode offers none of them, and none deletes anything.
+        assert!(specs().iter().all(|s| !names.contains(&s.name.as_str())));
+        assert_eq!(act_specs().len(), 10);
+        assert!(
+            act_specs()
+                .iter()
+                .all(|s| !s.name.contains("delete") && !s.name.contains("trash"))
+        );
+    }
+
+    #[test]
+    fn proposals_are_checked_as_they_are_made_and_write_nothing() {
+        let (dir, ws) = workspace();
+        let before = snapshot(dir.path());
+        let view = ws.read_view();
+        let mut set = ChangeSet::new("Organize", "test", "m");
+        let (glaciers, trips) = (id(&ws, "Glaciers"), id(&ws, "Trips"));
+        let propose = |set: &mut ChangeSet, name: &str, args: Value| {
+            run_proposal(view, name, &args.to_string(), set).expect("a proposal tool")
+        };
+        let out = propose(
+            &mut set,
+            "create_page",
+            json!({"title": "Ice ages", "parent_id": trips, "content": "Long ago."}),
+        );
+        assert!(!out.is_error, "{}", out.content);
+        assert_eq!(out.activity.label, "Proposed a new page “Ice ages” (new-1)");
+        assert!(out.content.contains("Nothing has changed yet"));
+        assert!(
+            out.content
+                .contains("1. Create the page “Ice ages” in “Trips”")
+        );
+        let out = propose(
+            &mut set,
+            "edit_page",
+            json!({"page_id": glaciers, "edits": [{"old": "carve valleys", "new": "shape valleys"}]}),
+        );
+        assert!(!out.is_error, "{}", out.content);
+        let out = propose(
+            &mut set,
+            "move_page",
+            json!({"page_id": glaciers, "new_parent_id": "new-1"}),
+        );
+        assert!(!out.is_error, "{}", out.content);
+        assert_eq!(out.activity.label, "Proposed moving “Glaciers”");
+        let out = propose(
+            &mut set,
+            "link_pages",
+            json!({"source_id": "new-1", "target_id": glaciers}),
+        );
+        assert!(!out.is_error, "{}", out.content);
+        assert!(run_proposal(view, "search_pages", "{}", &mut set).is_none());
+
+        for (name, args) in [
+            (
+                "edit_page",
+                json!({"page_id": "../Glaciers.md", "replace_all_body": ""}),
+            ),
+            (
+                "edit_page",
+                json!({"page_id": glaciers, "edits": [{"old": "nope", "new": "x"}]}),
+            ),
+            ("edit_page", json!({"page_id": glaciers})),
+            (
+                "edit_page",
+                json!({"page_id": glaciers, "edits": [], "replace_all_body": "x"}),
+            ),
+            (
+                "move_page",
+                json!({"page_id": glaciers, "new_parent_id": "/tmp"}),
+            ),
+            (
+                "move_page",
+                json!({"page_id": trips, "new_parent_id": "new-1"}),
+            ),
+            ("create_page", json!({"title": ""})),
+            ("create_page", json!({"title": "x", "path": "/etc"})),
+            (
+                "create_collection",
+                json!({"title": "C", "properties": [{"name": "S", "type": "colour"}]}),
+            ),
+            (
+                "update_page_properties",
+                json!({"page_id": glaciers, "set": {"Status": "x"}}),
+            ),
+            (
+                "link_pages",
+                json!({"source_id": glaciers, "target_id": glaciers}),
+            ),
+            (
+                "link_pages",
+                json!({"source_id": glaciers, "target_id": "new-1"}),
+            ),
+        ] {
+            let out = propose(&mut set, name, args.clone());
+            assert!(out.is_error, "{name} {args}: {}", out.content);
+            assert!(out.activity.failed);
+        }
+        assert_eq!(set.changes.len(), 3, "the create took the link");
+        assert_eq!(snapshot(dir.path()), before, "proposing wrote a file");
+    }
+
+    #[test]
+    fn fuzzed_proposals_never_panic_or_write() {
+        let (dir, ws) = workspace();
+        let before = snapshot(dir.path());
+        let ids = vec![
+            id(&ws, "Glaciers"),
+            id(&ws, "Kyoto"),
+            id(&ws, "Trips"),
+            "new-1".into(),
+            "new-2".into(),
+        ];
+        let keys = [
+            "title",
+            "content",
+            "parent_id",
+            "page_id",
+            "edits",
+            "old",
+            "new",
+            "replace_all_body",
+            "new_parent_id",
+            "properties",
+            "name",
+            "type",
+            "options",
+            "set",
+            "unset",
+            "source_id",
+            "target_id",
+            "text",
+            "path",
+        ];
+        let mut rng = Rng(0x0ddb_a11c_afef_00d5);
+        let mut set = ChangeSet::new("fuzz", "t", "m");
+        let (mut errors, mut accepted) = (0, 0);
+        for _ in 0..3000 {
+            let name = *rng.pick(&[
+                "create_page",
+                "edit_page",
+                "move_page",
+                "create_collection",
+                "update_page_properties",
+                "link_pages",
+            ]);
+            // Half the calls have the tool's own fields, with random values.
+            let args = if rng.next().is_multiple_of(2) {
+                rng.value_with(0, &ids, &keys)
+            } else {
+                let fields: &[&str] = match name {
+                    "create_page" => &["title", "parent_id", "content"],
+                    "edit_page" => &["page_id", "replace_all_body"],
+                    "move_page" => &["page_id", "new_parent_id"],
+                    "create_collection" => &["title", "properties"],
+                    "update_page_properties" => &["page_id", "set"],
+                    _ => &["source_id", "target_id", "text"],
+                };
+                let mut map = serde_json::Map::new();
+                for field in fields {
+                    let value = match rng.next() % 3 {
+                        0 => json!(rng.pick(&ids)),
+                        1 => json!(*rng.pick(&["Ice", "glaciers", "../x", "注意力", "", "new-1"])),
+                        _ => rng.value_with(1, &ids, &keys),
+                    };
+                    map.insert((*field).into(), value);
+                }
+                Value::Object(map)
+            };
+            let out = run_proposal(ws.read_view(), name, &args.to_string(), &mut set).unwrap();
+            if out.is_error {
+                errors += 1;
+                assert!(serde_json::from_str::<Value>(&out.content).unwrap()["error"].is_string());
+            } else {
+                accepted += 1;
+            }
+            assert!(set.changes.len() <= forma_core::workspace::changeset::MAX_CHANGES);
+            assert!(estimate(&out.content) <= MAX_RESULT_TOKENS + 20);
+        }
+        assert!(errors > 1000, "{errors}");
+        assert!(accepted > 20, "{accepted}");
+        // Whatever got through still previews, and nothing was written.
+        let preview = set.preview(ws.read_view());
+        assert_eq!(preview.changes.len(), set.changes.len());
+        println!("fuzz: {accepted} proposals accepted, {errors} refused");
+        assert_eq!(
+            snapshot(dir.path()),
+            before,
+            "a proposal tool changed a file"
+        );
     }
 }

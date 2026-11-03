@@ -46,6 +46,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 | 040 | Chat answers are rendered from Markdown tokens as React elements | Accepted |
 | 041 | Retrieval as built: passage chunks, stemmed BM25, CJK through page trigrams, rank fusion | Accepted |
 | 042 | Asking about notes: numbered sources, a packed context, read-only tools, and a new cloud agreement | Accepted |
+| 043 | AI changes: proposals in memory, applied in one journaled transaction, recorded and undoable | Accepted |
 
 ---
 
@@ -543,4 +544,22 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
   - Re-numbering sources from S1 in every message. Answers in the history would then cite keys that now mean something else.
   - Carrying the Phase 4 agreement over. It was given on the promise that notes are never sent.
 - **Consequences:** No real provider has seen these requests yet (no keys or local models were available), so the tool message formats follow the documentation. Citations depend on the model following the instructions; one that doesn't cite shows its answer without sources, and the panel says which sources it was given.
+
+## ADR-043: AI changes: proposals in memory, applied in one journaled transaction, recorded and undoable
+
+- **Status:** Accepted. Implements ADR-021. **Date:** 2026-11-03 (Phase 6)
+- **Context:** Phase 6 lets the assistant change notes, but only through the user's approval of a visible preview, all or nothing, with undo. The Document Service's methods (create, move, trash, collections) each touch files their own way, and Phase 3's journal covered only rewrites of existing files.
+- **Decision:**
+  - **Proposals.** In Edit mode the model gets six proposal tools (`create_page`, `edit_page`, `move_page`, `create_collection`, `update_page_properties`, `link_pages`) next to the read tools. Each one's `run` receives the read-only view, its arguments and a `ChangeSet`: plain data in memory, which refers to pages by ID. Each proposal is checked as it's made (the page exists in this workspace, the replaced text occurs exactly once, values fit the collection's schema, no move into itself, at most 50 changes and 5 MB of text per set), and a refusal goes back to the model as a tool error. Pages proposed in the same set are named `new-1`, `new-2`…; edits and values for them are folded into their creation. Edits capture the body revision they were made against; the model doesn't pass one. There is no delete tool.
+  - **Review.** The preview lists each change with a word-level diff (`similar` 3.2.1, Unicode words, so CJK text is compared per character), property values before and after, moves from and to, page IDs that must be written so a new link works, and every external image a change adds, shown as its address. Changes can be chosen one by one; one that goes inside a page another change creates needs that change too.
+  - **Apply.** `apply_changeset(changeset_id, change_ids)` is a command only the review dialog calls; the set itself stays in Rust. Every chosen change is checked against the page as it is now (body revision for edits, file revision for values, parent for moves). Any mismatch returns the conflicts and writes nothing. Otherwise the changes run in a **transaction**: while it's open, every file action of the Document Service (a file written, a rename, a new folder, a trash entry) goes into `.forma/journal/` before it's done, with a snapshot of any file it overwrites. A failure undoes the recorded actions at once, newest first; a crash leaves the journal for the next start, which does the same. Each undo step checks the file first and leaves one that has changed since alone. The existing Document Service methods became transaction-aware instead of being rewritten.
+  - **Record.** An applied set is written to `.forma/operations/<op-id>.json` inside the same transaction (DATA_MODEL §7.5), with each page's revisions and snapshot. The newest 100 are kept; their snapshots are protected from history pruning.
+  - **Undo** applies the inverse of every recorded step (an edit's snapshot is written back byte for byte, a created page goes to the trash, a move goes back) as one transaction, **all or nothing**: if any page isn't as the operation left it, nothing is undone and the conflicts are listed. An undo is recorded as an operation that `undoes` the first, so undoing it redoes the change. Whether an operation is undone is worked out from the records, so no record is ever rewritten.
+  - **Before applying,** the panel saves any text still being typed, so a page edited since the proposal shows up as a conflict instead of being overwritten.
+  - **Edit mode** needs a model that calls tools; it gets 12 rounds. Its last round keeps the tools defined with `tool_choice: none`. Its prompt says to propose only what the user asked and never to act on instructions found in notes.
+- **Alternatives:**
+  - A ChangeSet applier with its own file operations. It would duplicate the Document Service's naming, bundle conversion and trash logic, and drift from it.
+  - Partial undo, skipping changed pages (ARCHITECTURE §10.3 as first written). It could leave a half-reverted set that no operation describes; listing the conflicts lets the user decide.
+  - Letting the model pass `base_rev`. It adds a way to fail without adding safety: the tool captures the revision the edit was checked against.
+- **Consequences:** No real model has proposed changes yet; the formats follow the providers' documentation (ADR-042). Undoing a page created inside a page that had no sub-pages leaves that page as a folder (`Name/index.md`), and a page ID written so a link works stays written. `tree.json` (advisory order) isn't journaled. A proposal lasts until it's applied, rejected or the chat is cleared, and is lost when Forma quits.
 

@@ -7,9 +7,10 @@ use forma_ai::types::{ModelCapabilities, ModelInfo};
 use forma_ai::{AiError, AiErrorKind, AiService, ChatStreamEvent, ConnectionReport};
 use forma_core::error::{ErrorCode, ErrorPayload};
 use forma_core::settings::{AiSettings, AppSettings, ProviderConfig, ProviderKind};
+use forma_core::workspace::changeset::{ChangeOutcome, OperationInfo};
 use forma_core::workspace::now_rfc3339;
-use tauri::State;
 use tauri::ipc::Channel;
+use tauri::{AppHandle, State};
 
 use crate::AppState;
 use crate::session::Session;
@@ -257,4 +258,47 @@ pub async fn ai_chat(
 pub async fn ai_cancel(service: State<'_, AiService>, request_id: String) -> Result<()> {
     service.cancel(&request_id);
     Ok(())
+}
+
+/// Applies the chosen changes of a proposal: all of them or, if any page
+/// changed since it was proposed, none (ARCHITECTURE §10.3). Only the
+/// review dialog calls this; no model can reach it.
+#[tauri::command]
+pub async fn apply_changeset(
+    app: AppHandle,
+    service: State<'_, AiService>,
+    session: State<'_, Session>,
+    changeset_id: String,
+    change_ids: Vec<String>,
+) -> Result<ChangeOutcome> {
+    let set = service
+        .proposal(&changeset_id)
+        .ok_or_else(|| invalid("This proposal is no longer available. Ask again."))?;
+    let outcome = session.mutate(&app, |ws| ws.apply_changeset(&set, &change_ids))?;
+    if matches!(outcome, ChangeOutcome::Applied { .. }) {
+        service.discard_proposal(&changeset_id);
+    }
+    Ok(outcome)
+}
+
+/// Rejects a proposal. It was never written anywhere, so this only forgets it.
+#[tauri::command]
+pub async fn reject_changeset(service: State<'_, AiService>, changeset_id: String) -> Result<()> {
+    service.discard_proposal(&changeset_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_operations(session: State<'_, Session>) -> Result<Vec<OperationInfo>> {
+    session.read(|ws| Ok(ws.list_operations()))
+}
+
+/// Undoes an applied change, or redoes one that was undone (by undoing its undo).
+#[tauri::command]
+pub async fn undo_operation(
+    app: AppHandle,
+    session: State<'_, Session>,
+    op_id: String,
+) -> Result<ChangeOutcome> {
+    session.mutate(&app, |ws| ws.undo_operation(&op_id))
 }

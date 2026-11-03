@@ -253,7 +253,7 @@ impl Workspace {
         }
     }
 
-    fn editable_schema(&self, id: &str) -> CoreResult<Schema> {
+    pub(super) fn editable_schema(&self, id: &str) -> CoreResult<Schema> {
         self.writable()?;
         match self.read_schema(id)? {
             SchemaState::Valid(schema) => Ok(schema),

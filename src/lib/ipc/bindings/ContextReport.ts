@@ -20,4 +20,8 @@ left_out_turns: number,
 /**
  * The model may search and read notes itself.
  */
-tools: boolean, };
+tools: boolean, 
+/**
+ * Edit mode: the model may propose changes.
+ */
+edit: boolean, };

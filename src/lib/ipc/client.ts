@@ -3,6 +3,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { CellInput } from "./bindings/CellInput";
+import type { ChangeOutcome } from "./bindings/ChangeOutcome";
 import type { ChatInput } from "./bindings/ChatInput";
 import type { ChatStreamEvent } from "./bindings/ChatStreamEvent";
 import type { CollectionData } from "./bindings/CollectionData";
@@ -12,6 +13,7 @@ import type { EntryData } from "./bindings/EntryData";
 import type { ErrorPayload } from "./bindings/ErrorPayload";
 import type { ModelCapabilities } from "./bindings/ModelCapabilities";
 import type { ModelInfo } from "./bindings/ModelInfo";
+import type { OperationInfo } from "./bindings/OperationInfo";
 import type { PageDocument } from "./bindings/PageDocument";
 import type { PageHit } from "./bindings/PageHit";
 import type { PageLinkInfo } from "./bindings/PageLinkInfo";
@@ -153,6 +155,13 @@ export const ipc = {
     return call<void>("ai_chat", { requestId, input, onEvent: channel });
   },
   aiCancel: (requestId: string) => call<void>("ai_cancel", { requestId }),
+
+  // AI change proposals (ARCHITECTURE §10.3): applied only from the review dialog.
+  applyChangeset: (changesetId: string, changeIds: string[]) =>
+    call<ChangeOutcome>("apply_changeset", { changesetId, changeIds }),
+  rejectChangeset: (changesetId: string) => call<void>("reject_changeset", { changesetId }),
+  listOperations: () => call<OperationInfo[]>("list_operations"),
+  undoOperation: (opId: string) => call<ChangeOutcome>("undo_operation", { opId }),
 
   /** Sends the file's bytes raw (no JSON encoding) and returns the Markdown reference. */
   importAttachment: async (pageId: string, file: File): Promise<string> => {

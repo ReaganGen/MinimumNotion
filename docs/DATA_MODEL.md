@@ -422,21 +422,27 @@ The trashed file or bundle sits next to `entry.json` under its original name. `p
 
 ### 7.5 Operations: `operations/<op-id>.json`
 
+Written when the user applies an AI proposal or undoes one (Phase 6, ADR-043), inside the same transaction as the change:
+
 ```json
-{ "format_version": 1, "op_id": "<uuid>", "applied_at": "...", "source": "ai",
-  "request": "Organize my reading notes", "summary": "Moved 3 pages, edited 1",
-  "provider": "anthropic", "model": "<model-id>",
+{ "format_version": 1, "op_id": "<uuid>", "seq": 12, "applied_at": "...", "source": "ai",
+  "request": "Organize my reading notes", "summary": "Created 1 page, moved 3 pages",
+  "provider": "Anthropic", "model": "<model-id>",
   "ops": [
-    { "type": "edit_page",   "page_id": "…", "before_rev": "…", "after_rev": "…",
+    { "type": "edit_page",      "page_id": "…", "before_rev": "…", "after_rev": "…",
       "snapshot": "history/<page-id>/20261102T103000Z_<rev>_ai.md" },
-    { "type": "create_page", "page_id": "…", "after_rev": "…" },
-    { "type": "move_page",   "page_id": "…", "from_parent": "…", "to_parent": "…" },
-    { "type": "set_properties", "page_id": "…", "before_rev": "…", "after_rev": "…", "snapshot": "…" }
+    { "type": "set_properties", "page_id": "…", "before_rev": "…", "after_rev": "…", "snapshot": "…" },
+    { "type": "create_page",    "page_id": "…", "after_rev": "…" },
+    { "type": "move_page",      "page_id": "…", "from_parent": "…|null", "to_parent": "…|null" },
+    { "type": "trash_page",     "page_id": "…", "entry_id": "…" },
+    { "type": "restore_page",   "page_id": "…", "rev": "…" }
   ],
-  "undone_by": null }
+  "undoes": null }
 ```
 
-Forma keeps the last 100 operations. When it prunes an older operation, that operation's protected snapshots stop being protected.
+- `source` is `ai`, or `undo` for a record that undid another (`undoes` names it). Undoing an `undo` record redoes the change. `trash_page` and `restore_page` appear in undo records: undoing a creation trashes the page, and undoing that restores it.
+- An operation is undone when a record that `undoes` it exists and isn't undone itself. Records are never rewritten.
+- `seq` orders the records (timestamps can tie). Forma keeps the newest 100; when it removes an older one, that operation's snapshots stop being protected from history pruning (§8.2).
 
 ### 7.6 Journal: `journal/<journal-id>.json`
 
@@ -455,6 +461,20 @@ Used for multi-file batches (ChangeSet apply, property rename, option rename) an
 - `bundle_conversion` steps also record `from_path` and `to_path`. Rolling one back moves the file back to `from_path` before restoring the snapshot.
 
 The user then sees "An interrupted operation was undone".
+
+**Transactions** (Phase 6): applying an AI proposal (`kind: "changeset_apply"`) or undoing one (`"operation_undo"`) journals every file action before it's done, instead of listing steps in advance:
+
+```json
+{ "format_version": 1, "journal_id": "…", "kind": "changeset_apply", "started_at": "…",
+  "actions": [
+    { "action": "make_dir", "path": "Projects" },
+    { "action": "rename",   "from": "Projects.md", "to": "Projects/index.md" },
+    { "action": "write",    "page_id": "…", "path": "Plan.md", "before_rev": "…|null",
+      "after_rev": "…", "snapshot": ".forma/history/<page-id>/…_ai.md|null" }
+  ] }
+```
+
+Paths are relative to the workspace root. Rollback goes newest first: a `write` whose file still has `after_rev` gets its snapshot back (or, with no `before_rev`, is removed); a `rename` is reversed if its destination exists and its source doesn't; a `make_dir` is removed if empty. Anything else is left as it is, and counted in the notice ("An interrupted AI change was undone").
 
 ### 7.7 Recovery: `recovery/<page-id>.md` and `.json`
 
@@ -606,8 +626,10 @@ resolve_conflict(id, choice, buffer?)                       → …
 create_collection(parent_id?, title, schema) / convert_to_collection(id, base_rev, schema)
 update_schema(collection_id, base_rev, schema_ops)          → Saved | Conflict | Batch{journal}
 set_properties(page_id, base_rev, set, unset)               → Saved{rev} | Conflict{current}
-apply_changeset(changeset_id, op_ids)                       → AppliedOperation | Conflicts   (Phase 6)
-undo_operation(op_id)                                       → AppliedOperation | Conflicts   (Phase 6)
+apply_changeset(changeset_id, change_ids)                   → Applied{operation} | Conflicts{conflicts}   (Phase 6; the review dialog only)
+reject_changeset(changeset_id)                              → ()             (forgets the proposal; nothing was written)
+list_operations()                                           → [OperationInfo]   (newest first)
+undo_operation(op_id)                                       → Applied{operation} | Conflicts{conflicts}   (an undo's undo redoes)
 rebuild_index()                                             → ()
 ```
 
