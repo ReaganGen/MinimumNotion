@@ -22,7 +22,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 | 016 | TypeScript 6.0 with Biome, not TypeScript 7 or ESLint | Accepted |
 | 017 | Rust workspace: `forma-core`, `forma-ai`, thin `src-tauri` shell | Accepted |
 | 018 | All AI traffic goes through Rust; the webview has no network access | Accepted |
-| 019 | Provider abstraction: two wire protocols plus presets, with capability detection | Accepted |
+| 019 | Provider abstraction: two wire protocols plus presets, with capability detection | Accepted; the OpenAI preset changed by ADR-038 |
 | 020 | Credentials in the macOS Keychain via `keyring-core` | Accepted |
 | 021 | The agent can only propose; the user applies; operations are logged and undoable | Accepted |
 | 022 | Retrieval uses FTS5 BM25 passages behind a `Retriever` trait; no embeddings in v0.1 | Accepted |
@@ -35,6 +35,15 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 | 029 | Custom pixel-width resize handles instead of `react-resizable-panels` | Accepted |
 | 030 | App shortcuts are native menu accelerators, routed through one command registry | Accepted |
 | 031 | Remote `https:` images in notes load automatically; AI output and AI previews still don't | Accepted, user-chosen |
+| 032 | The Phase 2 page index lives in memory; SQLite arrives with search | Accepted; extended by ADR-035 |
+| 033 | The editor's saves are checked against the body revision | Accepted, user-approved |
+| 034 | Outcome of the Markdown gate: `@tiptap/markdown` plus a Forma rules layer | Accepted |
+| 035 | The SQLite cache: loaded at open, written with every change, one connection | Accepted |
+| 036 | CJK search uses a trigram table with LIKE; words use unicode61 | Accepted |
+| 037 | Collections in the sidebar and in pages | Accepted |
+| 038 | Provider APIs as verified in Phase 4: OpenAI through the Responses API, Anthropic API version 2026-10-21 | Accepted, user-chosen |
+| 039 | The AI service: one provider type, rules in Rust, answers over a Channel | Accepted |
+| 040 | Chat answers are rendered from Markdown tokens as React elements | Accepted |
 
 ---
 
@@ -237,7 +246,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-019: Provider abstraction: two wire protocols plus presets, with capability detection
 
-- **Status:** Accepted. **Date:** 2026-11-02
+- **Status:** Accepted. The OpenAI preset uses the Responses API instead (ADR-038), so there are three wire protocols. **Date:** 2026-11-02
 - **Decision:**
   - Two adapters: the OpenAI Chat Completions protocol (covering OpenAI, OpenAI-compatible endpoints and LM Studio) and the Anthropic Messages protocol.
   - A native Ollama adapter, needed for `num_ctx` and for capability detection.
@@ -462,4 +471,42 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
   - "Turn into a collection" is in the page menu. "Turn into a regular page" is in the collection's menu and asks first.
 - **Alternatives:** Hiding entries from the sidebar entirely. Simpler, but entries then can't be dragged or reached from the tree.
 - **Consequences:** Entries past the 50th are reached through the collection, search or quick open.
+
+## ADR-038: Provider APIs as verified in Phase 4
+
+- **Status:** Accepted. The OpenAI choice was the user's (2026-11-03); it changes ADR-019's OpenAI preset. Resolves risk R8 for now. **Date:** 2026-11-03 (Phase 4)
+- **Context:** ADR-019 asked Phase 4 to check the providers' current APIs first. The official documentation was read on 2026-11-03:
+  - **OpenAI:** Chat Completions isn't deprecated, but OpenAI recommends the Responses API for new projects, and its reasoning guide says "Chat Completions does not support function calling with GPT-6 Astra or GPT-6.1 Sol". Act mode (Phase 6) needs function calling.
+  - **Anthropic:** the latest API version is `2026-10-21`. It removes `temperature`, `top_p` and `top_k` for every model, so sending any of them is a 400 error. `Authorization: Bearer <API key>` is the documented header; `x-api-key` still works as a "legacy fallback". `max_tokens` is required. The model list (`GET /v1/models`, paged with `after_id`) and `GET /v1/models/{id}` give `max_input_tokens` and `max_tokens`.
+  - **Ollama:** `/api/chat` streams JSON lines. The default `num_ctx` is 2048 tokens, so long input is cut silently unless a window is set. `/api/show` lists `capabilities` and `<architecture>.context_length`. Tool calls arrive whole, with arguments as an object.
+  - **LM Studio:** chat through the OpenAI-compatible `/v1/chat/completions`. The native `GET /api/v1/models` adds `max_context_length`, the loaded context length and `trained_for_tool_use`.
+- **Decision:**
+  - The OpenAI preset uses the **Responses API** (`POST /v1/responses`) with `store: false`, so OpenAI doesn't keep the conversation for later retrieval. OpenAI-compatible servers and LM Studio keep Chat Completions.
+  - Anthropic requests send `anthropic-version: 2026-10-21` and `Authorization: Bearer`, never a temperature (the setting is hidden for Anthropic), and `max_tokens` of 4096 unless the user sets one.
+  - Ollama requests always send `num_ctx`: the user's override, else the model's context length capped at 8,192 tokens (a bigger window takes more memory).
+  - A temperature is sent only when the user sets one. Several models reject it, and the error then names the parameter.
+- **Alternatives:** Chat Completions for OpenAI too (ADR-019 as written). Less code, but the newest OpenAI models couldn't use Act mode. Pinning Anthropic's `2023-06-01` version, which still takes a temperature: Anthropic recommends the latest version, and the parameter is gone for every model there.
+- **Consequences:** Three wire protocols instead of two. The stream fixtures follow the documented formats; they aren't recordings, because no API keys were available in Phase 4. A test that's ignored by default (`tests/live_endpoints.rs`) checks TLS, the auth headers and real 401 responses from both cloud APIs.
+
+## ADR-039: The AI service: one provider type, rules in Rust, answers over a Channel
+
+- **Status:** Accepted. **Date:** 2026-11-03 (Phase 4)
+- **Context:** ARCHITECTURE §9.1 sketched an async `ChatProvider` trait object. In Rust 2024 an `async fn` in a trait can't be used as `dyn` without boxing every future, and the four protocols differ only in URLs, request bodies and stream decoding.
+- **Decision:**
+  - One `Provider` type sends requests for any configured provider and picks the protocol from its kind. Each protocol is a module with a request builder and a **pure decoder** (stream frames in, `ChatEvent`s out), so recorded streams test it without a network.
+  - `AiService` (held by the shell for the app's lifetime) owns every rule about sending: AI must be on, a provider and model chosen, a key present where required, and agreement given for a provider that isn't on this Mac. It also estimates the conversation's size and refuses one that can't fit the context window, rather than letting the provider cut it.
+  - Keys are read from the Keychain once per session and kept in Rust memory. Keychain calls run on blocking threads, because macOS may show a prompt. If the Keychain can't be opened, keys last for the session only, and the log says so.
+  - Answers stream to the webview over a Tauri Channel. The request ID comes from the webview, so Stop works even if it arrives before the request starts. Cancelling drops the HTTP connection.
+  - Errors carry a kind (auth, unreachable, TLS, timeout, rate limit with `retry_after`, model missing, context overflow, provider, interrupted, cancelled, not configured, disabled) and a message for the user. Any copy of the key in a provider's message is replaced before it leaves Rust. Logs record the kind and status, never the message, which can quote what was sent.
+  - At the end of a stream, an unfinished line or event is dropped (as the event-stream rules say), and an answer without its final event is reported as interrupted.
+- **Alternatives:** A trait object per protocol with boxed futures. More code for the same behavior, and the rules about sending would be spread over the adapters.
+- **Consequences:** Adding a protocol means a module and one arm in each `match`. A provider that needs more than a URL, a body and a decoder would bring the trait back.
+
+## ADR-040: Chat answers are rendered from Markdown tokens as React elements
+
+- **Status:** Accepted. **Date:** 2026-11-03 (Phase 4)
+- **Context:** AI output is untrusted (ARCHITECTURE §10.4). It must render as Markdown with no HTML, no remote images and no `javascript:` links.
+- **Decision:** `marked` 17.0.6, already installed through `@tiptap/markdown` and now a direct dependency at that version, only tokenizes the answer. Forma builds React elements from the tokens, so nothing passes through `innerHTML`. Raw HTML appears as text. An image shows as "[Image: alt · address]" and isn't loaded. Only `https:`, `http:` and `mailto:` links can be opened: they're buttons that name their destination and open it in the browser on click. Other links show their address as text.
+- **Alternatives:** `marked` to HTML plus a sanitizer (DOMPurify). A sanitizer bug or setting would become an XSS hole, and XSS here could defeat the approval boundary (ARCHITECTURE §2.1). A read-only Tiptap editor: heavy for a chat answer.
+- **Consequences:** The renderer handles the token types it knows (headings, paragraphs, lists and task lists, code, quotes, tables, rules, and the inline forms). Anything newer shows as its source text. HTML entities written by the model (for example `&amp;`) show as written.
 

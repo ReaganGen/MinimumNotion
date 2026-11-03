@@ -2,11 +2,27 @@
 
 ## Current Phase
 
-Phase 3: Collections, Links, and Search (approved 2026-11-02). **Implemented and verified; waiting for the user's approval to proceed to Phase 4.**
+Phase 4: AI Provider Integration (approved 2026-11-03). **Implemented and verified; waiting for the user's approval to proceed to Phase 5.**
 
 ## Status
 
-Phase 3 is complete as far as automated, performance and runtime checks can show. The manual checks in the built app (below) are for the user.
+Phase 4 is complete as far as automated, preview, live-endpoint and release-app checks can show. No API key, Ollama or LM Studio was available, so a real conversation with each provider is the first manual check below.
+
+### Phase 4 journal
+
+- **API check first (ADR-038, risk R8).** The providers' current documentation was read on 2026-11-03. OpenAI: Chat Completions still works, but its newest models can't call tools through it, so **the OpenAI preset uses the Responses API** (the user's choice), with `store: false`. Anthropic: API version `2026-10-21`, which removed `temperature` for every model. Ollama: native API, because only it takes `num_ctx`. LM Studio: Chat Completions, plus its own model list for details.
+- **`forma-ai` crate.** The only crate with network access. Stream framing (server-sent events and JSON lines, safe at any chunk boundary), four protocol modules with pure decoders (text, tool-call and usage events, stop reasons, errors), and one `Provider` type over them (ADR-039). Model lists come from the providers; model details (context window, output limit, tool support) where the provider reports them.
+- **Rules in Rust.** `AiService` refuses to send unless AI is on, a provider and model are chosen, a required key is stored, and, for a provider that isn't on this Mac, the user has agreed. It also refuses a conversation too big for the model's window rather than letting the provider cut it. Ollama always gets a `num_ctx` (the model's own window, capped at 8,192 tokens unless the user sets one).
+- **Keys.** In the login keychain under `app.forma.desktop.ai-provider` (ADR-020). Typed once into a password field, sent to Rust, and never returned by any command. Read once per session. Any copy of a key in a provider's error message is replaced before it leaves Rust; AI failures are logged by kind and status only.
+- **Settings → AI.** Turn AI on (off by default), add providers (OpenAI, Anthropic, Ollama, LM Studio, OpenAI-compatible), name and address, key (stored in the Keychain; Replace and Remove key), model (loaded from the provider or typed), what the provider says about the model, temperature (not for Anthropic), maximum output, context window, Test connection, and Remove provider with confirmation. A plain-`http` address to another machine is flagged as unencrypted.
+- **AI panel.** Streaming chat with Stop, Retry and Clear. Each message says where it went and to which model ("Stays on this Mac" or "Sent to Anthropic (api.anthropic.com)"); the first message to a cloud provider needs explicit agreement. Answers are Markdown built as React elements (ADR-040): no HTML, no remote images, links open only on click and show their destination. The assistant sees no notes; that's Phase 5. Transcripts are kept for the session only.
+- **Bugs found and fixed during the phase:**
+  1. *A stream cut off mid-line was reported as a malformed response.* Unfinished frames at the end of a stream are now dropped, and the answer is reported as interrupted.
+  2. *Two "Remove" buttons in one provider's settings* (key and provider). The key's is now "Remove key".
+  3. *Task-list checkboxes in answers didn't render.*
+  4. *The line saying where a message goes was cut off* in a narrow panel. It wraps now.
+  5. *A CSS rule order warning left from Phase 3* (`[data-compact] .forma-editor`). The Phase 3 record said Biome reported 0 diagnostics; it reported this one warning.
+- **Design decisions:** ADR-038, ADR-039, ADR-040. ADR-019's OpenAI preset changed (ADR-038). The decision index in DECISIONS.md now lists ADR-032 to ADR-037, which were missing.
 
 ### Phase 3 journal
 
@@ -48,6 +64,7 @@ Phase 3 is complete as far as automated, performance and runtime checks can show
 - **Phase 0: Architecture and Project Planning.** Approved 2026-11-02 (commit `0b64019`).
 - **Phase 1: macOS Application Foundation**, with the Phase 1.1 audit fixes. Commits `fd1dc6b` and `c2145e7`; design decisions recorded in `a90c3c6`.
 - **Phase 2: Document System and Editor.** Approved 2026-11-02 (commits `52c5d1e`, `7cbe4c7`).
+- **Phase 3: Collections, Links, and Search.** Approved 2026-11-03 (commit `4c4ade6`).
 
 ## Implemented Features
 
@@ -107,21 +124,35 @@ The architecture documents and CLAUDE.md. See the git history.
 
 ## Tests
 
-Run on 2026-11-03 at the end of Phase 3 (`npm run check` exits 0):
+Run on 2026-11-03 at the end of Phase 4 (`npm run check` exits 0):
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` (app and Vite config) | Pass |
-| `npx biome check .` | Pass, 100 files, 0 diagnostics |
-| `npx vitest run` | 23 files, **155 tests passed** |
+| `npx biome check .` | Pass, 0 diagnostics |
+| `npx vitest run` | 26 files, **173 tests passed** |
 | `cargo fmt --all --check` | Pass |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
-| `cargo test --workspace` | **143 passed**: 140 in `forma-core` (including 37 workspace integration tests against real temporary folders) and 3 in the shell |
+| `cargo test --workspace` | **207 passed, 2 ignored**: 146 in `forma-core`, 58 in `forma-ai` (44 unit, 13 against a local HTTP server, 1 key-leak check) and 3 in the shell |
+| `cargo test -p forma-ai --lib -- --ignored keychain` | Pass: a real login-keychain item was written, read, replaced and deleted; none was left behind |
+| `cargo test -p forma-ai --test live_endpoints -- --ignored` | Pass: api.anthropic.com and api.openai.com, reached over TLS, rejected a fake key with 401, reported as an authentication error with the key removed from the message |
 | `npm audit` | 0 vulnerabilities |
-| `npm run tauri -- build --bundles app` | Pass. `Forma.app` is 10.43 MiB, arm64. The JS bundle is 1.35 MB (413 KB gzipped) |
+| `npm run tauri -- build --bundles app` | Pass. `Forma.app` is 11.97 MiB, arm64 (10.43 MiB before; the HTTP and TLS stack). The JS bundle is 1.38 MB (422 KB gzipped) |
 | `codesign --verify --deep --strict Forma.app` | Pass (ad-hoc, hardened runtime). Not notarized |
 
-New in Phase 3: index (word, prefix, substring and CJK search; rebuild equivalence; cache across restarts; outside edits while closed), links (renames and moves, wikilink resolution and ambiguity, trash and restore, parity fixtures on both sides), collections (schema validation, the coercion table, value writing, renames and their refusal, crash rollback, turning back into a page, views, newer schemas read-only), and in the UI: search keyboard handling and stale answers, `[[` link insertion (and no link when the ID can't be saved), page link titles and states, backlinks, table editing, option creation, filters, list view, read-only collections, the rebuild button.
+New in Phase 4: stream framing at every chunk size; each protocol's decoder on its fixtures (text, tool calls, usage, provider errors, truncation, a stream cut short); request bodies (no temperature for Anthropic, `store: false` for OpenAI, `num_ctx` for Ollama); HTTP status mapping; base-URL rules and loopback detection; and, against a local HTTP server, the headers and bodies each protocol sends, streaming, Stop during a stalled stream (stops within the test's 2 s limit), a Stop that arrives first, 401/429/404/400 mapping, unreachable servers, the connection test, Anthropic's paged model list, and every refusal before sending (AI off, no provider, no model, no agreement, no key, too long). The key-leak test records all log output at trace level, including the HTTP client's, and every payload that would cross IPC while a provider echoes the key back: the key appears in neither. In the UI: the panel's states, cloud agreement, streaming, Stop and Retry, errors with retry-after, history sent without failed answers, Clear; the Markdown renderer's safety rules; Settings → AI (turn on, add, key never shown again, models, a refused change put back, connection test, Anthropic without temperature, removal asks first).
+
+**Stream fixtures are not recordings.** `crates/forma-ai/fixtures/` follows the documented formats of each provider (2026-11-03), with some fields trimmed. No API key, Ollama or LM Studio was available to record real streams.
+
+Runtime check on the release app (2026-11-03), with AI off and a generated 40-page workspace: the app **opened no network sockets** (`lsof -i` on its process), the quit handshake took 0.16 s, every file was unchanged, and settings.json was not rewritten. The settings file and window state were restored byte-for-byte afterwards, and the test index and workspace deleted.
+
+Checked in the development browser preview (fake provider, no network), light and dark: AI off, turning it on, adding Anthropic, storing a key (then shown only as "Stored in your Keychain."), loading and choosing a model, model details, the cloud agreement, a streamed answer with code, a link, HTML shown as text and an image shown as its address. Duplicate-key warnings appeared in the preview's console only after hot reloads during editing; a fresh load and the same steps logged no errors.
+
+**Unverified:** a real conversation with any provider (no keys, no Ollama or LM Studio here), and every interaction inside the native window.
+
+### Phase 3 test record
+
+Phase 3 ran `npm run check` (155 frontend and 143 Rust tests then). New in Phase 3: index (word, prefix, substring and CJK search; rebuild equivalence; cache across restarts; outside edits while closed), links (renames and moves, wikilink resolution and ambiguity, trash and restore, parity fixtures on both sides), collections (schema validation, the coercion table, value writing, renames and their refusal, crash rollback, turning back into a page, views, newer schemas read-only), and in the UI: search keyboard handling and stale answers, `[[` link insertion (and no link when the ID can't be saved), page link titles and states, backlinks, table editing, option creation, filters, list view, read-only collections, the rebuild button.
 
 **Performance** (5,000 synthetic pages from `node scripts/generate-workspace.mjs sandbox-workspaces/perf 5000`, 20 MB of Markdown, measured with `cargo run --release -p forma-core --example measure -- sandbox-workspaces/perf`; best of several runs):
 
@@ -164,6 +195,14 @@ Checked in the development browser preview, not the native app: the editor's ren
 
 Use a test folder, not real notes. Open `target/release/bundle/macos/Forma.app`.
 
+**Phase 4**
+1. **AI off:** with AI off (the default), the panel (⌘⇧A) says so and Forma works as before.
+2. **Local model:** install Ollama (or LM Studio) and pull a model. Settings → AI → Use AI → Add provider → Ollama. Load models, choose one, Test connection. Chat in the panel: the answer streams, the message says "Stays on this Mac", and Stop works mid-answer.
+3. **Cloud provider:** add OpenAI or Anthropic, paste an API key, Save key. It shows "Stored in your Keychain." (macOS may ask to allow Forma). In Keychain Access, the item is under `app.forma.desktop.ai-provider`. Load models, choose one, Test connection. The first message asks you to agree; then the answer streams.
+4. **Failures:** a wrong key (Test connection says the key wasn't accepted), a model ID that doesn't exist, Ollama stopped (the address can't be reached), and networking off with a cloud provider. Each message should say what went wrong.
+5. **Restart:** quit and reopen. Providers, the chosen model and stored keys are kept; the conversation isn't.
+6. **Remove:** Remove provider. The Keychain item is gone.
+
 **Phase 3**
 1. **Search:** write a few pages, then ⌘K and search for a word in the body, a word start, and a Chinese word of two characters. Edit a page and search again: results follow the edit.
 2. **Quick open:** ⌘P lists recently opened pages; typing filters by title.
@@ -199,19 +238,23 @@ Not separately reviewed, and kept as documented: favorites and order in `.forma/
 ## Known Issues and Open Decisions
 
 1. **Native interactions are unverified by Claude.** The manual steps above cover them.
-2. **Rebuilding the index, or a cold first open, briefly blocks other workspace requests** (about 0.6 s at 5,000 pages; ADR-035).
-3. **CJK search results are substring matches without relevance ranking** (ADR-036).
-4. **Recent pages in ⌘P last for the session only.**
-5. **Index caches of workspaces that were moved or deleted stay in Application Support** until removed by hand. Each is about 1.7 times the size of its workspace's Markdown.
-6. **A collection's sidebar list stops at 50 entries** (ADR-037). The rest are in the collection, search and quick open.
-7. **Wide tables scroll sideways inside the page's reading column.**
-8. **Recovery buffers** are cleared by a later successful save only when the same editor kept them (Phase 2).
-9. **The title field doesn't follow a title changed outside Forma** while the page is open (Phase 2).
-10. **The frontend bundle is 1.35 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
-11. **Each development build re-asks macOS for folder access** (ad-hoc signing; Phase 7).
-12. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
-13. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
+2. **No real AI conversation has been tested.** Phase 4's stream fixtures follow the documentation, not recordings; the live test only covers authentication failures (ADR-038).
+3. **OpenAI models show no context window or tool support** (its model list has none), so the conversation-size check only applies when the user sets a context window. Phase 5 packs context against a conservative default.
+4. **The conversation isn't trimmed to fit the window yet.** A conversation that's too long is refused with a message to clear it; packing is Phase 5.
+5. **Development builds may ask for Keychain access again** after each rebuild (ad-hoc signing, risk R7).
+6. **Rebuilding the index, or a cold first open, briefly blocks other workspace requests** (about 0.6 s at 5,000 pages; ADR-035).
+7. **CJK search results are substring matches without relevance ranking** (ADR-036).
+8. **Recent pages in ⌘P last for the session only.**
+9. **Index caches of workspaces that were moved or deleted stay in Application Support** until removed by hand.
+10. **A collection's sidebar list stops at 50 entries** (ADR-037).
+11. **Wide tables scroll sideways inside the page's reading column.**
+12. **Recovery buffers** are cleared by a later successful save only when the same editor kept them (Phase 2).
+13. **The title field doesn't follow a title changed outside Forma** while the page is open (Phase 2).
+14. **The frontend bundle is 1.38 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
+15. **Each development build re-asks macOS for folder access** (ad-hoc signing; Phase 7).
+16. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
+17. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
 
 ## Next Phase
 
-**Phase 4: AI Provider Integration** (IMPLEMENTATION_PLAN §7): OpenAI, Anthropic, OpenAI-compatible endpoints, Ollama and LM Studio, with keys in the Keychain and streaming chat. It starts only after your approval.
+**Phase 5: AI Knowledge Retrieval (read-only)** (IMPLEMENTATION_PLAN §8): passage search over the notes, read-only tools, context packing within the model's window, and answers with citations that open the cited page. It starts only after your approval.

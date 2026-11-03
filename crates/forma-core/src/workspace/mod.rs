@@ -11,6 +11,7 @@ pub mod naming;
 mod refs;
 mod scan;
 mod search;
+pub use search::is_cjk;
 mod state;
 pub mod types;
 pub mod watcher;

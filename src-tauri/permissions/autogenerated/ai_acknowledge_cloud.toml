@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ai-acknowledge-cloud"
+description = "Enables the ai_acknowledge_cloud command without any pre-configured scope."
+commands.allow = ["ai_acknowledge_cloud"]
+
+[[permission]]
+identifier = "deny-ai-acknowledge-cloud"
+description = "Denies the ai_acknowledge_cloud command without any pre-configured scope."
+commands.deny = ["ai_acknowledge_cloud"]

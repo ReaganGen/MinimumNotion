@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/forma-core", "src-tauri"]
+members = ["crates/forma-core", "crates/forma-ai", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,6 +10,7 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
+forma-ai = { path = "crates/forma-ai" }
 forma-core = { path = "crates/forma-core" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

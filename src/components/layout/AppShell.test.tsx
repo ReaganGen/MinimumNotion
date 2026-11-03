@@ -63,7 +63,7 @@ describe("AppShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Open AI assistant" }));
     expect(panel("AI assistant")).toHaveAttribute("data-state", "open");
-    expect(screen.getByText("Not available yet")).toBeInTheDocument();
+    expect(screen.getByText("AI is off")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Close AI assistant" }));
     expect(panel("AI assistant")).toHaveAttribute("data-state", "closed");

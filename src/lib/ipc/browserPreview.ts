@@ -2,18 +2,23 @@
 // regular browser instead of the Forma app. It keeps settings and a small sample
 // workspace in memory (pages, a collection, links) and maps the menu accelerators to
 // menu events, because a browser has no native menu. Never included in production
-// builds (see main.tsx). Its search and collection logic are rough stand-ins.
+// builds (see main.tsx). Its search and collection logic are rough stand-ins, and
+// its AI provider is fake: answers are canned and nothing goes over the network.
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { CommandId } from "@/features/commands/commands";
 import { defaultSettings } from "@/features/settings/defaults";
+import type { AiSettings } from "./bindings/AiSettings";
 import type { Cell } from "./bindings/Cell";
 import type { CellInput } from "./bindings/CellInput";
+import type { ChatStreamEvent } from "./bindings/ChatStreamEvent";
 import type { CollectionRow } from "./bindings/CollectionRow";
 import type { CollectionViews } from "./bindings/CollectionViews";
 import type { PageDocument } from "./bindings/PageDocument";
 import type { PageHit } from "./bindings/PageHit";
 import type { PageSummary } from "./bindings/PageSummary";
+import type { ProviderKind } from "./bindings/ProviderKind";
+import type { ProviderUpdate } from "./bindings/ProviderUpdate";
 import type { Schema } from "./bindings/Schema";
 import type { SchemaOp } from "./bindings/SchemaOp";
 import type { SettingsUpdate } from "./bindings/SettingsUpdate";
@@ -327,11 +332,111 @@ function memoryWorkspace() {
   };
 }
 
+const PRESETS: Record<ProviderKind, { name: string; base_url: string }> = {
+  anthropic: { name: "Anthropic", base_url: "https://api.anthropic.com" },
+  openai: { name: "OpenAI", base_url: "https://api.openai.com/v1" },
+  openai_compatible: { name: "OpenAI-compatible", base_url: "http://localhost:8000/v1" },
+  ollama: { name: "Ollama", base_url: "http://localhost:11434" },
+  lmstudio: { name: "LM Studio", base_url: "http://localhost:1234/v1" },
+};
+
+const CANNED_ANSWER = `This is the **browser preview**, so no model was asked. In the app, the answer streams here.
+
+- Markdown renders: \`code\`, *emphasis*, [a link](https://example.com)
+- Raw HTML shows as text: <b>not bold</b>
+- Images aren't loaded: ![chart](https://example.com/chart.png)`;
+
+/** An in-memory stand-in for the AI commands. Never touches the network. */
+function memoryAi(getAi: () => AiSettings, setAi: (ai: AiSettings) => void) {
+  const running = new Map<string, () => void>();
+  const update = (change: (ai: AiSettings) => AiSettings) => setAi(change(getAi()));
+  const withProvider = (id: string, change: (p: AiSettings["providers"][number]) => void) =>
+    update((ai) => {
+      const providers = ai.providers.map((p) => ({ ...p }));
+      const provider = providers.find((p) => p.id === id);
+      if (provider) change(provider);
+      return { ...ai, providers };
+    });
+
+  return {
+    add(kind: ProviderKind) {
+      const id = crypto.randomUUID();
+      update((ai) => ({
+        ...ai,
+        active_provider: ai.active_provider ?? id,
+        providers: [
+          ...ai.providers,
+          {
+            id,
+            kind,
+            ...PRESETS[kind],
+            model: "",
+            has_credential: false,
+            options: {
+              temperature: null,
+              max_output_tokens: null,
+              context_window_override: null,
+              tool_calling_override: null,
+            },
+          },
+        ],
+      }));
+    },
+    update: (id: string, u: ProviderUpdate) => withProvider(id, (p) => Object.assign(p, u)),
+    remove: (id: string) =>
+      update((ai) => {
+        const providers = ai.providers.filter((p) => p.id !== id);
+        return {
+          ...ai,
+          providers,
+          active_provider:
+            ai.active_provider === id ? (providers[0]?.id ?? null) : ai.active_provider,
+        };
+      }),
+    setKey: (id: string, stored: boolean) =>
+      withProvider(id, (p) => {
+        p.has_credential = stored;
+      }),
+    chat(requestId: string, onEvent: (event: ChatStreamEvent) => void): Promise<null> {
+      const words = CANNED_ANSWER.split(/(?<= )/);
+      return new Promise((resolve) => {
+        let i = 0;
+        const timer = setInterval(() => {
+          if (i < words.length) {
+            onEvent({ type: "text", text: words[i++] ?? "" });
+            return;
+          }
+          clearInterval(timer);
+          running.delete(requestId);
+          onEvent({ type: "done", stop_reason: "end_turn" });
+          resolve(null);
+        }, 40);
+        running.set(requestId, () => {
+          clearInterval(timer);
+          running.delete(requestId);
+          onEvent({
+            type: "failed",
+            error: { kind: "cancelled", message: "Stopped.", status: null, retry_after_secs: null },
+          });
+          resolve(null);
+        });
+      });
+    },
+    cancel: (requestId: string) => running.get(requestId)?.(),
+  };
+}
+
 export function installBrowserPreview() {
   let settings = defaultSettings();
   let notice: string | null =
     "Browser preview: running without the Forma app. Nothing is saved to disk.";
   const ws = memoryWorkspace();
+  const ai = memoryAi(
+    () => settings.ai,
+    (next) => {
+      settings = { ...settings, ai: next };
+    },
+  );
 
   mockWindows("main");
   mockIPC(
@@ -347,6 +452,53 @@ export function installBrowserPreview() {
         case "save_settings":
           settings = { ...settings, ...(a.update as SettingsUpdate) };
           return settings;
+        case "ai_set_enabled":
+          settings = { ...settings, ai: { ...settings.ai, enabled: a.enabled as boolean } };
+          return settings;
+        case "ai_add_provider":
+          ai.add(a.kind as ProviderKind);
+          return settings;
+        case "ai_update_provider":
+          ai.update(str("id"), a.update as ProviderUpdate);
+          return settings;
+        case "ai_remove_provider":
+          ai.remove(str("id"));
+          return settings;
+        case "ai_set_active_provider":
+          settings = { ...settings, ai: { ...settings.ai, active_provider: str("id") } };
+          return settings;
+        case "ai_set_api_key":
+        case "ai_remove_api_key":
+          ai.setKey(str("id"), command === "ai_set_api_key");
+          return settings;
+        case "ai_acknowledge_cloud":
+          settings = {
+            ...settings,
+            ai: {
+              ...settings.ai,
+              cloud_acknowledged: {
+                ...settings.ai.cloud_acknowledged,
+                [str("id")]: new Date().toISOString(),
+              },
+            },
+          };
+          return settings;
+        case "ai_list_models":
+          return [
+            { id: "preview-small", name: "Preview Small", details: null },
+            { id: "preview-large", name: "Preview Large", details: null },
+          ];
+        case "ai_model_capabilities":
+          return { tool_calling: "unknown", context_window: 32768, max_output_tokens: null };
+        case "ai_test_connection":
+          return { ok: true, message: "Browser preview: no request was sent.", error: null };
+        case "ai_chat": {
+          const channel = a.onEvent as { onmessage: (event: ChatStreamEvent) => void };
+          return ai.chat(str("requestId"), (event) => channel.onmessage(event));
+        }
+        case "ai_cancel":
+          ai.cancel(str("requestId"));
+          return null;
         case "workspace_open_last":
         case "workspace_info":
           return ws.info;

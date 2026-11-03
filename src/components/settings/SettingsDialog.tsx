@@ -4,14 +4,14 @@ import { type ReactNode, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSettingsStore } from "@/features/settings/settingsStore";
+import { type SettingsSection, useUiStore } from "@/features/ui/uiStore";
 import { useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import type { ThemePreference } from "@/lib/ipc/bindings/ThemePreference";
 import { ipc } from "@/lib/ipc/client";
 import { cn } from "@/lib/utils";
+import { AiSection } from "./AiSection";
 
-type SectionId = "appearance" | "workspace" | "ai" | "data";
-
-const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
+const SECTIONS: { id: SettingsSection; label: string; icon: LucideIcon }[] = [
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "workspace", label: "Workspace", icon: Folder },
   { id: "ai", label: "AI", icon: Sparkles },
@@ -30,7 +30,8 @@ interface SettingsDialogProps {
 }
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
-  const [section, setSection] = useState<SectionId>("appearance");
+  const section = useUiStore((s) => s.settingsSection);
+  const setSection = useUiStore((s) => s.setSettingsSection);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -65,13 +66,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           </DialogDescription>
           {section === "appearance" && <AppearanceSection />}
           {section === "workspace" && <WorkspaceSection />}
-          {section === "ai" && (
-            <PendingSection title="AI">
-              Connecting OpenAI, Anthropic, or a local model through Ollama or LM Studio comes in a
-              later build. AI is optional, and Forma will always tell you before your notes are sent
-              anywhere.
-            </PendingSection>
-          )}
+          {section === "ai" && <AiSection />}
           {section === "data" && <DataSection />}
         </div>
       </DialogContent>
@@ -220,17 +215,6 @@ function DataSection() {
           Export, backup and restore come in a later build.
         </p>
       </div>
-    </section>
-  );
-}
-
-function PendingSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section>
-      <h2 className="text-[15px] font-semibold">{title}</h2>
-      <p className="selectable mt-5 border-t pt-4 text-[13.5px] leading-6 text-muted-foreground">
-        {children}
-      </p>
     </section>
   );
 }

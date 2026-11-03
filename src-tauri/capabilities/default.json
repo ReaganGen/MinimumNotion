@@ -54,6 +54,19 @@
     "allow-update-schema",
     "allow-set-property",
     "allow-get-views",
-    "allow-save-views"
+    "allow-save-views",
+    "allow-ai-set-enabled",
+    "allow-ai-add-provider",
+    "allow-ai-update-provider",
+    "allow-ai-remove-provider",
+    "allow-ai-set-active-provider",
+    "allow-ai-set-api-key",
+    "allow-ai-remove-api-key",
+    "allow-ai-acknowledge-cloud",
+    "allow-ai-list-models",
+    "allow-ai-model-capabilities",
+    "allow-ai-test-connection",
+    "allow-ai-chat",
+    "allow-ai-cancel"
   ]
 }

@@ -3,6 +3,7 @@
 // `base_body_rev` to the JavaScript key `baseBodyRev`; a mismatch only shows up
 // at runtime, so this test reads both sides and compares them.
 import { describe, expect, it } from "vitest";
+import aiCommands from "../../../src-tauri/src/ai_commands.rs?raw";
 import settingsCommands from "../../../src-tauri/src/commands.rs?raw";
 import shell from "../../../src-tauri/src/main.rs?raw";
 import workspaceCommands from "../../../src-tauri/src/workspace_commands.rs?raw";
@@ -44,7 +45,9 @@ function clientCalls(source: string): Map<string, string[]> {
 
 describe("IPC contract", () => {
   const rust = new Map(
-    [shell, settingsCommands, workspaceCommands].flatMap((source) => [...rustCommands(source)]),
+    [shell, settingsCommands, workspaceCommands, aiCommands].flatMap((source) => [
+      ...rustCommands(source),
+    ]),
   );
   const calls = clientCalls(client);
 

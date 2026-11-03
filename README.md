@@ -6,7 +6,7 @@ Forma is a minimal, local-first knowledge workspace for macOS. It pairs Notion-s
 
 ## Status
 
-**Pre-release. Phases 1–3 are implemented:** the app shell; Markdown pages with a Notion-style editor, autosave, history, trash and outside-edit safety; and collections, page links, backlinks and full-text search (including Chinese). AI arrives in Phases 4–6. See [docs/PROGRESS.md](docs/PROGRESS.md).
+**Pre-release. Phases 1–4 are implemented:** the app shell; Markdown pages with a Notion-style editor, autosave, history, trash and outside-edit safety; collections, page links, backlinks and full-text search (including Chinese); and optional AI chat with OpenAI, Anthropic, OpenAI-compatible servers, Ollama or LM Studio, with keys in the macOS Keychain. AI is off by default. Questions about your notes arrive in Phase 5, proposed edits in Phase 6. See [docs/PROGRESS.md](docs/PROGRESS.md).
 
 ## Development
 

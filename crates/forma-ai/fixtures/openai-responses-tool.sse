@@ -1,0 +1,21 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_1","object":"response","status":"in_progress","output":[],"usage":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"fc_12345xyz","type":"function_call","status":"in_progress","arguments":"","call_id":"call_k3q","name":"search_pages"}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_12345xyz","output_index":0,"delta":"{\"query\":"}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":3,"item_id":"fc_12345xyz","output_index":0,"delta":"\"protein design\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","sequence_number":4,"item_id":"fc_12345xyz","output_index":0,"arguments":"{\"query\":\"protein design\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":5,"output_index":0,"item":{"id":"fc_12345xyz","type":"function_call","status":"completed","arguments":"{\"query\":\"protein design\"}","call_id":"call_k3q","name":"search_pages"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":6,"response":{"id":"resp_1","object":"response","status":"completed","usage":{"input_tokens":80,"output_tokens":19,"total_tokens":99}}}
+

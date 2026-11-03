@@ -98,6 +98,9 @@ pub struct AppSettings {
     pub layout: LayoutSettings,
     /// Managed by Rust only; the UI can't change it through `SettingsUpdate`.
     pub workspace: WorkspaceSettings,
+    /// Changed only through the AI commands, which validate it and keep the
+    /// Keychain in step. Never holds a credential (DATA_MODEL §11.1).
+    pub ai: AiSettings,
     /// Keys this build doesn't know, preserved verbatim. Never sent to the webview.
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     #[ts(skip)]
@@ -111,6 +114,7 @@ impl Default for AppSettings {
             appearance: AppearanceSettings::default(),
             layout: LayoutSettings::default(),
             workspace: WorkspaceSettings::default(),
+            ai: AiSettings::default(),
             unknown: serde_json::Map::new(),
         }
     }
@@ -122,6 +126,75 @@ impl Default for AppSettings {
 pub struct WorkspaceSettings {
     /// The workspace folder opened last, reopened on launch.
     pub last_path: Option<String>,
+}
+
+/// Which wire protocol and defaults a provider uses (ARCHITECTURE §9.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub enum ProviderKind {
+    #[serde(rename = "anthropic")]
+    Anthropic,
+    #[serde(rename = "openai")]
+    OpenAi,
+    #[serde(rename = "openai_compatible")]
+    OpenAiCompatible,
+    #[serde(rename = "ollama")]
+    Ollama,
+    #[serde(rename = "lmstudio")]
+    LmStudio,
+}
+
+/// Per-provider generation settings. `None` means "the provider's default".
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct GenerationOptions {
+    pub temperature: Option<f64>,
+    pub max_output_tokens: Option<u32>,
+    pub context_window_override: Option<u32>,
+    /// Reserved for Act mode (Phase 6): the user vouches that the model can call tools.
+    pub tool_calling_override: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ProviderConfig {
+    pub id: String,
+    pub kind: ProviderKind,
+    pub name: String,
+    pub base_url: String,
+    /// Empty until the user picks a model.
+    #[serde(default)]
+    pub model: String,
+    /// Whether a key was stored in the Keychain. The key itself never is here.
+    #[serde(default)]
+    pub has_credential: bool,
+    #[serde(default)]
+    pub options: GenerationOptions,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(default)]
+#[ts(export)]
+pub struct AiSettings {
+    /// AI is off until the user turns it on.
+    pub enabled: bool,
+    pub active_provider: Option<String>,
+    pub providers: Vec<ProviderConfig>,
+    /// Provider ID → when the user agreed that messages leave this Mac (RFC 3339).
+    pub cloud_acknowledged: std::collections::BTreeMap<String, String>,
+}
+
+impl AiSettings {
+    pub fn provider(&self, id: &str) -> Option<&ProviderConfig> {
+        self.providers.iter().find(|p| p.id == id)
+    }
+
+    pub fn active(&self) -> Option<&ProviderConfig> {
+        self.active_provider
+            .as_deref()
+            .and_then(|id| self.provider(id))
+    }
 }
 
 impl AppSettings {
@@ -182,6 +255,12 @@ impl From<&SettingsError> for ErrorPayload {
             SettingsError::ReadOnly => ErrorCode::ReadOnly,
         };
         ErrorPayload::new(code, err.to_string())
+    }
+}
+
+impl From<SettingsError> for ErrorPayload {
+    fn from(err: SettingsError) -> Self {
+        Self::from(&err)
     }
 }
 
@@ -304,6 +383,21 @@ impl SettingsStore {
         })?;
         self.settings = next;
         Ok(())
+    }
+
+    /// Changes the AI settings through `change`, then persists. `change` may
+    /// refuse, and nothing is saved when it does or when the write fails.
+    pub fn update_ai<E: From<SettingsError>>(
+        &mut self,
+        change: impl FnOnce(&mut AiSettings) -> Result<(), E>,
+    ) -> Result<&AppSettings, E> {
+        if self.read_only_reason.is_some() {
+            return Err(SettingsError::ReadOnly.into());
+        }
+        let mut next = self.settings.clone();
+        change(&mut next.ai)?;
+        self.persist(next)?;
+        Ok(&self.settings)
     }
 
     /// Applies `update`, persists atomically, and returns the stored result.
@@ -441,7 +535,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(
             dir.path().join(SETTINGS_FILE_NAME),
-            br#"{"format_version":1,"ai":{"enabled":true},"sync":{"server":"/x"}}"#,
+            br#"{"format_version":1,"plugins":{"enabled":true},"sync":{"server":"/x"}}"#,
         )
         .unwrap();
         let (mut store, _) = SettingsStore::load(dir.path()).unwrap();
@@ -451,13 +545,13 @@ mod tests {
 
         let raw: serde_json::Value =
             serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
-        assert_eq!(raw["ai"]["enabled"], true);
+        assert_eq!(raw["plugins"]["enabled"], true);
         assert_eq!(raw["sync"]["server"], "/x");
         assert_eq!(raw["appearance"]["theme"], "light");
 
         let for_ui = serde_json::to_value(store.settings().for_ui()).unwrap();
         assert!(
-            for_ui.get("ai").is_none(),
+            for_ui.get("plugins").is_none(),
             "unknown keys must not reach the webview"
         );
         assert!(for_ui.get("sync").is_none());
@@ -571,5 +665,56 @@ mod tests {
             store.update(update_with(ThemePreference::Dark, 260)),
             Err(SettingsError::ReadOnly)
         ));
+    }
+
+    #[test]
+    fn ai_is_off_by_default_and_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, _) = SettingsStore::load(dir.path()).unwrap();
+        assert!(!store.settings().ai.enabled);
+        store
+            .update_ai::<SettingsError>(|ai| {
+                ai.enabled = true;
+                ai.providers.push(ProviderConfig {
+                    id: "p1".into(),
+                    kind: ProviderKind::OpenAiCompatible,
+                    name: "Local".into(),
+                    base_url: "http://localhost:8080/v1".into(),
+                    model: "m".into(),
+                    has_credential: false,
+                    options: GenerationOptions {
+                        temperature: Some(0.3),
+                        ..GenerationOptions::default()
+                    },
+                });
+                ai.active_provider = Some("p1".into());
+                Ok(())
+            })
+            .unwrap();
+        // UI updates don't touch the AI settings.
+        store
+            .update(update_with(ThemePreference::Dark, 260))
+            .unwrap();
+
+        let raw: serde_json::Value =
+            serde_json::from_slice(&fs::read(store.path()).unwrap()).unwrap();
+        assert_eq!(raw["ai"]["providers"][0]["kind"], "openai_compatible");
+        let (reloaded, _) = SettingsStore::load(dir.path()).unwrap();
+        let ai = &reloaded.settings().ai;
+        assert!(ai.enabled);
+        assert_eq!(ai.active().unwrap().options.temperature, Some(0.3));
+    }
+
+    #[test]
+    fn a_refused_ai_change_saves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, _) = SettingsStore::load(dir.path()).unwrap();
+        let result = store.update_ai(|ai| {
+            ai.enabled = true;
+            Err(SettingsError::ReadOnly)
+        });
+        assert!(result.is_err());
+        assert!(!store.settings().ai.enabled);
+        assert!(!store.path().exists());
     }
 }

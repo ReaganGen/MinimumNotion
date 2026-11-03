@@ -23,5 +23,6 @@ export function defaultSettings(): AppSettings {
       ai_panel: { visible: false, width: WIDTH_RANGES.ai_panel.default },
     },
     workspace: { last_path: null },
+    ai: { enabled: false, active_provider: null, providers: [], cloud_acknowledged: {} },
   };
 }

@@ -22,6 +22,8 @@ interface SettingsState {
   setPanelVisible: (panel: PanelId, visible: boolean) => void;
   setPanelWidth: (panel: PanelId, width: number) => void;
   dismissNotice: () => void;
+  /** Takes the AI settings from what an AI command saved, keeping local layout edits. */
+  applyAi: (saved: AppSettings) => void;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -104,6 +106,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => {
     },
 
     dismissNotice: () => set({ notice: null, saveError: null }),
+
+    applyAi: (saved) => set({ settings: { ...get().settings, ai: saved.ai } }),
   };
 });
 

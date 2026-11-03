@@ -64,8 +64,10 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 | `chrono` | 0.4.45 | RFC 3339 timestamps |
 | `ts-rs` | 12.0.1 | IPC type generation (ADR-023) |
 | `tokio` | 1.54.1 | |
-| `reqwest` | 0.13.5 | `forma-ai` only |
-| `keyring-core` / `apple-native-keyring-store` | 1.0.1 / 1.0.2 | ADR-020 |
+| `reqwest` | 0.13.5 | `forma-ai` only. Features `native-tls` (macOS Security framework and the system's certificates), `http2`, `json`, `stream`, `charset`, `system-proxy` |
+| `keyring-core` / `apple-native-keyring-store` | 1.0.1 / 1.0.2 | ADR-020. The store needs its `keychain` feature (the login keychain) |
+| `tokio-util` / `url` | 0.7.20 / 2.5.8 | `CancellationToken`; base-URL checks |
+| `marked` (npm) | 17.0.6 | Already installed through `@tiptap/markdown`; a direct dependency at the same version since Phase 4, to tokenize chat answers (ADR-040) |
 | `tempfile` | 3.27.0 | Tests only (production temp files go in `.forma/tmp/`) |
 
 ---
@@ -278,6 +280,8 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 ---
 
 ## 7. Phase 4: AI Provider Integration
+
+> **Status (2026-11-03):** implemented; see PROGRESS.md. Decisions: ADR-038 (API check: OpenAI through the Responses API, the user's choice; Anthropic version 2026-10-21 without temperature), ADR-039 (one provider type; sending rules in `AiService`; Channel streaming), ADR-040 (chat Markdown rendered from tokens). Deviation: the adapter fixtures follow the documented formats rather than recordings, because no keys or local servers were available; an ignored live test checks the cloud APIs' auth and TLS. The manual checks (§7.2) are for the user.
 
 ### 7.1 Tasks
 

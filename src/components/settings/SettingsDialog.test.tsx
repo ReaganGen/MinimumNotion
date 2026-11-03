@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings } from "@/features/settings/defaults";
 import { resetSettingsStoreForTests, useSettingsStore } from "@/features/settings/settingsStore";
+import { useUiStore } from "@/features/ui/uiStore";
 import {
   resetWorkspaceStoreForTests,
   useWorkspaceStore,
@@ -25,6 +26,7 @@ vi.mock("@/lib/ipc/client", () => ({
 beforeEach(() => {
   resetSettingsStoreForTests();
   resetWorkspaceStoreForTests();
+  useUiStore.setState({ dialog: null, settingsSection: "appearance" });
   vi.mocked(ipc.saveSettings).mockReset();
   vi.mocked(ipc.saveSettings).mockImplementation(async (update) => ({
     ...defaultSettings(),
@@ -53,21 +55,11 @@ describe("SettingsDialog", () => {
     );
   });
 
-  it("shows unavailable sections as text only, with no controls", async () => {
-    const user = userEvent.setup();
+  it("opens at the section the app asks for", () => {
+    useUiStore.getState().openSettings("ai");
     const { dialog } = renderOpen();
-
-    for (const name of ["AI"]) {
-      await user.click(within(dialog).getByRole("button", { name }));
-      expect(within(dialog).getByRole("heading", { name })).toBeInTheDocument();
-      expect(within(dialog).queryByRole("radio")).toBeNull();
-      expect(within(dialog).queryByRole("textbox")).toBeNull();
-      // Only the section navigation and the close button are clickable.
-      const buttons = within(dialog)
-        .getAllByRole("button")
-        .map((b) => b.textContent);
-      expect(buttons).toEqual(["Appearance", "Workspace", "AI", "Data", "Close"]);
-    }
+    expect(within(dialog).getByRole("heading", { name: "AI" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("switch", { name: "Use AI" })).not.toBeChecked();
   });
 
   it("shows where the workspace is and opens it in Finder", async () => {

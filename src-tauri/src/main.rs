@@ -1,3 +1,4 @@
+mod ai_commands;
 mod assets;
 mod commands;
 mod menu;
@@ -5,11 +6,13 @@ mod session;
 mod window;
 mod workspace_commands;
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use forma_ai::AiService;
+use forma_ai::secrets::{KeychainStore, MemoryStore, SecretStore};
 use forma_core::settings::SettingsStore;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, WindowEvent};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
@@ -80,6 +83,12 @@ fn main() {
                 } else {
                     log::LevelFilter::Info
                 })
+                // The HTTP stack's debug output is noise, and the less it
+                // prints about requests the better (keys are sensitive headers).
+                .level_for("hyper", log::LevelFilter::Info)
+                .level_for("hyper_util", log::LevelFilter::Info)
+                .level_for("h2", log::LevelFilter::Info)
+                .level_for("reqwest", log::LevelFilter::Info)
                 .max_file_size(5_000_000)
                 .rotation_strategy(RotationStrategy::KeepSome(3))
                 .build(),
@@ -108,6 +117,17 @@ fn main() {
                 settings: Mutex::new(store),
                 settings_notice: Mutex::new(notice),
             });
+
+            // Keys live in the login keychain (ADR-020). If it can't be
+            // opened, keys last only until Forma quits, and the log says so.
+            let secrets: Arc<dyn SecretStore> = match KeychainStore::new() {
+                Ok(store) => Arc::new(store),
+                Err(err) => {
+                    log::warn!("the Keychain is unavailable, so API keys won't be saved: {err}");
+                    Arc::new(MemoryStore::default())
+                }
+            };
+            app.manage(AiService::new(forma_ai::provider::http_client()?, secrets));
 
             menu::install(app.handle())?;
 
@@ -174,6 +194,19 @@ fn main() {
             workspace_commands::set_property,
             workspace_commands::get_views,
             workspace_commands::save_views,
+            ai_commands::ai_set_enabled,
+            ai_commands::ai_add_provider,
+            ai_commands::ai_update_provider,
+            ai_commands::ai_remove_provider,
+            ai_commands::ai_set_active_provider,
+            ai_commands::ai_set_api_key,
+            ai_commands::ai_remove_api_key,
+            ai_commands::ai_acknowledge_cloud,
+            ai_commands::ai_list_models,
+            ai_commands::ai_model_capabilities,
+            ai_commands::ai_test_connection,
+            ai_commands::ai_chat,
+            ai_commands::ai_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Forma");

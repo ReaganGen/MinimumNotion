@@ -624,9 +624,16 @@ rebuild_index()                                             → ()
 }
 ```
 
+Notes on `ai` (Phase 4):
+
+- `enabled` is `false` by default, and the section is written only once the user changes an AI setting.
+- `base_url` is `http` or `https` with no query, credentials or trailing slash. A provider whose host is a loopback address counts as local.
+- `options` values are `null` for "the provider's default". `temperature` is 0–2 and isn't offered for Anthropic. `max_output_tokens` is 1–1,000,000, `context_window_override` 512–10,000,000. `tool_calling_override` is reserved for Act mode (Phase 6) and has no UI yet.
+- `cloud_acknowledged` entries are removed when a provider's scheme, host or port changes, and when the provider is removed.
+
 ### 11.2 Keychain
 
-Generic password items, with service `<bundle-id>.ai-provider` and account `<provider-config-id>`. These are created, replaced and deleted only through the settings UI. Their values never cross IPC to the webview.
+Generic password items in the login keychain, with service `<bundle-id>.ai-provider` (currently `app.forma.desktop.ai-provider`) and account `<provider-config-id>`. These are created, replaced and deleted only through the settings UI, and removing a provider deletes its item. Their values never cross IPC to the webview.
 
 ### 11.3 Not persisted in v0.1
 

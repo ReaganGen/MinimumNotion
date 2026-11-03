@@ -1,16 +1,23 @@
 // Typed wrappers around Tauri IPC. Components never call `invoke` directly (ARCHITECTURE §8).
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { CellInput } from "./bindings/CellInput";
+import type { ChatStreamEvent } from "./bindings/ChatStreamEvent";
 import type { CollectionData } from "./bindings/CollectionData";
 import type { CollectionViews } from "./bindings/CollectionViews";
+import type { ConnectionReport } from "./bindings/ConnectionReport";
 import type { EntryData } from "./bindings/EntryData";
 import type { ErrorPayload } from "./bindings/ErrorPayload";
+import type { Message } from "./bindings/Message";
+import type { ModelCapabilities } from "./bindings/ModelCapabilities";
+import type { ModelInfo } from "./bindings/ModelInfo";
 import type { PageDocument } from "./bindings/PageDocument";
 import type { PageHit } from "./bindings/PageHit";
 import type { PageLinkInfo } from "./bindings/PageLinkInfo";
 import type { PageSummary } from "./bindings/PageSummary";
+import type { ProviderKind } from "./bindings/ProviderKind";
+import type { ProviderUpdate } from "./bindings/ProviderUpdate";
 import type { RecoveryBuffer } from "./bindings/RecoveryBuffer";
 import type { SaveOutcome } from "./bindings/SaveOutcome";
 import type { Schema } from "./bindings/Schema";
@@ -124,6 +131,28 @@ export const ipc = {
     call<void>("set_property", { pageId, propertyId, value }),
   getViews: (id: string) => call<CollectionViews>("get_views", { id }),
   saveViews: (id: string, views: CollectionViews) => call<void>("save_views", { id, views }),
+
+  aiSetEnabled: (enabled: boolean) => call<AppSettings>("ai_set_enabled", { enabled }),
+  aiAddProvider: (kind: ProviderKind) => call<AppSettings>("ai_add_provider", { kind }),
+  aiUpdateProvider: (id: string, update: ProviderUpdate) =>
+    call<AppSettings>("ai_update_provider", { id, update }),
+  /** Also deletes the provider's key from the Keychain. */
+  aiRemoveProvider: (id: string) => call<AppSettings>("ai_remove_provider", { id }),
+  aiSetActiveProvider: (id: string) => call<AppSettings>("ai_set_active_provider", { id }),
+  /** Hands the key to the Keychain. No command ever sends it back. */
+  aiSetApiKey: (id: string, key: string) => call<AppSettings>("ai_set_api_key", { id, key }),
+  aiRemoveApiKey: (id: string) => call<AppSettings>("ai_remove_api_key", { id }),
+  /** Records that the user agreed to send messages to the provider's host. */
+  aiAcknowledgeCloud: (id: string) => call<AppSettings>("ai_acknowledge_cloud", { id }),
+  aiListModels: (id: string) => call<ModelInfo[]>("ai_list_models", { id }),
+  aiModelCapabilities: (id: string) => call<ModelCapabilities>("ai_model_capabilities", { id }),
+  aiTestConnection: (id: string) => call<ConnectionReport>("ai_test_connection", { id }),
+  /** Streams one answer into `onEvent`. Resolves when it ends; failures arrive as events. */
+  aiChat: (requestId: string, messages: Message[], onEvent: (event: ChatStreamEvent) => void) => {
+    const channel = new Channel<ChatStreamEvent>(onEvent);
+    return call<void>("ai_chat", { requestId, messages, onEvent: channel });
+  },
+  aiCancel: (requestId: string) => call<void>("ai_cancel", { requestId }),
 
   /** Sends the file's bytes raw (no JSON encoding) and returns the Markdown reference. */
   importAttachment: async (pageId: string, file: File): Promise<string> => {

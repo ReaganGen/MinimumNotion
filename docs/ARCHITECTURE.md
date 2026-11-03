@@ -390,25 +390,29 @@ The full command list is defined during each phase, starting from the Document S
 
 ### 9.1 Abstraction
 
+As built in Phase 4 (ADR-039). One `Provider` type serves every configured provider and picks the wire protocol from its kind. Each protocol is a module with a request builder and a pure stream decoder:
+
 ```rust
-trait ChatProvider: Send + Sync {
+impl Provider<'_> {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, AiError>;
     async fn capabilities(&self, model: &str) -> Result<ModelCapabilities, AiError>;
-    fn stream_chat(&self, req: ChatRequest, cancel: CancellationToken)
-        -> BoxStream<'static, Result<ChatEvent, AiError>>;
+    async fn stream_chat(&self, req: &ChatRequest, cancel: &CancellationToken,
+                         on_event: &mut (dyn FnMut(ChatEvent) + Send)) -> Result<(), AiError>;
 }
 
+trait Decoder { fn decode(&mut self, frame: Frame) -> Result<Vec<ChatEvent>, AiError>; … }
+
 struct ChatRequest { model, system, messages: Vec<Message>, tools: Vec<ToolSpec>,
-                     max_output_tokens, temperature, response_format: Option<JsonSchema> }
+                     max_output_tokens, temperature, context_window }
 enum ChatEvent { TextDelta(String), ToolCallStart{id, name}, ToolCallArgsDelta{id, delta},
-                 ToolCallEnd{id}, Usage{input, output}, Done{stop_reason} }
-struct ModelCapabilities { tool_calling: Tri, streaming: bool, structured_output: Tri,
-                           context_window: Option<u32>, max_output_tokens: Option<u32> }
-enum AiError { Auth, RateLimited{retry_after}, Network, Timeout, ModelNotFound,
-               ContextOverflow, Provider{status, message}, Cancelled, Unsupported(..) }
+                 ToolCallEnd{id}, Usage{input, output}, Done(StopReason) }
+struct ModelCapabilities { tool_calling: Tri, context_window: Option<u32>, max_output_tokens: Option<u32> }
+struct AiError { kind: AiErrorKind, message, status: Option<u16>, retry_after_secs: Option<u32> }
+// AiErrorKind: Disabled, NotConfigured, Auth, Unreachable, Tls, Timeout, RateLimited,
+//              ModelNotFound, ContextOverflow, Provider, Interrupted, InvalidResponse, Cancelled
 ```
 
-`Tri` is `Yes`, `No` or `Unknown`. Forma never assumes that every model has the same capabilities.
+`Tri` is `Yes`, `No` or `Unknown`. Forma never assumes that every model has the same capabilities. `AiService` sits above `Provider`: it holds the keys read this session, the model details it has fetched and the chats that are running, and it decides whether a request may be sent at all (§9.3).
 
 ### 9.2 Adapters
 
@@ -416,23 +420,30 @@ Two wire protocols plus provider presets keep the code small:
 
 | Preset | Wire protocol | Auth | Model list and capabilities |
 |---|---|---|---|
-| OpenAI | OpenAI Chat Completions (verify against the current OpenAI API in Phase 4; adopt the Responses API if Chat Completions has been deprecated) | API key (Keychain) | `/v1/models` + built-in capability table |
-| Anthropic | Anthropic Messages API (SSE) | API key (Keychain) | `/v1/models` |
+| OpenAI | OpenAI Responses API (SSE), with `store: false` (ADR-038) | API key (Keychain) | `/v1/models`, filtered to models that can chat. Capabilities `Unknown`: the list gives none |
+| Anthropic | Anthropic Messages API (SSE), version `2026-10-21`, no temperature (ADR-038) | API key (Keychain) | `/v1/models` (paged), `/v1/models/{id}` for the context window and output limit |
 | OpenAI-compatible | Chat Completions | Optional key | `/v1/models`. Capabilities `Unknown` unless the user overrides them |
-| Ollama | Native `/api/chat` (NDJSON stream) | None (localhost) | `/api/tags`, `/api/show` (tool support, context length) |
+| Ollama | Native `/api/chat` (NDJSON stream), always with `num_ctx` | None (localhost) | `/api/tags`, `/api/show` (tool support, context length) |
 | LM Studio | Chat Completions at `localhost:1234/v1` | None | `/v1/models`, LM Studio REST model info where available |
 
 Ollama uses its native API because the OpenAI-compatible endpoint can't set `num_ctx`, so long contexts would be truncated silently.
 
 - Model lists come from provider APIs, not hard-coded lists. The user can type a model ID manually.
 - Streaming uses SSE or NDJSON parsed in Rust and forwarded through a Tauri Channel. Cancellation propagates via a `CancellationToken`, which aborts the HTTP request.
-- **Connection test:** list models, then send a one-token request. The result names the exact failure: authentication, endpoint unreachable, model missing, or TLS.
+- **Connection test:** list models, then ask the chosen model to "Reply with the word OK." (at most 16 tokens). The result names the exact failure: authentication, endpoint unreachable, model missing, TLS, timeout or rate limit.
+- **Timeouts:** 10 s to connect, 300 s between chunks of an answer (a local model can take that long to load), 30 s for model lists and details.
 
 ### 9.3 Credentials and privacy
 
 - API keys are stored in the **macOS Keychain** (`keyring-core` with `apple-native-keyring-store`, behind a `SecretStore` trait). Keys never appear in `settings.json`, the workspace, logs or the webview. Settings only show whether a key is stored, with Replace and Remove actions.
 - Only official authentication: provider API keys, or no auth for local servers. A consumer chat subscription (ChatGPT Plus or Pro, Claude Pro or Max) does not grant API access, and session-token extraction is never implemented.
-- **Cloud transmission notice.** The first use of a cloud provider requires an explicit acknowledgement. Every cloud request shows which pages or snippets are being sent. Local providers say "stays on this Mac". Only context the request needs is sent (§11).
+- **Cloud transmission notice.** The first use of a provider whose address isn't on this Mac (not a loopback address) requires an explicit acknowledgement, recorded per provider and cleared when its host changes. Rust refuses the request without it. Every message shows where it went and to which model. Local providers say "stays on this Mac". Only context the request needs is sent (§11); in Phase 4 that is only what the user typed in the panel.
+- **Gate in Rust.** `AiService` refuses to send unless AI is on, a provider and model are chosen, a required key is stored, and the acknowledgement above is given. It also refuses a conversation estimated to exceed the context window instead of letting the provider cut it.
+- **Keys at runtime.** Read once per session from the Keychain on a blocking thread (macOS may prompt) and kept in Rust memory. Sent with `Authorization: Bearer`, which the HTTP client marks sensitive. Any copy of the key in a provider's error message is replaced before the message leaves Rust, and AI failures are logged by kind and status only.
+
+### 9.4 IPC commands (Phase 4)
+
+`ai_set_enabled`, `ai_add_provider`, `ai_update_provider`, `ai_remove_provider` (also deletes the key), `ai_set_active_provider`, `ai_set_api_key`, `ai_remove_api_key`, `ai_acknowledge_cloud`, `ai_list_models`, `ai_model_capabilities`, `ai_test_connection`, `ai_chat` (streams `ChatStreamEvent`s over a Channel: `text`, `usage`, `done`, `failed`) and `ai_cancel`. The settings commands return the saved settings; none returns a key.
 
 ---
 
@@ -550,9 +561,9 @@ Expected future work, intentionally deferred: identity and authorship metadata, 
 | R4 | macOS path limits (`PATH_MAX` 1024 bytes) with deep trees and long titles | Low / Medium | Filename stems capped at 100 bytes, a depth warning, and an error message that points at the problem before any write is attempted | 2 |
 | R5 | APFS is case- and normalization-insensitive by default, so sibling names collide | Medium / Low | NFC normalization and case-folded uniqueness checks with numeric suffixes | 2 |
 | R6 | CJK full-text search quality with `unicode61` | High (for CJK users) / Medium | **Mitigated in Phase 3** (ADR-036): trigram table with `LIKE`, plus a bounded scan for 1–2-character queries. No dictionary segmentation, so results are substring matches, not word matches | 3 |
-| R7 | Keychain access prompts during development (ad-hoc signatures change between builds) | High in dev / Low | Documented. Release builds use a stable signing identity | 4, 7 |
-| R8 | Provider API drift (OpenAI Chat Completions vs Responses, Anthropic versions, Ollama endpoints) | Medium / Medium | Verify at the start of Phase 4. Adapters isolated behind a trait, with recorded-response tests | 4 |
-| R9 | Local models silently truncate context (Ollama's `num_ctx` default) | High / Medium | Native Ollama API with an explicit `num_ctx`. Context budget derived from detected capabilities | 4–5 |
+| R7 | Keychain access prompts during development (ad-hoc signatures change between builds) | High in dev / Low | Documented. Keys are read once per session. Release builds use a stable signing identity | 4, 7 |
+| R8 | Provider API drift (OpenAI Chat Completions vs Responses, Anthropic versions, Ollama endpoints) | Medium / Medium | **Checked in Phase 4** (ADR-038). Protocols isolated in modules with stream-fixture tests; an ignored live test checks the cloud APIs' auth and TLS | 4 |
+| R9 | Local models silently truncate context (Ollama's `num_ctx` default) | High / Medium | **Phase 4:** native Ollama API with an explicit `num_ctx`, and a size check before sending. Context packing in Phase 5 | 4–5 |
 | R10 | Prompt injection through retrieved notes | High / Medium | §10.4. The structural guarantee doesn't depend on model behavior | 5–6 |
 | R11 | XSS in the webview defeats the approval boundary | Low / High | No raw HTML, strict CSP, sanitized link schemes, security tests | 2, 6 |
 | R12 | Lazy ID persistence leaves links pointing at index-only IDs | Low / Medium | Invariant: `ensure_persisted_id` runs before any durable reference is created, covered by tests | 2–3 |

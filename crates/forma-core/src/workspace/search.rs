@@ -6,8 +6,8 @@ use super::types::PageHit;
 use crate::index::Hit;
 
 /// True for Chinese, Japanese and Korean characters, which unicode61 can't
-/// split into words.
-pub(super) fn is_cjk(c: char) -> bool {
+/// split into words. The AI token estimate uses it too.
+pub fn is_cjk(c: char) -> bool {
     matches!(c as u32,
         0x3040..=0x30FF      // Hiragana, Katakana
         | 0x3400..=0x4DBF    // CJK Extension A

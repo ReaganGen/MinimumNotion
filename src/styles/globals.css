@@ -105,10 +105,6 @@
     box-shadow: var(--shadow-popover);
   }
 
-  [data-compact] .forma-editor {
-    min-height: 2.5rem;
-  }
-
   .forma-editor {
     min-height: 40vh;
     outline: none;
@@ -118,6 +114,11 @@
     -webkit-user-select: text;
     user-select: text;
     caret-color: var(--foreground);
+  }
+
+  /* Entry pages and other short editors. */
+  [data-compact] .forma-editor {
+    min-height: 2.5rem;
   }
 
   .forma-editor > * + * {

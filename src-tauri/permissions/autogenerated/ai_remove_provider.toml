@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ai-remove-provider"
+description = "Enables the ai_remove_provider command without any pre-configured scope."
+commands.allow = ["ai_remove_provider"]
+
+[[permission]]
+identifier = "deny-ai-remove-provider"
+description = "Denies the ai_remove_provider command without any pre-configured scope."
+commands.deny = ["ai_remove_provider"]
