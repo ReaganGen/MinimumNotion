@@ -6,17 +6,17 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 |---|---|---|
 | 001 | Tauri 2 + Rust backend + React/TypeScript frontend | Accepted |
 | 002 | Markdown files are the source of truth; SQLite is a derived cache | Accepted |
-| 003 | The index database lives outside the workspace | Accepted |
-| 004 | The directory tree mirrors the page tree (leaf file / bundle folder with `index.md`) | Accepted |
+| 003 | The index database lives outside the workspace | Accepted, user-confirmed |
+| 004 | The directory tree mirrors the page tree (leaf file / bundle folder with `index.md`) | Accepted, user-confirmed |
 | 005 | Page identity is a UUID in frontmatter, persisted lazily | Accepted |
-| 006 | The title is authoritative in frontmatter; the filename is derived | Accepted |
-| 007 | Page links are standard Markdown links to `forma://page/<uuid>` | Accepted |
-| 008 | Attachments are co-located in the page's `_assets/` folder | Accepted |
+| 006 | The title is authoritative in frontmatter; the filename is derived | Accepted, user-confirmed |
+| 007 | Page links are standard Markdown links to `forma://page/<uuid>` | Accepted, user-confirmed |
+| 008 | Attachments are co-located in the page's `_assets/` folder | Accepted, user-confirmed |
 | 009 | A revision is a content hash; optimistic concurrency on every write | Accepted |
 | 010 | History is full-file snapshots in `.forma/history/` | Accepted |
 | 011 | Rust owns the file format; TypeScript owns body Markdown ⇄ editor | Accepted |
 | 012 | Surgical frontmatter editing preserves unknown content | Accepted |
-| 013 | A collection is a page; schema in its frontmatter; entries are its children | Accepted |
+| 013 | A collection is a page; schema in its frontmatter; entries are its children | Accepted, user-confirmed |
 | 014 | Sibling order and favorites live in `.forma/tree.json` (advisory) | Accepted |
 | 015 | Editor: Tiptap 3 + `@tiptap/markdown`, gated by a round-trip spike | Accepted (gated) |
 | 016 | TypeScript 6.0 with Biome, not TypeScript 7 or ESLint | Accepted |
@@ -28,12 +28,13 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 | 022 | Retrieval uses FTS5 BM25 passages behind a `Retriever` trait; no embeddings in v0.1 | Accepted |
 | 023 | Typed IPC through `ts-rs`-generated bindings | Accepted |
 | 024 | npm and Node 24 LTS | Accepted |
-| 025 | No remote content is loaded in the webview | Accepted |
-| 026 | Open-source license | **Proposed (needs user approval)** |
+| 025 | No remote content is loaded in the webview | Superseded by ADR-031 |
+| 026 | Open-source license: Apache-2.0 | Accepted, user-confirmed |
 | 027 | Single instance plus a workspace lock | Accepted |
 | 028 | YAML handled by the saphyr family, not the deprecated `serde_yaml` | Accepted |
 | 029 | Custom pixel-width resize handles instead of `react-resizable-panels` | Accepted |
 | 030 | App shortcuts are native menu accelerators, routed through one command registry | Accepted |
+| 031 | Remote `https:` images in notes load automatically; AI output and AI previews still don't | Accepted, user-chosen |
 
 ---
 
@@ -60,7 +61,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-003: The index database lives outside the workspace
 
-- **Status:** Accepted. **Date:** 2026-11-02
+- **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** The spec's illustrative layout places `index.db` in `.forma/`. Workspaces are often stored in Dropbox, iCloud Drive or git.
 - **Decision:** Store the index at `~/Library/Application Support/<bundle-id>/index/<workspace-key>/index.db`.
 - **Alternatives:** `.forma/index.db`, as illustrated in the spec. Sync tools corrupt SQLite databases or create conflict copies of them, and the file bloats git repositories and backups.
@@ -69,7 +70,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-004: The directory tree mirrors the page tree
 
-- **Status:** Accepted. **Date:** 2026-11-02
+- **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** Pages nest to arbitrary depth. Hierarchy has to be durable, portable and visible outside Forma, and multi-file operations are a source of corruption.
 - **Decision:** A leaf page is `Name.md`. A page with children or attachments is a bundle, `Name/index.md`, and its children live inside `Name/`. A page's parent is derived from its location. See DATA_MODEL §3.
 - **Alternatives:**
@@ -93,7 +94,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-006: The title is authoritative in frontmatter; the filename is derived
 
-- **Status:** Accepted. **Date:** 2026-11-02
+- **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** The spec's example has the title both in `title:` and as an `# H1`. The spec also says to avoid duplicated authoritative state. Filenames can't represent every title, because of `/`, `:`, length limits and collisions.
 - **Decision:** `title` in frontmatter is authoritative. When it is missing, the filename stem is used. The body doesn't repeat the title as an H1, because the editor shows the title field as the page heading. Forma renames the file when the title changes in Forma. It doesn't rename the file back if the user renames it in Finder.
 - **Alternatives:**
@@ -104,7 +105,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-007: Page links are standard Markdown links to `forma://page/<uuid>`
 
-- **Status:** Accepted. **Date:** 2026-11-02
+- **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** The spec asks for `[[Page Name]]` syntax, resolution by stable ID, backlinks, and safe renaming. Titles are not unique: two "Notes" pages can exist under different parents.
 - **Decision:** On disk, a page link is `[Current Title](forma://page/<uuid>)`. Typing `[[` opens title autocomplete and inserts that link. Literal `[[Wikilinks]]` written by other tools are resolved by title, read-only, and kept exactly as written. When the source page is saved, its link labels are refreshed to the targets' current titles.
 - **Alternatives:**
@@ -116,7 +117,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-008: Attachments are co-located in the page's `_assets/` folder
 
-- **Status:** Accepted. **Date:** 2026-11-02
+- **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** The spec's illustration has a workspace-level `assets/`. Relative references from nested pages to a root `assets/` folder depend on the page's depth and break whenever the page moves.
 - **Decision:** A page's attachments live in `<bundle>/_assets/` and are referenced as `_assets/<name>`, relative to `index.md`.
 - **Alternatives:** A workspace-level `assets/` folder, which needs reference rewrites in the page and all its descendants on every move. Root-relative paths (`/assets/x.png`), which aren't portable.
@@ -170,7 +171,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-013: A collection is a page; schema in its frontmatter; entries are its children
 
-- **Status:** Accepted. **Date:** 2026-11-02
+- **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** The spec describes collections as simplified Notion databases, where a page belongs to at most one primary collection, and the illustrative layout shows `collections/*.json`.
 - **Decision:** A collection is a bundle page whose frontmatter contains a `collection:` schema. Its direct children are its entries. Entry values are top-level frontmatter keys named after the properties. View settings (sort, filter, hidden columns) are kept in `.forma/views.json`, which is advisory. See DATA_MODEL §6.
 - **Alternatives:**
@@ -300,15 +301,15 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 ## ADR-025: No remote content is loaded in the webview
 
-- **Status:** Accepted. **Date:** 2026-11-02
+- **Status:** Superseded by ADR-031 (2026-11-02): the user chose to load remote images in notes. **Date:** 2026-11-02
 - **Decision:** The CSP allows only `'self'`, the IPC origin and the `forma-asset:` protocol. Remote images in documents and AI output are shown as placeholders and never fetched. External links open in the system browser when the user clicks them.
 - **Alternatives:** Allowing remote images, which is convenient but leaks reading activity and enables data exfiltration through prompt injection.
 - **Rationale:** Local-first privacy, and closing an exfiltration path for prompt injection.
 - **Consequences:** Pages that embed remote images look less complete. A per-image "Load" action could be added later.
 
-## ADR-026: Open-source license (**Proposed — awaiting user approval**)
+## ADR-026: Open-source license
 
-- **Status:** Proposed. **Date:** 2026-11-02
+- **Status:** Accepted: **Apache-2.0**, chosen by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** Forma is meant to be open core, with commercial offerings that are hosted services (sync, collaboration, team administration). The spec requires documenting tradeoffs and getting approval before choosing. Nothing is licensed yet, so no `LICENSE` file has been created.
 - **Options:**
 
@@ -324,7 +325,8 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Recommendation:** **Apache-2.0** for the core, together with a trademark policy for the name "Forma". Forma plans to make money from hosted services, which are separate code, not from the desktop client, so copyleft on the client adds little protection and costs adoption. Apache-2.0 also keeps future Mac App Store distribution and dual licensing simple without a CLA.
   - **If preventing closed-source forks of the app is the priority, choose AGPL-3.0 instead.** It should come with a CLA from the start, so the project keeps the option to sell commercial licenses.
 - **Dependency check:** Every planned dependency is under a permissive license compatible with all of the options above: Tauri (MIT/Apache-2.0), React (MIT), Tiptap core (MIT), ProseMirror (MIT), SQLite (public domain), KaTeX (MIT), shadcn/ui (MIT), Lucide (ISC), rusqlite (MIT).
-- **Consequences:** The `LICENSE` file, `CONTRIBUTING.md` and any CLA or DCO policy are created after approval. The name "Forma" needs a trademark search before public release (risk R15).
+- **Decision (2026-11-02):** The user chose **Apache-2.0**. The repository now has the standard Apache License 2.0 text in `LICENSE`, and `package.json` and `Cargo.toml` declare `Apache-2.0`. No CLA: under Apache-2.0 §5, contributions are licensed under the same terms by default.
+- **Consequences:** `CONTRIBUTING.md` and a trademark policy for the product name are written before the first public release (Phase 7). The trademark policy waits for the name search (risk R15), because "Forma" may collide with existing products.
 
 ## ADR-027: Single instance plus a workspace lock
 
@@ -357,3 +359,23 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Decision:** Each app-level shortcut is defined once, as a menu item accelerator in `src-tauri/src/menu.rs`. A menu click or accelerator sends `forma://menu` with a command ID. The frontend runs it through `runCommand` in `src/features/commands/commands.ts`. The webview doesn't listen for these keys. A Rust test checks that every menu ID exists in the frontend registry. Editor-level shortcuts (⌘B, ⌘I) stay in the editor (Phase 2).
 - **Alternatives:** JavaScript key handlers alone. The shortcuts wouldn't be visible or discoverable in the menu bar, and they'd conflict with macOS conventions.
 - **Consequences:** The display labels in `SHORTCUTS` have to be kept in step with the accelerators in `menu.rs`. A test checks the IDs, not the key labels. In the development browser preview, a harness maps the same keys to menu events.
+
+## ADR-031: Remote `https:` images in notes load automatically
+
+- **Status:** Accepted, chosen by the user on 2026-11-02. Supersedes ADR-025. **Date:** 2026-11-02
+- **Context:** ADR-025 blocked all remote content, so web images embedded in notes would only show as placeholders. The user prefers notes to display the way they were written.
+- **Decision:**
+  1. Images in notes whose URL uses `https:` are loaded automatically. The CSP `img-src` becomes `'self' forma-asset: https:`. This lands in Phase 2, when the editor first renders images; Phase 1 renders none, so its CSP is unchanged.
+  2. Plain `http:` images are **not** loaded and show a placeholder with their URL, because unencrypted requests can be read and altered on the network. This detail was chosen by Claude; the user can override it.
+  3. Everything else stays blocked: `connect-src` remains IPC-only, and no remote scripts, styles, fonts or frames are allowed. All AI traffic still goes through Rust.
+  4. **The AI safety boundary is kept:**
+     - AI chat output never loads remote images. They're shown as links, so a model can't exfiltrate data through an image URL while you read its answer.
+     - The AI change preview (Phase 6) shows remote images as URLs, not images, and flags every *new* external image a proposal would add, for example: "This change adds an image from example.com, which will load whenever the page is shown." Approving a change therefore can't silently plant a tracking or exfiltration URL.
+- **Alternatives:**
+  - Keep ADR-025's placeholders. The most private option, but pages look incomplete.
+  - Placeholders with a per-image "Load" button. A middle ground, but with more friction and more work.
+- **Consequences:**
+  - Opening a page that contains web images contacts those servers, which reveals the user's IP address and when the page was opened. Such images can work as tracking pixels.
+  - Offline, those images don't show.
+  - Risk R17 tracks this.
+  - A setting to switch remote images off could be added later. It isn't added now, to keep settings minimal.

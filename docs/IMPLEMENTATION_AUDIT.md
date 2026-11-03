@@ -320,3 +320,19 @@ Checks after the fixes:
 - `npm audit`: 0 vulnerabilities
 
 Still open: F5–F14 and the user decisions in §5.2 and §8.
+
+### 9.2 User decisions on §5.2 and §8 (2026-11-02)
+
+| §5.2 item | Decision | Record |
+|---|---|---|
+| 1. Link storage | Confirmed: `forma://page/<uuid>` | ADR-007 |
+| 2. On-disk layout | Confirmed | ADR-004, ADR-008 |
+| 3. Collections | Confirmed | ADR-013 |
+| 4. Index location | Confirmed: outside the workspace | ADR-003 |
+| 5. Title only in frontmatter | Confirmed | ADR-006 |
+| 8. Remote content | **Changed:** `https:` images in notes load automatically. `http:` isn't loaded. AI output and AI previews still don't load remote images, and previews flag new external images | ADR-031 (supersedes ADR-025), risk R17 |
+| License (§8, item 1) | Apache-2.0. `LICENSE` added, and the metadata in `package.json` and `Cargo.toml` updated | ADR-026 |
+| CLAUDE.md edit (§5.3, item 3) | Adopted. The journal is `docs/PROGRESS.md`, not a new file | CLAUDE.md |
+
+§5.2 items 6, 7, 9 and 10 weren't separately reviewed and stay as documented. Item 11 (bundle identifier) is still provisional.
+

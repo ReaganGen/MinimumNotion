@@ -34,7 +34,7 @@ Non-goals for v0.1.0 are listed in [ROADMAP.md](ROADMAP.md#explicitly-out-of-sco
 │  │                                          │ ◀────────────── │ events / channels             │  │
 │  │ Markdown body ⇄ ProseMirror conversion   │   events,       └──────────────┬────────────────┘  │
 │  │ UI state (zustand)                       │   channels                     │                   │
-│  │ NO filesystem access, NO network access  │                 ┌──────────────▼────────────────┐  │
+│  │ NO filesystem; network: https images only│                 ┌──────────────▼────────────────┐  │
 │  └──────────────────────────────────────────┘                 │ forma-core (no network)       │  │
 │        ▲ forma-asset:// (read-only, workspace-scoped)          │  Workspace  · DocumentService │  │
 │        └──────────────────────────────────────────────────────│  Index (SQLite/FTS5) · Watcher│  │
@@ -64,7 +64,7 @@ Non-goals for v0.1.0 are listed in [ROADMAP.md](ROADMAP.md#explicitly-out-of-sco
 
 Consequences:
 
-- The webview cannot reach the network. The Content Security Policy sets `connect-src` to IPC only and allows no remote `img-src`, `script-src` or `frame-src`. All AI traffic goes through Rust, so API keys never enter JavaScript memory.
+- The webview has no network access of its own. The Content Security Policy sets `connect-src` to IPC only and allows no remote `script-src`, `style-src`, `font-src` or `frame-src`. The one exception is `img-src https:`: `https:` images embedded in notes are loaded (ADR-031, from Phase 2). All AI traffic goes through Rust, so API keys never enter JavaScript memory.
 - The webview has no generic filesystem plugin. Every file operation is a typed command whose arguments are **page IDs, not paths**. Rust computes paths from the index and checks that each one stays inside the workspace. This removes path traversal from the IPC surface.
 - Paths from outside the workspace come only from native user actions handled in Rust: the folder picker (Rust opens the dialog itself) and files dropped onto the window. A dropped file reaches the webview as an opaque, single-use **drop token** issued by Rust, never as a path. Compromised webview code therefore can't ask Rust to copy arbitrary files, such as `~/.ssh/*`, into the workspace.
 - Raw HTML in documents and in AI output is shown as escaped text, never rendered. This matters for integrity as well as privacy: script running in the webview could call `apply_changeset`, so an XSS bug would defeat the AI approval boundary. A strict CSP (no `unsafe-inline` or `unsafe-eval` for scripts) adds a second layer of defense.
@@ -339,7 +339,10 @@ There are two Markdown parsers, `marked` (inside `@tiptap/markdown`) in TS and `
 
 - Pasted images (as bytes) and dropped files (as drop tokens, §2.1) go to Rust (`import_attachment(page_id, bytes | drop_token, name)`). If needed, Rust converts the page from a leaf to a bundle, writes `_assets/<unique-name>`, and returns the relative reference `_assets/<name>`.
 - The webview loads attachments through a custom `forma-asset://localhost/<page-id>/<rel-path>` protocol. Rust resolves the page's directory, canonicalizes the path and rejects anything outside the workspace or behind symlinks.
-- Remote image URLs in documents are kept in the Markdown but **not loaded** (CSP). They render as a placeholder showing the URL, because loading them silently would leak reading activity.
+- Remote images in documents (ADR-031):
+  - `https:` images load automatically, which means opening the page contacts the image's server.
+  - Plain `http:` images aren't loaded. They render as a placeholder showing the URL.
+  - Either way, the Markdown is kept exactly as written.
 - Binaries are never stored in SQLite.
 
 ---
@@ -481,7 +484,7 @@ Retrieved documents are untrusted. The defenses, from strongest to weakest:
 
 1. **Structural.** The model can't write without explicit user approval of a visible diff, and it can't reach files outside the workspace, the shell or the network.
 2. **Isolation of content.** Document text is passed inside delimited, labeled data blocks, and the system prompt states that document content is data, not instructions.
-3. **Output hardening.** Chat output is rendered as sanitized Markdown, with no raw HTML, no remote images (blocking the "image URL exfiltration" pattern) and no `javascript:` links. External links show their destination and need a click.
+3. **Output hardening.** Chat output is rendered as sanitized Markdown, with no raw HTML, no remote images (blocking the "image URL exfiltration" pattern) and no `javascript:` links. External links show their destination and need a click. Notes do load `https:` images (ADR-031), so the change preview shows images as URLs rather than loading them, and flags every new external image a proposal would add before the user approves it.
 4. **Transparency.** The preview shows the full proposed content, so injected instructions that lead to a strange proposal are visible before anything changes.
 
 The Phase 6 test suite includes adversarial documents.
@@ -504,7 +507,7 @@ The Phase 6 test suite includes adversarial documents.
 |---|---|
 | Path traversal through IPC or tools | IDs instead of paths. Paths computed in Rust, canonicalized, with a prefix check against the workspace root. No symlink following. Dropped files are referenced by single-use tokens, and folders come from a dialog Rust opens itself |
 | Malicious Markdown, HTML or XSS in documents | No raw HTML rendering, strict CSP, `javascript:` and `data:` URLs filtered from links, KaTeX in `trust: false` mode |
-| Data exfiltration through remote resources | Webview has no network access. Remote images aren't loaded. AI calls only through Rust |
+| Data exfiltration through remote resources | The webview has no network access except `https:` images in notes (ADR-031). AI chat output and AI change previews never load remote images, and previews flag newly added external images. AI calls go only through Rust |
 | Credential leakage | Keychain only. Keys never cross IPC to the webview and are redacted from logs and errors. `.gitignore` covers env and secret files |
 | Prompt injection driving writes | Capability separation, proposals only, user-only apply, diff preview, per-op revision checks |
 | Unauthorized workspace access | One workspace root per session. The asset protocol and tools are scoped to it |
@@ -548,3 +551,4 @@ Expected future work, intentionally deferred: identity and authorship metadata, 
 | R14 | Intel support: `x86_64-apple-darwin` is a Tier 2 Rust target, and Intel CI runners are scarce | Medium / Low | Cross-compile a universal binary from Apple Silicon. Intel smoke testing is best-effort and reported as such | 7 |
 | R15 | The "Forma" name collides with existing products (for example Autodesk Forma) | Medium / Medium | Trademark and name search before any public release (user decision) | 7 |
 | R16 | TypeScript 7 ecosystem incompatibility | Avoided | Pinned to TypeScript 6.0 (ADR-016). Revisit when typescript-eslint, editors and other tools support TS 7 | — |
+| R17 | Automatically loaded `https:` images in notes reveal reading activity (tracking pixels), and an approved AI edit could add an exfiltration URL | Medium / Medium | User-accepted tradeoff (ADR-031). `http:` isn't loaded. AI chat output never loads remote images. Change previews show image URLs and flag new external images. A setting to turn remote images off can be added if needed | 2, 6 |

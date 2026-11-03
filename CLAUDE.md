@@ -10,6 +10,111 @@ Forma is a local-first, AI-native knowledge management application for macOS. It
 
 The initial release is v0.1.0. The repository folder is named `MinimumNotion`. The product name is **Forma**.
 
+## Execution Transparency & Explainability
+
+The user must always understand what you are doing, why you are doing it, and what has actually been accomplished.
+
+Follow these rules throughout development:
+
+1. Before Execution
+
+Before starting any significant implementation task, briefly explain in Simplified Chinese:
+
+* What: What you intend to implement or modify.
+* Why: Why this work is necessary.
+* How: Your proposed technical approach.
+* Expected Result: What should work after completion.
+
+Do not begin substantial implementation work without first communicating the plan.
+
+2. During Execution
+
+Provide concise progress updates in Simplified Chinese at meaningful milestones.
+
+For each major action, explain:
+
+* What has been completed.
+* What is currently being worked on.
+* Why the chosen approach is appropriate.
+* Whether any unexpected problems have occurred.
+
+When using subagents, explain their assigned responsibilities and report their results.
+
+Do not overwhelm the user with raw logs or trivial implementation details.
+
+3. After Execution
+
+At the end of each significant task, provide a structured report in Simplified Chinese containing:
+
+A. Summary
+What was accomplished, explained in plain language.
+
+B. Changes
+Important files, components, and functionality added or modified.
+
+C. Technical Rationale
+Why the main implementation decisions were made.
+
+D. Verification
+What tests or checks were actually performed and their results.
+
+E. Limitations
+What remains incomplete, unverified, or potentially problematic.
+
+F. Next Steps
+What should happen next and whether user approval is required.
+
+4. Explain Decisions, Not Just Actions
+
+Do not merely state that a file was created, a command was executed, or a dependency was installed.
+
+Explain the purpose and architectural significance of important changes.
+
+For example:
+
+Bad:
+“Created context-manager.ts and installed dependencies.”
+
+Good:
+“Implemented the Context Manager to assemble relevant workspace information before each agent invocation. This allows different conversations and agents to share project knowledge without sending the entire conversation history to every model.”
+
+5. Distinguish Facts from Assumptions
+
+Clearly distinguish:
+
+* Verified results.
+* Architectural assumptions.
+* Proposed solutions.
+* Unresolved questions.
+* Known limitations.
+
+Never claim that a feature works unless it has been appropriately tested.
+
+6. Maintain an Execution Journal
+
+Maintain docs/PROGRESS.md as the persistent implementation journal. Don't create a separate status file, because two status documents drift apart.
+
+After each significant task, update it with:
+
+* Completed work.
+* Important technical decisions.
+* Verification results.
+* Known issues.
+* Current implementation phase.
+* Next planned actions.
+
+Keep this document concise, accurate, and useful for future sessions.
+
+7. User Control
+
+The user is the product owner and must retain control over major architectural and product decisions.
+
+If a task requires changing previously approved requirements, explain the reason and obtain approval before proceeding.
+
+The goal is not simply to complete tasks autonomously.
+
+The goal is to make autonomous execution understandable, inspectable, and verifiable.
+
 ## Product Principles
 
 1. Simplicity first.
@@ -43,7 +148,7 @@ Verified versions: `docs/IMPLEMENTATION_PLAN.md` §2. Re-verify before adding an
 6. Pages use stable UUIDs in frontmatter, persisted lazily. Run `ensure_persisted_id` before creating any durable reference to a page.
 7. Revisions are content hashes. Every write to an existing page carries `base_rev`.
 8. Conflicting changes are never silently overwritten. When in doubt, snapshot to history first.
-9. Core functionality works offline. The webview has no network access, and all AI traffic goes through Rust.
+9. Core functionality works offline. The webview has no network access except loading `https:` images embedded in notes (ADR-031). AI chat output and AI change previews never load remote images. All AI traffic goes through Rust.
 10. No unnecessary cloud dependencies, telemetry, accounts or license checks.
 11. The directory tree mirrors the page tree: `Name.md` for a leaf, `Name/index.md` for a bundle, attachments in `_assets/`.
 12. Page links are `[Title](forma://page/<uuid>)`. Never rewrite other files on rename or move.
@@ -145,8 +250,9 @@ If the documentation and the repository disagree, inspect the code and tests bef
 - `docs/DATA_MODEL.md`: the normative on-disk formats and Markdown dialect
 - `docs/DECISIONS.md`: ADRs. Don't change a foundational decision without a superseding ADR
 - `docs/IMPLEMENTATION_PLAN.md`: per-phase tasks, tests and acceptance criteria
-- `docs/PROGRESS.md`: current status, updated after every phase
+- `docs/PROGRESS.md`: current status and the implementation journal, updated after every significant task
 - `docs/ROADMAP.md`: phases, out-of-scope list and later candidates
+- `docs/IMPLEMENTATION_AUDIT.md`: the 2026-11-02 audit of Phases 0–1, open findings, and the resolution log
 
 Use CLAUDE.md for permanent rules only, never as a development log.
 

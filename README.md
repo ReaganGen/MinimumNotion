@@ -35,4 +35,4 @@ npm run tauri:build    # build Forma.app into target/release/bundle/ (DMG packag
 
 ## License
 
-Not yet chosen. See ADR-026 in [docs/DECISIONS.md](docs/DECISIONS.md).
+[Apache License 2.0](LICENSE). See ADR-026 in [docs/DECISIONS.md](docs/DECISIONS.md) for why.

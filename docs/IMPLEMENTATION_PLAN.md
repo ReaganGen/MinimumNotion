@@ -88,7 +88,10 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 - Future collaboration is considered but not implemented.
 - The development rules are recorded in `CLAUDE.md`.
 
-**Open user decisions:** ADR-026 (license), the bundle identifier (§4.1), and Apple Developer ID signing (before Phase 7).
+**User decisions (2026-11-02):**
+
+- **Confirmed:** the storage formats (ADR-003, 004, 006, 007, 008, 013), the Apache-2.0 license (ADR-026), and automatic loading of remote `https:` images (ADR-031, which supersedes ADR-025).
+- **Still open:** the bundle identifier (§4.1), and Apple Developer ID signing (before Phase 7).
 
 ---
 
@@ -176,7 +179,7 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
    - A trash view with restore and delete-forever (confirmed).
 6. **Editor.**
    - Tiptap with the full node set (ARCHITECTURE §6.2), Underline disabled, the raw block, and the title field.
-   - Markdown input rules, the slash menu, the bubble menu, KaTeX math (`trust: false`), tables, task lists, images through paste and drop (`import_attachment`), and a remote-image placeholder.
+   - Markdown input rules, the slash menu, the bubble menu, KaTeX math (`trust: false`), tables, task lists, images through paste and drop (`import_attachment`), remote `https:` images loaded automatically (add `https:` to CSP `img-src`, ADR-031), and a placeholder for `http:` images.
    - ⌘N, ⌘B, ⌘I.
 7. **Autosave and conflicts.**
    - Debounced saves, flush on navigation and quit, the per-page write queue, and the save-status indicator.
@@ -343,7 +346,7 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 ### 9.1 Tasks
 
 1. Proposal tools and the ChangeSet model (ARCHITECTURE §10.2), validating each proposal as it is made.
-2. Preview UI: grouped changes, a word-level diff per page, approve all, approve selected, and reject.
+2. Preview UI: grouped changes, a word-level diff per page, approve all, approve selected, and reject. Remote images in the preview show as URLs, not loaded, and every external image a proposal adds is flagged (ADR-031).
 3. `apply_changeset`: a journaled, all-or-nothing batch with a revision check per operation, protected snapshots and an operation record. Conflicts are reported as such.
 4. Undo and redo from the operation log, and an operation history view.
 5. Hardening against prompt injection (ARCHITECTURE §10.4).
@@ -383,7 +386,7 @@ Each of these is verified by a test or a documented manual check:
    - **Backup:** a zip of the workspace, including `.forma`.
    - **Restore:** unzip into a new folder and open it there. A restore never overwrites in place.
 5. Performance profiling with the 5,000-page workspace (startup, search, typing latency, idle CPU). Record the measured numbers and claim only measured improvements.
-6. App icon, About window, README, user guide and CONTRIBUTING (after the license decision).
+6. App icon, About window, README, user guide, `CONTRIBUTING.md`, and a trademark policy once the product-name search is done (R15). The license (Apache-2.0) is already in place.
 7. CI on GitHub Actions: lint, typecheck, test, clippy, `cargo audit`, `npm audit`, and building the macOS bundle.
 8. Packaging:
    - Release workflow: a universal or arm64 `.app` and DMG.

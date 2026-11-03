@@ -4,6 +4,7 @@ description = "Forma desktop shell: IPC commands, window, and menus"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [build-dependencies]

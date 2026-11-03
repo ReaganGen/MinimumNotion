@@ -246,7 +246,7 @@ These rules apply only when Forma writes a body after an actual edit (ARCHITECTU
 - **Attachment and image sources:**
   - A relative path resolves against the directory of the page's file. Forma writes `_assets/<name>` for its own attachments.
   - A path that resolves outside the workspace isn't loaded.
-  - `http(s)` image URLs are kept but not loaded (ARCHITECTURE §6.6).
+  - `https:` image URLs are loaded automatically. `http:` image URLs are kept but not loaded (ADR-031, ARCHITECTURE §6.6).
   - `data:` image URLs are kept and not rendered in v0.1.
 - **Allowed link schemes when activated:** `forma:`, `http:`, `https:`, `mailto:`. Any other scheme is shown but not opened.
 

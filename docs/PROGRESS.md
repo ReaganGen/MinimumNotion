@@ -96,16 +96,33 @@ Manual and runtime checks:
 6. ⌘K and ⌘P open their dialogs, and Esc closes them.
 7. Make the window narrow: the AI panel, then the sidebar, float over the editor instead of squeezing it.
 
+## Design Decisions Confirmed (2026-11-02)
+
+After the implementation audit, the user reviewed the decisions that the PRD hadn't spelled out or that differed from its illustrations:
+
+| Decision | User's choice | Record |
+|---|---|---|
+| Page-link storage | `[Title](forma://page/<uuid>)`; `[[` is the typing trigger | ADR-007, confirmed |
+| Workspace layout | The folder tree mirrors the page tree (`Name.md` / `Name/index.md`, attachments in `_assets/`) | ADR-004, ADR-008, confirmed |
+| Collections | A collection is a page, with its schema in frontmatter and its entries as child pages | ADR-013, confirmed |
+| Page title | Stored only in frontmatter `title`, not repeated as an H1 | ADR-006, confirmed |
+| Search index location | Outside the workspace (Application Support) | ADR-003, confirmed |
+| Remote images in notes | **Load automatically** (`https:` only). AI output and AI previews still don't load them | **ADR-031, supersedes ADR-025** |
+| License | Apache-2.0 | ADR-026, accepted |
+| CLAUDE.md transparency rules | Adopted, with this file as the journal | CLAUDE.md |
+
+Not separately reviewed, and kept as documented: favorites and order in `.forma/tree.json` (ADR-014), TypeScript 6 with Biome (ADR-016), menu-accelerator shortcuts (ADR-030), Act mode requiring tool-calling models, and chat transcripts not being saved. The bundle identifier `app.forma.desktop` stays provisional.
+
 ## Known Issues and Open Decisions
 
-1. **License (ADR-026)** still needs approval.
+1. **License:** resolved. Apache-2.0 was chosen and `LICENSE` added (ADR-026). `CONTRIBUTING.md` and a trademark policy are Phase 7 tasks.
 2. **Bundle identifier** `app.forma.desktop` is used provisionally. It can be changed cheaply until Phase 4 stores Keychain items.
 3. **The app icon is provisional**, a simple "F" mark. The final icon is a Phase 7 task.
 4. **Build targets:** arm64 only so far. The universal (Intel) build and the DMG are Phase 7.
 5. **Accelerator labels:** the labels in `SHORTCUTS` (TypeScript) mirror the accelerators in `menu.rs` by hand. A test checks the command IDs but not the key labels.
 6. **The dev browser preview** can't show ⌘, inside the Claude desktop app's browser pane, because the host app captures that key. This doesn't affect the real app, where ⌘, is a native menu item.
-7. **Uncommitted outside edit:** CLAUDE.md gained an "Execution Transparency & Explainability" section during Phase 1 that didn't come from Claude. It is left uncommitted pending the user's confirmation.
-8. **Open audit items** (not part of Phase 1.1): F5 (atomic replace drops file metadata, which must be decided before Phase 2), F7 (no logging), F10 (constants duplicated across TypeScript and Rust), and the unconfirmed format decisions in audit §5.2. See [IMPLEMENTATION_AUDIT.md](IMPLEMENTATION_AUDIT.md) §8.
+7. **CLAUDE.md "Execution Transparency" section:** resolved. The user adopted it on 2026-11-02, with its journal pointed at this file instead of a separate `IMPLEMENTATION_STATUS.md`.
+8. **Open audit items** (not part of Phase 1.1): F5 (atomic replace drops file metadata, which must be decided before Phase 2), F7 (no logging), F10 (constants duplicated across TypeScript and Rust), and the remaining F6, F8, F9 and F11–F14. The format decisions in audit §5.2 are now confirmed (see below). See [IMPLEMENTATION_AUDIT.md](IMPLEMENTATION_AUDIT.md) §8.
 
 ## Next Phase
 
