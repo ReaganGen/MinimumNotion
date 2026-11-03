@@ -490,7 +490,7 @@ Policy: ARCHITECTURE §4.6. Restoring a snapshot is a normal write: the current 
 
 ## 9. SQLite index schema
 
-This is a cache and safe to delete. A `schema_version` mismatch drops and rebuilds it. The schema below is `schema_version = 1`, finalized in Phase 3 (`crates/forma-core/src/index.rs`):
+This is a cache and safe to delete. A `schema_version` mismatch drops and rebuilds it. The schema below is `schema_version = 2`: Phase 3's tables plus Phase 5's passages (`crates/forma-core/src/index.rs`):
 
 ```sql
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_version
@@ -526,8 +526,22 @@ CREATE VIRTUAL TABLE pages_fts USING fts5(title, body, tags, props,
   tokenize = 'unicode61 remove_diacritics 2');
 CREATE VIRTUAL TABLE pages_trigram USING fts5(text,   -- title, body and property text
   tokenize = 'trigram remove_diacritics 1');
--- Phase 5 adds: passages(id, page_id, ordinal, heading_path, start, end) + passages_fts(text).
+
+-- Schema 2 (Phase 5, ADR-041): what the AI assistant retrieves from.
+CREATE TABLE passages (
+  page_id      TEXT NOT NULL,
+  ordinal      INTEGER NOT NULL,
+  heading_path TEXT NOT NULL,           -- JSON array of the headings above it, outermost first
+  byte_start   INTEGER NOT NULL,        -- its range in the page body (after the frontmatter)
+  byte_end     INTEGER NOT NULL,
+  markdown     TEXT NOT NULL,           -- body[byte_start..byte_end]
+  PRIMARY KEY (page_id, ordinal));
+-- Keyed by the passages row's rowid. `title` is the page's; `heading` joins heading_path with " › ".
+CREATE VIRTUAL TABLE passages_fts USING fts5(title, heading, text,
+  tokenize = 'porter unicode61 remove_diacritics 2');
 ```
+
+Passages are 250–400 tokens, cut at headings and between blocks; a block longer than that is cut at lines, then sentences, then characters (`crates/forma-core/src/passages.rs`). CJK questions find pages through `pages_trigram` and rank their passages in Rust, so there is no passage trigram table.
 
 Changes from the initial draft:
 - `rel_path` isn't `UNIQUE`: two pages can trade places within one rescan.
@@ -619,7 +633,7 @@ rebuild_index()                                             → ()
         "options": { "temperature": 0.3, "max_output_tokens": 2048,
                      "context_window_override": null, "tool_calling_override": null } }
     ],
-    "cloud_acknowledged": { "<provider-config-id>": "2026-11-02T10:00:00Z" }
+    "cloud_consent": { "<provider-config-id>": "2026-11-03T10:00:00Z" }
   }
 }
 ```
@@ -628,8 +642,8 @@ Notes on `ai` (Phase 4):
 
 - `enabled` is `false` by default, and the section is written only once the user changes an AI setting.
 - `base_url` is `http` or `https` with no query, credentials or trailing slash. A provider whose host is a loopback address counts as local.
-- `options` values are `null` for "the provider's default". `temperature` is 0–2 and isn't offered for Anthropic. `max_output_tokens` is 1–1,000,000, `context_window_override` 512–10,000,000. `tool_calling_override` is reserved for Act mode (Phase 6) and has no UI yet.
-- `cloud_acknowledged` entries are removed when a provider's scheme, host or port changes, and when the provider is removed.
+- `options` values are `null` for "the provider's default". `temperature` is 0–2 and isn't offered for Anthropic. `max_output_tokens` is 1–1,000,000, `context_window_override` 512–10,000,000. `tool_calling_override` is the user's answer to "can this model call tools?" (Settings → AI → "Look things up in your notes": Automatic is `null`, On `true`, Off `false`).
+- `cloud_consent` records when the user agreed that messages, and the note excerpts they need, may go to that provider (Phase 5, ADR-042). Entries are removed when a provider's scheme, host or port changes, and when the provider is removed. Phase 4 recorded a narrower agreement under `cloud_acknowledged`; that key is no longer read, and it disappears from the file the next time the AI settings are saved.
 
 ### 11.2 Keychain
 

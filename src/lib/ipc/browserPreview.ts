@@ -11,6 +11,7 @@ import { defaultSettings } from "@/features/settings/defaults";
 import type { AiSettings } from "./bindings/AiSettings";
 import type { Cell } from "./bindings/Cell";
 import type { CellInput } from "./bindings/CellInput";
+import type { ChatInput } from "./bindings/ChatInput";
 import type { ChatStreamEvent } from "./bindings/ChatStreamEvent";
 import type { CollectionRow } from "./bindings/CollectionRow";
 import type { CollectionViews } from "./bindings/CollectionViews";
@@ -22,6 +23,7 @@ import type { ProviderUpdate } from "./bindings/ProviderUpdate";
 import type { Schema } from "./bindings/Schema";
 import type { SchemaOp } from "./bindings/SchemaOp";
 import type { SettingsUpdate } from "./bindings/SettingsUpdate";
+import type { Source } from "./bindings/Source";
 import { MENU_EVENT } from "./client";
 
 const ACCELERATORS: Record<string, CommandId> = {
@@ -234,6 +236,17 @@ function memoryWorkspace() {
           return hit(p, `${before}\u0001${match}\u0002${after}`);
         });
     },
+    /** Pages sharing a word of four or more letters with `query`: a stand-in for retrieval. */
+    related: (query: string, exclude: string | null) => {
+      const words = query.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? [];
+      return [...pages.values()].filter(
+        (p) =>
+          p.id !== exclude &&
+          p.body.trim() !== "" &&
+          words.some((w) => `${p.title}\n${p.body}`.toLowerCase().includes(w)),
+      );
+    },
+    page: (pageId: string) => pages.get(pageId) ?? null,
     quickOpen: (query: string) =>
       [...pages.values()]
         .filter((p) => p.title.toLowerCase().includes(query.toLowerCase()))
@@ -346,6 +359,18 @@ const CANNED_ANSWER = `This is the **browser preview**, so no model was asked. I
 - Raw HTML shows as text: <b>not bold</b>
 - Images aren't loaded: ![chart](https://example.com/chart.png)`;
 
+type PreviewWorkspace = ReturnType<typeof memoryWorkspace>;
+
+/** Roughly the plain text Rust would extract: links as their labels, no markup. */
+function excerpt(text: string): string {
+  const flat = text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`#>|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return flat.length > 240 ? `${flat.slice(0, 240)}…` : flat;
+}
+
 /** An in-memory stand-in for the AI commands. Never touches the network. */
 function memoryAi(getAi: () => AiSettings, setAi: (ai: AiSettings) => void) {
   const running = new Map<string, () => void>();
@@ -397,8 +422,53 @@ function memoryAi(getAi: () => AiSettings, setAi: (ai: AiSettings) => void) {
       withProvider(id, (p) => {
         p.has_credential = stored;
       }),
-    chat(requestId: string, onEvent: (event: ChatStreamEvent) => void): Promise<null> {
-      const words = CANNED_ANSWER.split(/(?<= )/);
+    chat(
+      requestId: string,
+      input: ChatInput,
+      ws: PreviewWorkspace,
+      onEvent: (event: ChatStreamEvent) => void,
+    ): Promise<null> {
+      const { context } = input;
+      const question = input.messages.at(-1)?.content ?? "";
+      const sources: Source[] = [];
+      const add = (kind: Source["kind"], page: { id: string; title: string }, text: string) =>
+        sources.push({
+          key: `S${context.first_source + sources.length}`,
+          kind,
+          page_id: page.id,
+          title: page.title,
+          section: [],
+          excerpt: excerpt(text),
+        });
+      const attached = context.page_id ? ws.page(context.page_id) : null;
+      if (context.selection) {
+        const from = ws.page(context.selection.page_id);
+        if (from) add("selection", from, context.selection.text);
+      }
+      if (attached) add("page", attached, attached.body);
+      const found = context.search_notes
+        ? ws.related(question, attached?.id ?? null).slice(0, 4)
+        : [];
+      for (const page of found) add("passage", page, page.body);
+      onEvent({
+        type: "context",
+        context: {
+          page: attached ? { id: attached.id, title: attached.title } : null,
+          page_complete: true,
+          selection: context.selection !== null,
+          selection_complete: true,
+          searched: context.search_notes,
+          passages: found.length,
+          left_out_turns: 0,
+          tools: false,
+        },
+      });
+      if (sources.length > 0) onEvent({ type: "sources", sources });
+      const cited =
+        sources.length > 0
+          ? `\n\nFrom your notes: “${sources[0]?.excerpt.slice(0, 60)}” [${sources[0]?.key}]. A key the model made up shows as unverified [S99].`
+          : "";
+      const words = (CANNED_ANSWER + cited).split(/(?<= )/);
       return new Promise((resolve) => {
         let i = 0;
         const timer = setInterval(() => {
@@ -476,8 +546,8 @@ export function installBrowserPreview() {
             ...settings,
             ai: {
               ...settings.ai,
-              cloud_acknowledged: {
-                ...settings.ai.cloud_acknowledged,
+              cloud_consent: {
+                ...settings.ai.cloud_consent,
                 [str("id")]: new Date().toISOString(),
               },
             },
@@ -494,7 +564,9 @@ export function installBrowserPreview() {
           return { ok: true, message: "Browser preview: no request was sent.", error: null };
         case "ai_chat": {
           const channel = a.onEvent as { onmessage: (event: ChatStreamEvent) => void };
-          return ai.chat(str("requestId"), (event) => channel.onmessage(event));
+          return ai.chat(str("requestId"), a.input as ChatInput, ws, (event) =>
+            channel.onmessage(event),
+          );
         }
         case "ai_cancel":
           ai.cancel(str("requestId"));

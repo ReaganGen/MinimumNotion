@@ -7,8 +7,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::*;
+use forma_ai::knowledge::{AskContext, ChatInput, Library, system_prompt};
 use forma_ai::secrets::MemoryStore;
-use forma_ai::service::SYSTEM_PROMPT;
 use forma_ai::types::{Message, Role, StopReason};
 use forma_ai::{AiErrorKind, AiService, ChatStreamEvent};
 use forma_core::settings::{AiSettings, ProviderKind};
@@ -21,17 +21,20 @@ fn service() -> Arc<AiService> {
     ))
 }
 
-fn user(text: &str) -> Vec<Message> {
-    vec![Message {
-        role: Role::User,
-        content: text.into(),
-    }]
+fn user(text: &str) -> ChatInput {
+    ChatInput {
+        messages: vec![Message {
+            role: Role::User,
+            content: text.into(),
+        }],
+        context: AskContext::default(),
+    }
 }
 
 async fn chat(service: &AiService, ai: &AiSettings, text: &str) -> Vec<ChatStreamEvent> {
     let mut events = Vec::new();
     service
-        .chat(ai, "req-1", user(text), |e| events.push(e))
+        .chat(ai, "req-1", user(text), None, |e| events.push(e))
         .await;
     events
 }
@@ -76,7 +79,8 @@ async fn anthropic_streams_and_sends_what_the_api_expects() {
     let body = sent.json();
     assert_eq!(body["model"], "claude-test");
     assert_eq!(body["stream"], true);
-    assert_eq!(body["system"], SYSTEM_PROMPT);
+    assert_eq!(body["system"], system_prompt(false, false));
+    assert!(body.get("tools").is_none(), "no workspace, no tools");
     assert_eq!(body["messages"], json!([{"role": "user", "content": "Hi"}]));
     assert!(
         body.get("temperature").is_none(),
@@ -105,7 +109,7 @@ async fn openai_uses_the_responses_api_without_storage() {
     let sent = server.request_to("/v1/responses");
     assert_eq!(sent.header("authorization"), Some("Bearer sk-proj-test"));
     assert_eq!(sent.json()["store"], false);
-    assert_eq!(sent.json()["instructions"], SYSTEM_PROMPT);
+    assert_eq!(sent.json()["instructions"], system_prompt(false, false));
 }
 
 #[tokio::test]
@@ -177,12 +181,16 @@ async fn stopping_mid_answer_cancels_the_request() {
     let running = Arc::clone(&service);
     let task = tokio::spawn(async move {
         running
-            .chat(&ai, "req-stop", user("Tell me a story"), |e| {
+            .chat(&ai, "req-stop", user("Tell me a story"), None, |e| {
                 let _ = tx.send(e);
             })
             .await;
     });
 
+    let context = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .unwrap();
+    assert!(matches!(context, Some(ChatStreamEvent::Context { .. })));
     let first = tokio::time::timeout(Duration::from_secs(5), rx.recv())
         .await
         .unwrap();
@@ -217,7 +225,7 @@ async fn a_stop_that_arrives_first_still_stops_the_chat() {
     ));
     let mut events = Vec::new();
     service
-        .chat(&ai, "req-early", user("Hi"), |e| events.push(e))
+        .chat(&ai, "req-early", user("Hi"), None, |e| events.push(e))
         .await;
     assert_eq!(failure(&events).unwrap().kind, AiErrorKind::Cancelled);
 }
@@ -316,7 +324,7 @@ async fn nothing_is_sent_until_ai_is_set_up_and_agreed_to() {
     // Agreed, but no key: refused before any request.
     let mut agreed = enabled(config);
     agreed
-        .cloud_acknowledged
+        .cloud_consent
         .insert("provider-1".into(), "2026-11-03T10:00:00Z".into());
     let err = chat(&service, &agreed, "a").await;
     assert!(failure(&err).unwrap().message.contains("Add an API key"));
@@ -397,4 +405,277 @@ async fn anthropic_model_lists_are_paged() {
     let ids: Vec<_> = models.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(ids, ["a", "b"]);
     assert_eq!(server.requests().len(), 2);
+}
+
+fn library(pages: &[(&str, &str)]) -> (tempfile::TempDir, Library) {
+    let dir = tempfile::tempdir().unwrap();
+    for (title, body) in pages {
+        std::fs::write(dir.path().join(format!("{title}.md")), body).unwrap();
+    }
+    let ws = forma_core::workspace::Workspace::open(dir.path()).unwrap();
+    (dir, Library::new(Arc::new(std::sync::Mutex::new(Some(ws)))))
+}
+
+fn asking(text: &str, search_notes: bool) -> ChatInput {
+    let mut input = user(text);
+    input.context = AskContext {
+        search_notes,
+        first_source: 1,
+        ..AskContext::default()
+    };
+    input
+}
+
+async fn ask(
+    service: &AiService,
+    ai: &AiSettings,
+    input: ChatInput,
+    library: &Library,
+) -> Vec<ChatStreamEvent> {
+    let mut events = Vec::new();
+    service
+        .chat(ai, "req-notes", input, Some(library.clone()), |e| {
+            events.push(e)
+        })
+        .await;
+    events
+}
+
+fn sources(events: &[ChatStreamEvent]) -> Vec<forma_ai::knowledge::Source> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            ChatStreamEvent::Sources { sources } => Some(sources.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+#[tokio::test]
+async fn answers_from_notes_send_numbered_sources() {
+    let (_dir, lib) = library(&[
+        ("Glaciers", "Glaciers carve U-shaped valleys."),
+        ("Bread", "Sourdough needs a starter."),
+    ]);
+    let server = serve(vec![
+        (
+            "/api/show",
+            json(200, json!({"capabilities": ["completion"]})),
+        ),
+        (
+            "/api/chat",
+            ndjson(include_bytes!("../fixtures/ollama-text.ndjson"), false),
+        ),
+    ])
+    .await;
+    let ai = enabled(provider(ProviderKind::Ollama, &server.url, "m"));
+    let events = ask(
+        &service(),
+        &ai,
+        asking("How do glaciers shape valleys?", true),
+        &lib,
+    )
+    .await;
+
+    match &events[0] {
+        ChatStreamEvent::Context { context } => {
+            assert!(context.searched);
+            assert_eq!(context.passages, 1);
+            assert!(!context.tools, "the model can't call tools");
+        }
+        other => panic!("expected the context first, got {other:?}"),
+    }
+    let given = sources(&events);
+    assert_eq!(given.len(), 1);
+    assert_eq!(
+        (given[0].key.as_str(), given[0].title.as_str()),
+        ("S1", "Glaciers")
+    );
+    let body = server.request_to("/api/chat").json();
+    assert_eq!(body["messages"][0]["content"], system_prompt(true, false));
+    let last = body["messages"].as_array().unwrap().last().unwrap()["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(last.contains("<source key=\"S1\" kind=\"passage\" page=\"Glaciers\""));
+    assert!(last.contains("Glaciers carve U-shaped valleys."));
+    assert!(!last.contains("Sourdough"));
+    assert!(last.ends_with("How do glaciers shape valleys?"));
+    assert!(body.get("tools").is_none());
+}
+
+#[tokio::test]
+async fn tool_calls_run_against_the_notes_and_their_results_go_back() {
+    let (_dir, lib) = library(&[("Protein Design", "Protein design uses diffusion models.")]);
+    let server = serve(vec![
+        (
+            "/v1/models/claude-test",
+            json(
+                200,
+                json!({"id": "claude-test", "max_input_tokens": 200000}),
+            ),
+        ),
+        (
+            "/v1/messages",
+            sse(include_bytes!("../fixtures/anthropic-tool.sse")),
+        ),
+        (
+            "/v1/messages",
+            sse(include_bytes!("../fixtures/anthropic-text.sse")),
+        ),
+    ])
+    .await;
+    let service = service();
+    service.set_key("provider-1", "sk-ant-test").await.unwrap();
+    let mut config = provider(ProviderKind::Anthropic, &server.url, "claude-test");
+    config.has_credential = true;
+    let mut ai = enabled(config);
+    ai.cloud_consent
+        .insert("provider-1".into(), "2026-11-03T10:00:00Z".into());
+    // Nothing matches the message itself: only the model's own search finds the note.
+    let events = ask(&service, &ai, asking("Anything new?", true), &lib).await;
+
+    assert_eq!(text_of(&events), "Let me search.\n\nHello! 你好。");
+    assert_eq!(
+        events.last(),
+        Some(&ChatStreamEvent::Done {
+            stop_reason: StopReason::EndTurn
+        })
+    );
+    let activity = events
+        .iter()
+        .find_map(|e| match e {
+            ChatStreamEvent::Tool { activity } => Some(activity.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(activity.label, "Searched the notes for “protein design”");
+    assert!(!activity.failed);
+    assert_eq!(sources(&events)[0].title, "Protein Design");
+
+    let sent: Vec<_> = server
+        .requests()
+        .into_iter()
+        .filter(|r| r.path == "/v1/messages")
+        .collect();
+    assert_eq!(sent.len(), 2);
+    let first = sent[0].json();
+    let names: Vec<_> = first["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "search_pages",
+            "read_page",
+            "list_pages",
+            "get_page_metadata"
+        ]
+    );
+    let second = sent[1].json();
+    let messages = second["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 3);
+    let assistant = &messages[1]["content"];
+    assert_eq!(assistant[0]["type"], "thinking", "thinking goes back first");
+    assert_eq!(assistant[2]["type"], "tool_use");
+    assert_eq!(assistant[2]["input"], json!({"query": "protein design"}));
+    let result = &messages[2]["content"][0];
+    assert_eq!(result["type"], "tool_result");
+    assert_eq!(result["tool_use_id"], "toolu_01T1x1fJ34qAmk2tNTrN7Up6");
+    assert!(
+        result["content"]
+            .as_str()
+            .unwrap()
+            .contains("Protein design uses diffusion models.")
+    );
+}
+
+#[tokio::test]
+async fn tool_rounds_are_capped_and_the_last_round_must_answer() {
+    let (_dir, lib) = library(&[("Note", "Some text.")]);
+    let tool = include_bytes!("../fixtures/ollama-tool.ndjson");
+    let mut routes = vec![(
+        "/api/show",
+        json(200, json!({"capabilities": ["completion", "tools"]})),
+    )];
+    for _ in 0..forma_ai::service::MAX_TOOL_ROUNDS {
+        routes.push(("/api/chat", ndjson(tool, false)));
+    }
+    routes.push((
+        "/api/chat",
+        ndjson(include_bytes!("../fixtures/ollama-text.ndjson"), false),
+    ));
+    let server = serve(routes).await;
+    let ai = enabled(provider(ProviderKind::Ollama, &server.url, "m"));
+    let events = ask(&service(), &ai, asking("Search forever", true), &lib).await;
+
+    let chats: Vec<_> = server
+        .requests()
+        .into_iter()
+        .filter(|r| r.path == "/api/chat")
+        .map(|r| r.json())
+        .collect();
+    assert_eq!(chats.len(), forma_ai::service::MAX_TOOL_ROUNDS + 1);
+    assert!(
+        chats[..chats.len() - 1]
+            .iter()
+            .all(|c| c["tools"].is_array())
+    );
+    assert!(chats.last().unwrap().get("tools").is_none());
+    let tools = events
+        .iter()
+        .filter(|e| matches!(e, ChatStreamEvent::Tool { .. }))
+        .count();
+    assert_eq!(tools, forma_ai::service::MAX_TOOL_ROUNDS);
+    assert!(matches!(events.last(), Some(ChatStreamEvent::Done { .. })));
+}
+
+#[tokio::test]
+async fn search_turned_off_sends_no_notes_and_offers_no_tools() {
+    let (_dir, lib) = library(&[("Glaciers", "Glaciers carve valleys.")]);
+    let server = serve(vec![
+        (
+            "/api/show",
+            json(200, json!({"capabilities": ["completion", "tools"]})),
+        ),
+        (
+            "/api/chat",
+            ndjson(include_bytes!("../fixtures/ollama-text.ndjson"), false),
+        ),
+    ])
+    .await;
+    let ai = enabled(provider(ProviderKind::Ollama, &server.url, "m"));
+    let events = ask(&service(), &ai, asking("glaciers valleys", false), &lib).await;
+    let body = server.request_to("/api/chat").json();
+    assert!(body.get("tools").is_none());
+    assert!(!body.to_string().contains("carve"));
+    assert!(sources(&events).is_empty());
+}
+
+#[tokio::test]
+async fn the_users_tool_setting_wins_over_the_provider() {
+    let (_dir, lib) = library(&[("Note", "Some text.")]);
+    let server = serve(vec![
+        (
+            "/api/show",
+            json(200, json!({"capabilities": ["completion", "tools"]})),
+        ),
+        (
+            "/api/chat",
+            ndjson(include_bytes!("../fixtures/ollama-text.ndjson"), false),
+        ),
+    ])
+    .await;
+    let mut config = provider(ProviderKind::Ollama, &server.url, "m");
+    config.options.tool_calling_override = Some(false);
+    let events = ask(&service(), &enabled(config), asking("Hi", true), &lib).await;
+    assert!(server.request_to("/api/chat").json().get("tools").is_none());
+    assert!(matches!(
+        &events[0],
+        ChatStreamEvent::Context { context } if !context.tools
+    ));
 }

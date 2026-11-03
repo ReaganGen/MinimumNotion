@@ -1,7 +1,7 @@
 import type { Editor } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { Bold, Code, Italic, Link as LinkIcon, Strikethrough } from "lucide-react";
+import { Bold, Code, Italic, Link as LinkIcon, Sparkles, Strikethrough } from "lucide-react";
 import {
   forwardRef,
   type ReactNode,
@@ -11,9 +11,13 @@ import {
   useRef,
   useState,
 } from "react";
+import { askAboutSelection, explainSelection } from "@/features/ai/actions";
+import { selectedText, setActiveEditor } from "@/features/editor/activeEditor";
 import { createEditorExtensions } from "@/features/editor/liveExtensions";
 import { docToMarkdown } from "@/features/editor/markdown";
+import { findTextRange, flashKey, useRevealStore } from "@/features/editor/reveal";
 import { type Conflict, SaveController } from "@/features/editor/saveController";
+import { useSettingsStore } from "@/features/settings/settingsStore";
 import { registerFlusher, useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import type { PageDocument } from "@/lib/ipc/bindings/PageDocument";
 import { ipc } from "@/lib/ipc/client";
@@ -143,6 +147,26 @@ export const PageEditor = forwardRef<PageEditorHandle, PageEditorProps>(function
   );
   editorRef.current = editor;
 
+  useEffect(() => (editor ? setActiveEditor(page.id, editor) : undefined), [editor, page.id]);
+
+  // A citation asked to show text in this page: scroll to it and highlight it.
+  const reveal = useRevealStore((s) => s.target);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
+  useEffect(() => {
+    if (!editor || !reveal || reveal.pageId !== page.id) return;
+    useRevealStore.getState().done();
+    const range = findTextRange(editor.state.doc, reveal.text);
+    if (!range) return;
+    editor.view.dispatch(editor.state.tr.setMeta(flashKey, range));
+    const { node } = editor.view.domAtPos(range.from);
+    (node instanceof Element ? node : node.parentElement)?.scrollIntoView({ block: "center" });
+    clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => {
+      if (!editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(flashKey, null));
+    }, 2400);
+  }, [editor, reveal, page.id]);
+
   useEffect(() => {
     // `false`: by default setEditable emits an update, which would look like an edit.
     editor?.setEditable(editable, false);
@@ -211,15 +235,22 @@ export const PageEditor = forwardRef<PageEditorHandle, PageEditorProps>(function
 
   return (
     <>
-      {editor && editable && <FormattingMenu editor={editor} />}
+      {editor && editable && <FormattingMenu editor={editor} page={page} />}
       <EditorContent editor={editor} />
     </>
   );
 });
 
-function FormattingMenu({ editor }: { editor: Editor }) {
+function FormattingMenu({ editor, page }: { editor: Editor; page: PageDocument }) {
   const [linking, setLinking] = useState(false);
   const [href, setHref] = useState("");
+  const aiEnabled = useSettingsStore((s) => s.settings.ai.enabled);
+  // The selection as the AI panel attaches it; the title is the current one.
+  const selection = () => ({
+    pageId: page.id,
+    title: useWorkspaceStore.getState().breadcrumbs.at(-1)?.title ?? page.title,
+    text: selectedText(editor),
+  });
 
   function applyLink() {
     const url = href.trim();
@@ -284,9 +315,48 @@ function FormattingMenu({ editor }: { editor: Editor }) {
           >
             <LinkIcon />
           </MarkButton>
+          {aiEnabled && (
+            <>
+              <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+              <TextButton
+                label="Explain the selection with AI"
+                onClick={() => explainSelection(selection())}
+              >
+                <Sparkles /> Explain
+              </TextButton>
+              <TextButton
+                label="Ask AI about the selection"
+                onClick={() => askAboutSelection(selection())}
+              >
+                Ask AI
+              </TextButton>
+            </>
+          )}
         </>
       )}
     </BubbleMenu>
+  );
+}
+
+function TextButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      className="inline-flex h-7 items-center gap-1 rounded px-1.5 text-[12.5px] text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-3.5"
+    >
+      {children}
+    </button>
   );
 }
 

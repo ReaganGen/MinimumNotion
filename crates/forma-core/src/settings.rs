@@ -152,7 +152,8 @@ pub struct GenerationOptions {
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u32>,
     pub context_window_override: Option<u32>,
-    /// Reserved for Act mode (Phase 6): the user vouches that the model can call tools.
+    /// Whether the model can call tools, when the user knows better than the
+    /// provider reports (OpenAI reports nothing). `None`: what the provider says.
     pub tool_calling_override: Option<bool>,
 }
 
@@ -181,8 +182,10 @@ pub struct AiSettings {
     pub enabled: bool,
     pub active_provider: Option<String>,
     pub providers: Vec<ProviderConfig>,
-    /// Provider ID → when the user agreed that messages leave this Mac (RFC 3339).
-    pub cloud_acknowledged: std::collections::BTreeMap<String, String>,
+    /// Provider ID → when the user agreed that messages, and the note excerpts
+    /// they need, may leave this Mac (RFC 3339). Agreements given before notes
+    /// could be sent were under another key and no longer count (ADR-042).
+    pub cloud_consent: std::collections::BTreeMap<String, String>,
 }
 
 impl AiSettings {
@@ -703,6 +706,20 @@ mod tests {
         let ai = &reloaded.settings().ai;
         assert!(ai.enabled);
         assert_eq!(ai.active().unwrap().options.temperature, Some(0.3));
+    }
+
+    #[test]
+    fn agreements_from_before_notes_could_be_sent_no_longer_count() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("settings.json"),
+            r#"{"format_version": 1, "ai": {"enabled": true, "providers": [],
+                "cloud_acknowledged": {"p1": "2026-11-03T10:00:00Z"}}}"#,
+        )
+        .unwrap();
+        let (store, _) = SettingsStore::load(dir.path()).unwrap();
+        assert!(store.settings().ai.enabled);
+        assert!(store.settings().ai.cloud_consent.is_empty());
     }
 
     #[test]

@@ -7,6 +7,8 @@ export type AiSettings = {
  */
 enabled: boolean, active_provider: string | null, providers: Array<ProviderConfig>, 
 /**
- * Provider ID → when the user agreed that messages leave this Mac (RFC 3339).
+ * Provider ID → when the user agreed that messages, and the note excerpts
+ * they need, may leave this Mac (RFC 3339). Agreements given before notes
+ * could be sent were under another key and no longer count (ADR-042).
  */
-cloud_acknowledged: { [key in string]: string }, };
+cloud_consent: { [key in string]: string }, };

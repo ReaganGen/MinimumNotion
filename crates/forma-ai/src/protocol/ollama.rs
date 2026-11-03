@@ -4,9 +4,9 @@
 
 use serde_json::{Value, json};
 
-use super::{Decoder, Frame, json, role, u32_at};
+use super::{Decoder, Frame, arguments_object, json, u32_at};
 use crate::error::{AiError, AiErrorKind};
-use crate::types::{ChatEvent, ChatRequest, ModelCapabilities, ModelInfo, StopReason, Tri};
+use crate::types::{ChatEvent, ChatRequest, ModelCapabilities, ModelInfo, StopReason, Tri, Turn};
 
 /// The window Forma asks for when the user hasn't set one, if the model
 /// allows it. Bigger windows take more memory.
@@ -29,11 +29,7 @@ pub fn chat_body(req: &ChatRequest) -> Value {
     if let Some(system) = &req.system {
         messages.push(json!({ "role": "system", "content": system }));
     }
-    messages.extend(
-        req.messages
-            .iter()
-            .map(|m| json!({ "role": role(m.role), "content": m.content })),
-    );
+    messages.extend(req.messages.iter().map(message));
     let mut options = json!({
         "num_ctx": req.context_window.unwrap_or(DEFAULT_CONTEXT_WINDOW),
     });
@@ -49,7 +45,9 @@ pub fn chat_body(req: &ChatRequest) -> Value {
         "stream": true,
         "options": options,
     });
-    if !req.tools.is_empty() {
+    // Ollama has no way to turn tools off but leave them defined, and
+    // doesn't need them defined to read earlier calls.
+    if !req.tools.is_empty() && req.allow_tool_calls {
         body["tools"] = req
             .tools
             .iter()
@@ -62,6 +60,31 @@ pub fn chat_body(req: &ChatRequest) -> Value {
             .collect();
     }
     body
+}
+
+/// Ollama's tool calls carry no IDs, and its arguments are objects; a
+/// result names the tool it came from.
+fn message(turn: &Turn) -> Value {
+    match turn {
+        Turn::User(text) => json!({ "role": "user", "content": text }),
+        Turn::Assistant {
+            text, tool_calls, ..
+        } if tool_calls.is_empty() => {
+            json!({ "role": "assistant", "content": text })
+        }
+        Turn::Assistant {
+            text, tool_calls, ..
+        } => json!({
+            "role": "assistant",
+            "content": text,
+            "tool_calls": tool_calls.iter().map(|c| json!({
+                "function": { "name": c.name, "arguments": arguments_object(&c.arguments) },
+            })).collect::<Vec<_>>(),
+        }),
+        Turn::ToolResult { name, content, .. } => {
+            json!({ "role": "tool", "content": content, "tool_name": name })
+        }
+    }
 }
 
 pub fn parse_tags(body: &Value) -> Vec<ModelInfo> {
@@ -193,6 +216,7 @@ mod tests {
     use super::*;
     use crate::protocol::Framing;
     use crate::protocol::testing::{decode_every_way, text};
+    use crate::types::ToolCall;
 
     fn decode(bytes: &[u8]) -> Result<Vec<ChatEvent>, AiError> {
         decode_every_way(OllamaDecoder::default, Framing::Lines, bytes)
@@ -251,8 +275,25 @@ mod tests {
         let req = ChatRequest {
             model: "llama3.2".into(),
             system: None,
-            messages: vec![],
+            messages: vec![
+                Turn::Assistant {
+                    text: String::new(),
+                    reasoning: vec![],
+                    tool_calls: vec![ToolCall {
+                        id: "call_0".into(),
+                        name: "search_pages".into(),
+                        arguments: r#"{"query":"x"}"#.into(),
+                    }],
+                },
+                Turn::ToolResult {
+                    call_id: "call_0".into(),
+                    name: "search_pages".into(),
+                    content: "none".into(),
+                    is_error: false,
+                },
+            ],
             tools: vec![],
+            allow_tool_calls: true,
             max_output_tokens: Some(100),
             temperature: None,
             context_window: None,
@@ -261,6 +302,15 @@ mod tests {
         assert_eq!(body["options"]["num_ctx"], DEFAULT_CONTEXT_WINDOW);
         assert_eq!(body["options"]["num_predict"], 100);
         assert!(body["options"].get("temperature").is_none());
+        assert_eq!(
+            body["messages"],
+            json!([
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"function": {"name": "search_pages", "arguments": {"query": "x"}}}
+                ]},
+                {"role": "tool", "content": "none", "tool_name": "search_pages"},
+            ])
+        );
         let body = chat_body(&ChatRequest {
             context_window: Some(32768),
             ..req

@@ -274,7 +274,7 @@ SQLite is a **derived cache**. It accelerates the page tree, full-text search, b
 
 ### 5.2 Contents
 
-Pages (path, parent, title, icon, kind, revision, size and mtime for change detection, whether the ID is persisted, status, whether it's a collection, and the parsed frontmatter as JSON), tags, links (page links by target ID, wikilinks by their text), a word FTS5 table over title, body text, tags and property values, a trigram FTS5 table for substring and CJK search (ADR-036), and (in Phase 5) passage-level FTS for retrieval. Collection values are coerced from the cached frontmatter when a collection is read, so there is no separate values table. Exact schema: [DATA_MODEL.md §9](DATA_MODEL.md#9-sqlite-index-schema).
+Pages (path, parent, title, icon, kind, revision, size and mtime for change detection, whether the ID is persisted, status, whether it's a collection, and the parsed frontmatter as JSON), tags, links (page links by target ID, wikilinks by their text), a word FTS5 table over title, body text, tags and property values, a trigram FTS5 table for substring and CJK search (ADR-036), and (schema 2, Phase 5) the passages the AI assistant retrieves from, with their own word FTS5 table (ADR-041). Collection values are coerced from the cached frontmatter when a collection is read, so there is no separate values table. Exact schema: [DATA_MODEL.md §9](DATA_MODEL.md#9-sqlite-index-schema).
 
 Body text for FTS and link extraction comes from the Rust side, using `pulldown-cmark` (§6.3).
 
@@ -282,8 +282,8 @@ Body text for FTS and link extraction comes from the Rust side, using `pulldown-
 
 - **Startup reconcile.** Walk the workspace, skipping `.forma/`, dotfiles and symlinks, which are never followed. Compare each file's `(size, mtime)` with its index row, re-read only the files that changed, and detect moves by ID. With thousands of files this costs a stat walk, not a full parse.
 - **Incremental.** The Document Service updates the index after its own writes. The watcher triggers reconciliation for external changes.
-- **Rebuild.** Settings → Data → "Rebuild search index" re-reads every file into a fresh database beside the current one, and replaces the current one only when the new one is complete. In v0.1 the rebuild holds the Document Service's lock while it runs (0.6 s for 5,000 pages), so other requests wait instead of reading the old database (ADR-035).
-- Indexing runs inside the Document Service's commands, which run off the UI thread. There is no `index://status` event in v0.1: the cold first open of 5,000 pages takes about 0.6 s.
+- **Rebuild.** Settings → Data → "Rebuild search index" re-reads every file into a fresh database beside the current one, and replaces the current one only when the new one is complete. In v0.1 the rebuild holds the Document Service's lock while it runs (0.7 s for 5,000 pages since Phase 5), so other requests wait instead of reading the old database (ADR-035).
+- Indexing runs inside the Document Service's commands, which run off the UI thread. There is no `index://status` event in v0.1: the cold first open of 5,000 pages takes about 0.8 s (0.6 s before passages were indexed).
 
 ### 5.4 Search behavior
 
@@ -437,13 +437,15 @@ Ollama uses its native API because the OpenAI-compatible endpoint can't set `num
 
 - API keys are stored in the **macOS Keychain** (`keyring-core` with `apple-native-keyring-store`, behind a `SecretStore` trait). Keys never appear in `settings.json`, the workspace, logs or the webview. Settings only show whether a key is stored, with Replace and Remove actions.
 - Only official authentication: provider API keys, or no auth for local servers. A consumer chat subscription (ChatGPT Plus or Pro, Claude Pro or Max) does not grant API access, and session-token extraction is never implemented.
-- **Cloud transmission notice.** The first use of a provider whose address isn't on this Mac (not a loopback address) requires an explicit acknowledgement, recorded per provider and cleared when its host changes. Rust refuses the request without it. Every message shows where it went and to which model. Local providers say "stays on this Mac". Only context the request needs is sent (§11); in Phase 4 that is only what the user typed in the panel.
-- **Gate in Rust.** `AiService` refuses to send unless AI is on, a provider and model are chosen, a required key is stored, and the acknowledgement above is given. It also refuses a conversation estimated to exceed the context window instead of letting the provider cut it.
+- **Cloud transmission notice.** The first use of a provider whose address isn't on this Mac (not a loopback address) requires an explicit acknowledgement, recorded per provider and cleared when its host changes. Rust refuses the request without it. Every message shows where it went and to which model. Local providers say "stays on this Mac". Only context the request needs is sent (§11): what the user typed, and, from Phase 5, the attached page or selection and the passages found for the message. The agreement's text says so; agreements given under Phase 4's wording ("never your notes") don't carry over (ADR-042). With "Search notes" off and nothing attached, only what the user typed is sent.
+- **Gate in Rust.** `AiService` refuses to send unless AI is on, a provider and model are chosen, a required key is stored, and the acknowledgement above is given. Each request is packed to fit the context window (§11); one whose new message alone can't fit is refused instead of being cut by the provider.
 - **Keys at runtime.** Read once per session from the Keychain on a blocking thread (macOS may prompt) and kept in Rust memory. Sent with `Authorization: Bearer`, which the HTTP client marks sensitive. Any copy of the key in a provider's error message is replaced before the message leaves Rust, and AI failures are logged by kind and status only.
 
-### 9.4 IPC commands (Phase 4)
+### 9.4 IPC commands (Phases 4–5)
 
-`ai_set_enabled`, `ai_add_provider`, `ai_update_provider`, `ai_remove_provider` (also deletes the key), `ai_set_active_provider`, `ai_set_api_key`, `ai_remove_api_key`, `ai_acknowledge_cloud`, `ai_list_models`, `ai_model_capabilities`, `ai_test_connection`, `ai_chat` (streams `ChatStreamEvent`s over a Channel: `text`, `usage`, `done`, `failed`) and `ai_cancel`. The settings commands return the saved settings; none returns a key.
+`ai_set_enabled`, `ai_add_provider`, `ai_update_provider`, `ai_remove_provider` (also deletes the key), `ai_set_active_provider`, `ai_set_api_key`, `ai_remove_api_key`, `ai_acknowledge_cloud`, `ai_list_models`, `ai_model_capabilities`, `ai_test_connection`, `ai_chat` and `ai_cancel`. The settings commands return the saved settings; none returns a key.
+
+`ai_chat(request_id, input, on_event)` takes the conversation and an `AskContext` (page ID to attach, selected text with its page ID, the cursor's block text, whether to search the notes, and where source numbering starts). It never takes a path: notes are read in Rust, through the read-only view. It streams `ChatStreamEvent`s over a Channel: `context` (what went in), `sources`, `tool` (a lookup the model made), `text`, `usage`, `done` and `failed`.
 
 ---
 
@@ -460,16 +462,18 @@ The agent runtime holds a **read-only handle** to the Document Service plus a Ch
 
 Act mode needs a model with tool calling. When tool support is `No` or `Unknown`, Act mode is unavailable and the UI says why. Ask mode still works with any model through pre-retrieval (§11).
 
+**As built in Phase 5 (Ask mode, ADR-042).** The read-only handle is `forma_core::workspace::read::ReadView`: it has no method that writes. `Workspace` also has a few `&self` methods that write (recovery buffers, snapshots), so the type matters, not just the `&`. `forma_ai::knowledge::Library` wraps the session's workspace slot and hands out only a `ReadView`, briefly, per read. Each Ask tool is a `ReadTool` whose `run` takes that view and its arguments, and a test pins the registry to that type. Tool use follows the provider's report or the user's setting (Settings → AI → "Look things up in your notes"). With "Search notes" turned off in the panel, no tools are offered.
+
 ### 10.2 Tool registry
 
 Each tool has a name, a description, an input JSON Schema (generated from Rust types), an output type, a kind (`Read` or `Propose`), validation, and limits on result size and iteration count.
 
 | Tool | Kind | Notes |
 |---|---|---|
-| `search_pages(query, limit)` | Read | FTS retrieval. Returns page IDs, titles and snippets |
-| `read_page(page_id, range?)` | Read | Body Markdown plus metadata. Paged for long pages |
-| `list_pages(parent_id?)` | Read | Children summaries |
-| `get_page_metadata(page_id)` | Read | Title, tags, properties, parent, revision |
+| `search_pages(query, limit?)` | Read | Passage retrieval (§11). Returns up to 10 passages (5 by default) as numbered `<source>` blocks with their page IDs |
+| `read_page(page_id, part?)` | Read | Body Markdown as a numbered source. Long pages come in parts of about 2,400 tokens, cut between passages |
+| `list_pages(parent_id?)` | Read | Children: ID, title, whether it has subpages, whether it's a collection (at most 100) |
+| `get_page_metadata(page_id)` | Read | Title, path, parent, tags, properties, dates, collection, body revision |
 | `create_page(title, parent_id?, content)` | Propose | |
 | `edit_page(page_id, base_rev, edits)` | Propose | `edits` = exact `{old, new}` replacements (each `old` must match exactly once) or `{replace_all_body}` |
 | `move_page(page_id, new_parent_id)` | Propose | Cycle check |
@@ -479,7 +483,7 @@ Each tool has a name, a description, an input JSON Schema (generated from Rust t
 
 - Tools accept **page IDs only, never paths**. Every ID is resolved through the index and the Document Service, which is how workspace boundaries are enforced.
 - Invalid arguments come back to the model as structured tool errors, so it can correct them. The runtime never panics or partially applies a change.
-- Limits: at most 12 tool rounds per request, tool results truncated to a token budget, and a wall-clock timeout. All are cancellable.
+- Limits: at most 12 tool rounds per request, tool results truncated to a token budget, and a wall-clock timeout. All are cancellable. Ask mode uses 6 rounds and 10 minutes, then one round that must answer (the tools stay defined, with `tool_choice: none`); each result is cut to 3,000 tokens and to the room left in the window.
 
 ### 10.3 Proposal → preview → approval → apply → undo
 
@@ -513,11 +517,16 @@ The Phase 6 test suite includes adversarial documents.
 
 ## 11. Knowledge retrieval and context management
 
-- A `Retriever` trait (`retrieve(query, k, filters) -> Vec<Passage>`) has one implementation in v0.1: BM25 over **passage-level FTS5**. Pages are chunked at headings and paragraphs into passages of about 200–400 tokens, each keeping its heading path and source range. The interface allows adding an embedding or hybrid retriever later without changing callers.
-- **Pre-retrieval** works for every model: Forma turns the user's question into an FTS query and supplies the top passages as numbered sources `[S1]…[Sn]`. Tool-capable models can also call `search_pages` and `read_page` themselves.
-- **Context packing** fills a token budget in order: system prompt, then selected text, then the current page (by section, nearest the cursor first, if over budget), then retrieved passages by score, then recent conversation turns. Older turns are dropped first. Tokens are estimated conservatively, at about 4 characters per token for Latin text and 1 per character for CJK. The window size comes from detected capabilities, then a user override, then a conservative default.
-- **Citations.** The model cites `[S#]`. Forma maps each key to a page ID and renders clickable citations. A key that doesn't correspond to a source actually provided is shown as an unverified citation. It is never turned into a link.
-- **Missing information.** The system prompt asks the model to say when the sources don't contain the answer, and the UI shows when retrieval returned nothing.
+As built in Phase 5 (ADR-041, ADR-042).
+
+- **Passages.** Each page body is cut at headings and between blocks into passages of about 250–400 tokens (`forma_core::passages`). A passage keeps its heading path, its byte range in the body, its Markdown and its plain text. They're indexed with the page, in `passages` and `passages_fts` (stemmed English words).
+- **Retriever.** `Retriever::retrieve(query, k, filter) -> Vec<RetrievedPassage>` has one implementation, on `ReadView`: BM25 over the passage words (any word may match; English stop words dropped; title and headings weighted up), plus, for CJK text, pages found through the page trigram table whose passages are ranked by how many of the question's three-character pieces they share. The two rankings are merged by reciprocal rank, with at most three passages per page. An embedding or hybrid retriever could implement the same trait later.
+- **Pre-retrieval** works for every model: with "Search notes" on, the new message is the query, and the top passages (up to 8) go with it as numbered sources. Tool-capable models can also call `search_pages`, `read_page`, `list_pages` and `get_page_metadata` themselves (§10.2).
+- **Context packing** fills the window less the answer's reserve (the maximum output setting, else 1,024 tokens, at most half the window), in order: the system prompt and the new message (always; if they don't fit, the request is refused), the selection (up to 30% of what's left), the attached page (up to 60%; if it's longer, the passages nearest the cursor's block, in page order, with gaps marked "[…]"), retrieved passages (up to 60% of what's left), then earlier turns, newest first. Older turns are dropped first. Tokens are estimated conservatively (`forma_core::tokens`): about 4 characters per token for Latin text and 1 per character for CJK. The window is the user's override, else the model's reported window, else 8,192 tokens. Rust reports what went in, and the panel shows it under the message.
+- **Sources.** Each piece of the notes sent is a `<source key="S#" kind="selection|page|passage" page="…" page_id="…" section="…">` block in the user's turn. Keys continue across the conversation (the panel sends where numbering starts). A source gets its key only if its text is actually sent. Source text can't close its block.
+- **Citations.** The model is asked to cite `[S#]`. The panel receives the sources from Rust and checks each citation in an answer against the sources of that answer: a match is a button that opens the page and highlights the passage (found by its text, briefly, as a decoration that doesn't touch the file); any other key is shown as an unverified citation and links nowhere. Under the answer, the panel lists the cited sources, the provided ones it didn't cite, and the unverified keys.
+- **Missing information.** The system prompt asks the model to say when the sources don't contain the answer, and to mark general knowledge as not from the notes. When search finds nothing, the request says so ("Nothing in my notes matched"), and the panel shows "No notes matched."
+- **Actions.** "Ask about this page" and "Summarize page" (page tree menu, and the panel when a page is open) attach the page; "Ask AI" and "Explain" in the selection menu attach the selected text. Summarize and Explain also send a short request. They appear only when AI is on.
 
 ---
 
@@ -563,8 +572,8 @@ Expected future work, intentionally deferred: identity and authorship metadata, 
 | R6 | CJK full-text search quality with `unicode61` | High (for CJK users) / Medium | **Mitigated in Phase 3** (ADR-036): trigram table with `LIKE`, plus a bounded scan for 1–2-character queries. No dictionary segmentation, so results are substring matches, not word matches | 3 |
 | R7 | Keychain access prompts during development (ad-hoc signatures change between builds) | High in dev / Low | Documented. Keys are read once per session. Release builds use a stable signing identity | 4, 7 |
 | R8 | Provider API drift (OpenAI Chat Completions vs Responses, Anthropic versions, Ollama endpoints) | Medium / Medium | **Checked in Phase 4** (ADR-038). Protocols isolated in modules with stream-fixture tests; an ignored live test checks the cloud APIs' auth and TLS | 4 |
-| R9 | Local models silently truncate context (Ollama's `num_ctx` default) | High / Medium | **Phase 4:** native Ollama API with an explicit `num_ctx`, and a size check before sending. Context packing in Phase 5 | 4–5 |
-| R10 | Prompt injection through retrieved notes | High / Medium | §10.4. The structural guarantee doesn't depend on model behavior | 5–6 |
+| R9 | Local models silently truncate context (Ollama's `num_ctx` default) | High / Medium | **Phase 4:** native Ollama API with an explicit `num_ctx`. **Phase 5:** every request is packed to fit that window, and tool rounds stop before it fills | 4–5 |
+| R10 | Prompt injection through retrieved notes | High / Medium | §10.4. The structural guarantee doesn't depend on model behavior. **Phase 5:** sources are delimited data blocks that can't close themselves, the system prompt says to ignore instructions in them, and the assistant has only a read-only view | 5–6 |
 | R11 | XSS in the webview defeats the approval boundary | Low / High | No raw HTML, strict CSP, sanitized link schemes, security tests | 2, 6 |
 | R12 | Lazy ID persistence leaves links pointing at index-only IDs | Low / Medium | Invariant: `ensure_persisted_id` runs before any durable reference is created, covered by tests | 2–3 |
 | R13 | Distribution: unsigned or un-notarized DMG is blocked by Gatekeeper | High / Medium | Needs an Apple Developer ID (user decision). Otherwise ship ad-hoc-signed with documented steps, and report the status accurately | 7 |

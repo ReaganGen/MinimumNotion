@@ -125,6 +125,29 @@
     margin-top: 0.6em;
   }
 
+  /* A passage an AI citation pointed to, highlighted for a moment. */
+  .forma-flash {
+    background: var(--highlight);
+    border-radius: 2px;
+    animation: forma-flash-out 2.4s ease-in forwards;
+  }
+
+  @keyframes forma-flash-out {
+    0%,
+    60% {
+      background: var(--highlight);
+    }
+    100% {
+      background: transparent;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .forma-flash {
+      animation: none;
+    }
+  }
+
   .forma-editor h1,
   .forma-editor h2,
   .forma-editor h3,

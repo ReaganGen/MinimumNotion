@@ -65,7 +65,7 @@ export function readiness(ai: AiSettings): Readiness {
   if (!provider) return { state: "no-provider" };
   if (!provider.model) return { state: "no-model", provider };
   if (KEY_REQUIRED[provider.kind] && !provider.has_credential) return { state: "no-key", provider };
-  if (!isLocalUrl(provider.base_url) && !(provider.id in ai.cloud_acknowledged)) {
+  if (!isLocalUrl(provider.base_url) && !(provider.id in ai.cloud_consent)) {
     return { state: "needs-agreement", provider };
   }
   return { state: "ready", provider };

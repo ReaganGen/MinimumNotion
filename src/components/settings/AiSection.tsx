@@ -408,6 +408,43 @@ function ProviderEditor({ provider }: { provider: ProviderConfig }) {
             onCommit={(v) => setOption("context_window_override", v)}
           />
         </div>
+        <div className="mt-3">
+          <label htmlFor={`${ids}-tools`} className="block text-[12px] text-muted-foreground">
+            Look things up in your notes
+          </label>
+          <select
+            id={`${ids}-tools`}
+            value={
+              draft.options.tool_calling_override === null
+                ? "auto"
+                : draft.options.tool_calling_override
+                  ? "on"
+                  : "off"
+            }
+            onChange={(e) => {
+              const value = e.target.value;
+              void commit({
+                ...draft,
+                options: {
+                  ...draft.options,
+                  tool_calling_override: value === "auto" ? null : value === "on",
+                },
+              });
+            }}
+            className={cn(inputClass, "mt-1 w-auto")}
+          >
+            <option value="auto">Automatic</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+            With this on, the model can search and read your notes itself while it answers, if it
+            supports tool calls. Automatic follows what the provider reports
+            {provider.kind === "openai" || provider.kind === "openai_compatible"
+              ? `; ${provider.name} doesn't report it, so choose On for a model that calls tools.`
+              : "."}
+          </p>
+        </div>
       </div>
 
       {error && (

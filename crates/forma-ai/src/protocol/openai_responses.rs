@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
-use super::{Decoder, Frame, json, role, str_at, u32_at};
+use super::{Decoder, Frame, json, str_at, u32_at};
 use crate::error::{AiError, kind_for_code};
-use crate::types::{ChatEvent, ChatRequest, ModelInfo, StopReason};
+use crate::types::{ChatEvent, ChatRequest, ModelInfo, StopReason, Turn};
 
 pub fn chat_url(base: &str) -> String {
     format!("{base}/responses")
@@ -18,12 +18,35 @@ pub fn models_url(base: &str) -> String {
     format!("{base}/models")
 }
 
+/// Tool calls and their results are input items of their own. They're sent
+/// without item IDs: with `store: false` there is nothing to refer back to.
+fn input(turns: &[Turn]) -> Vec<Value> {
+    let mut out = Vec::new();
+    for turn in turns {
+        match turn {
+            Turn::User(text) => out.push(json!({ "role": "user", "content": text })),
+            Turn::Assistant {
+                text, tool_calls, ..
+            } => {
+                if !text.is_empty() || tool_calls.is_empty() {
+                    out.push(json!({ "role": "assistant", "content": text }));
+                }
+                out.extend(tool_calls.iter().map(|c| {
+                    json!({ "type": "function_call", "call_id": c.id, "name": c.name,
+                            "arguments": c.arguments })
+                }));
+            }
+            Turn::ToolResult {
+                call_id, content, ..
+            } => out.push(json!({ "type": "function_call_output", "call_id": call_id,
+                                  "output": content })),
+        }
+    }
+    out
+}
+
 pub fn chat_body(req: &ChatRequest) -> Value {
-    let input: Vec<Value> = req
-        .messages
-        .iter()
-        .map(|m| json!({ "role": role(m.role), "content": m.content }))
-        .collect();
+    let input = input(&req.messages);
     let mut body = json!({
         "model": req.model,
         "input": input,
@@ -53,6 +76,9 @@ pub fn chat_body(req: &ChatRequest) -> Value {
                 })
             })
             .collect();
+        if !req.allow_tool_calls {
+            body["tool_choice"] = json!("none");
+        }
     }
     body
 }
@@ -206,7 +232,7 @@ mod tests {
     use crate::error::AiErrorKind;
     use crate::protocol::Framing;
     use crate::protocol::testing::{decode_every_way, text};
-    use crate::types::{Message, Role};
+    use crate::types::ToolCall;
 
     fn decode(bytes: &[u8]) -> Result<Vec<ChatEvent>, AiError> {
         decode_every_way(ResponsesDecoder::default, Framing::Sse, bytes)
@@ -277,11 +303,26 @@ mod tests {
         let body = chat_body(&ChatRequest {
             model: "gpt-x".into(),
             system: Some("Be brief.".into()),
-            messages: vec![Message {
-                role: Role::User,
-                content: "Hi".into(),
-            }],
+            messages: vec![
+                Turn::User("Hi".into()),
+                Turn::Assistant {
+                    text: String::new(),
+                    reasoning: vec![],
+                    tool_calls: vec![ToolCall {
+                        id: "call_1".into(),
+                        name: "read_page".into(),
+                        arguments: r#"{"page_id":"p"}"#.into(),
+                    }],
+                },
+                Turn::ToolResult {
+                    call_id: "call_1".into(),
+                    name: "read_page".into(),
+                    content: "text".into(),
+                    is_error: false,
+                },
+            ],
             tools: vec![],
+            allow_tool_calls: true,
             max_output_tokens: Some(4),
             temperature: None,
             context_window: None,
@@ -291,6 +332,15 @@ mod tests {
         assert_eq!(body["max_output_tokens"], 16);
         assert!(body.get("temperature").is_none());
         assert!(body.get("tools").is_none());
+        assert_eq!(
+            body["input"],
+            json!([
+                {"role": "user", "content": "Hi"},
+                {"type": "function_call", "call_id": "call_1", "name": "read_page",
+                 "arguments": "{\"page_id\":\"p\"}"},
+                {"type": "function_call_output", "call_id": "call_1", "output": "text"},
+            ])
+        );
     }
 
     #[test]

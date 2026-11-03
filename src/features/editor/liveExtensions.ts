@@ -1,6 +1,6 @@
 // Extensions for the live editor: the Markdown schema from extensions.ts plus
 // UI-only behavior (image loading, live link titles, placeholder, "/" and "[["
-// menus). Saving uses the
+// menus, the highlight of a cited passage). Saving uses the
 // same schema and Markdown rules the round-trip tests cover.
 import type { AnyExtension } from "@tiptap/core";
 import { Image } from "@tiptap/extension-image";
@@ -9,6 +9,7 @@ import { assetUrl } from "@/lib/ipc/client";
 import { createMarkdownExtensions } from "./extensions";
 import { LivePageLink, LiveWikiLink } from "./linkViews";
 import { PageLinkSuggestion } from "./pageLinkSuggestion";
+import { Flash } from "./reveal";
 import { SlashCommands } from "./slashCommands";
 
 /**
@@ -78,5 +79,6 @@ export function createEditorExtensions(pageId: string): AnyExtension[] {
     }),
     SlashCommands,
     PageLinkSuggestion,
+    Flash,
   ];
 }

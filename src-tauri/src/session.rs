@@ -62,6 +62,12 @@ impl Session {
         Ok(info)
     }
 
+    /// The workspace slot itself, for the AI assistant's read-only view of
+    /// it (`forma_ai::knowledge::Library`).
+    pub fn shared(&self) -> Arc<Mutex<Option<Workspace>>> {
+        Arc::clone(&self.workspace)
+    }
+
     pub fn read<T>(&self, f: impl FnOnce(&Workspace) -> CoreResult<T>) -> Result<T, ErrorPayload> {
         let guard = self.workspace.lock().map_err(|_| poisoned())?;
         let workspace = guard.as_ref().ok_or_else(no_workspace)?;

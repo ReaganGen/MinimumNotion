@@ -12,23 +12,25 @@ use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
 use crate::error::{AiError, AiErrorKind};
+use crate::knowledge::{self, ChatInput, ContextReport, Library, Source, SourceBook};
 use crate::presets::{host_of, is_local, preset};
 use crate::protocol::ollama;
 use crate::provider::Provider;
 use crate::secrets::SecretStore;
 use crate::tokens;
+use crate::tools::{self, ToolActivity};
 use crate::types::{
-    ChatEvent, ChatRequest, Message, ModelCapabilities, ModelInfo, Role, StopReason,
+    ChatEvent, ChatRequest, ModelCapabilities, ModelInfo, Role, StopReason, ToolCall, Tri, Turn,
 };
 
-/// Phase 4 sends no notes, so the model is told it can't see any.
-pub const SYSTEM_PROMPT: &str = "You are the assistant in Forma, a note-taking app. \
-You can't see the user's notes; answer from this conversation only, and say so if the \
-user asks about notes. Reply in the language the user writes in. Use Markdown for \
-formatting when it helps.";
-
-/// Room kept for the answer when checking that a conversation fits.
+/// Room kept for the answer when packing a request.
 const ANSWER_RESERVE: u32 = 1024;
+/// The window packed for when neither the user nor the provider gives one.
+pub const DEFAULT_WINDOW: u32 = 8192;
+/// Rounds of tool calls in one answer (ARCHITECTURE §10.2 allows 12).
+pub const MAX_TOOL_ROUNDS: usize = 6;
+/// After this, the model gets no more tools and must answer.
+const TOOL_DEADLINE: Duration = Duration::from_secs(10 * 60);
 /// The connection test's request may take this long, including a model load.
 const TEST_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -37,6 +39,18 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(120);
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export)]
 pub enum ChatStreamEvent {
+    /// What the request includes, sent before it goes out.
+    Context {
+        context: ContextReport,
+    },
+    /// Notes given to the model, under the keys it cites.
+    Sources {
+        sources: Vec<Source>,
+    },
+    /// The model looked something up.
+    Tool {
+        activity: ToolActivity,
+    },
     Text {
         text: String,
     },
@@ -215,27 +229,40 @@ impl AiService {
 
     fn request(
         config: &ProviderConfig,
-        messages: Vec<Message>,
+        system: Option<String>,
+        messages: Vec<Turn>,
         window: Option<u32>,
     ) -> ChatRequest {
         ChatRequest {
             model: config.model.clone(),
-            system: Some(SYSTEM_PROMPT.to_string()),
+            system,
             messages,
             tools: Vec::new(),
+            allow_tool_calls: true,
             max_output_tokens: config.options.max_output_tokens,
             temperature: config.options.temperature,
             context_window: window,
         }
     }
 
+    /// Whether to offer the model tools: the user's say first, else what
+    /// the provider reported. Unknown counts as no (ADR-019).
+    fn tool_calling(config: &ProviderConfig, caps: &ModelCapabilities) -> bool {
+        config
+            .options
+            .tool_calling_override
+            .unwrap_or(caps.tool_calling == Tri::Yes)
+    }
+
     /// Runs one chat turn with the active provider, sending everything that
-    /// happens to `on_event`. Always ends with `Done` or `Failed`.
+    /// happens to `on_event`. Always ends with `Done` or `Failed`. Notes are
+    /// read through `library` only; without one, none are sent.
     pub async fn chat(
         &self,
         ai: &AiSettings,
         request_id: &str,
-        messages: Vec<Message>,
+        input: ChatInput,
+        library: Option<Library>,
         mut on_event: impl FnMut(ChatStreamEvent) + Send,
     ) {
         let token = {
@@ -244,7 +271,7 @@ impl AiService {
         };
         let mut key = None;
         let result = self
-            .run_chat(ai, &token, messages, &mut key, &mut on_event)
+            .run_chat(ai, &token, input, library.as_ref(), &mut key, &mut on_event)
             .await;
         self.running.lock().unwrap().remove(request_id);
         match result {
@@ -268,7 +295,8 @@ impl AiService {
         &self,
         ai: &AiSettings,
         token: &CancellationToken,
-        messages: Vec<Message>,
+        input: ChatInput,
+        library: Option<&Library>,
         key_out: &mut Option<String>,
         on_event: &mut (impl FnMut(ChatStreamEvent) + Send),
     ) -> Result<(), AiError> {
@@ -287,13 +315,13 @@ impl AiService {
                 config.name
             )));
         }
-        if !is_local(&config.base_url) && !ai.cloud_acknowledged.contains_key(&config.id) {
+        if !is_local(&config.base_url) && !ai.cloud_consent.contains_key(&config.id) {
             return Err(not_configured(format!(
-                "Confirm that messages may be sent to {} first.",
+                "Confirm that messages and note excerpts may be sent to {} first.",
                 host_of(&config.base_url)
             )));
         }
-        if messages.last().is_none_or(|m| m.role != Role::User) {
+        if input.messages.last().is_none_or(|m| m.role != Role::User) {
             return Err(not_configured("There's no message to send."));
         }
         if token.is_cancelled() {
@@ -309,43 +337,141 @@ impl AiService {
             .await
             .unwrap_or(ModelCapabilities::UNKNOWN);
         let window = Self::context_window(config, &caps);
-        if let Some(window) = window {
-            let needed = tokens::estimate_messages(Some(SYSTEM_PROMPT), &messages);
-            let reserve = config
-                .options
-                .max_output_tokens
-                .unwrap_or(ANSWER_RESERVE)
-                .min(window / 2);
-            if needed + reserve > window {
-                return Err(AiError::new(
-                    AiErrorKind::ContextOverflow,
-                    format!(
-                        "This conversation is about {needed} tokens, more than fits in the {window}-token context window. Clear the chat to start over, or raise the context window in Settings → AI."
-                    ),
-                ));
-            }
+        let total = window.unwrap_or(DEFAULT_WINDOW);
+        let reserve = config
+            .options
+            .max_output_tokens
+            .unwrap_or(ANSWER_RESERVE)
+            .min(total / 2);
+        let budget = total - reserve;
+        let offer_tools = Self::tool_calling(config, &caps);
+        let packed = knowledge::pack(
+            &input.messages,
+            &input.context,
+            library,
+            budget,
+            offer_tools,
+        )?;
+        on_event(ChatStreamEvent::Context {
+            context: packed.report.clone(),
+        });
+        if !packed.book.sources.is_empty() {
+            on_event(ChatStreamEvent::Sources {
+                sources: packed.book.sources.clone(),
+            });
         }
-
-        let request = Self::request(config, messages, window);
+        let tools_on = packed.report.tools;
         log::info!(
-            "AI request to {} ({}, {} messages)",
+            "AI request to {} ({}, {} messages, {} sources, tools {})",
             host_of(&config.base_url),
             config.model,
-            request.messages.len()
+            packed.turns.len(),
+            packed.book.sources.len(),
+            if tools_on { "on" } else { "off" }
         );
+
         let provider = Provider::new(config, key.as_deref(), &self.client);
-        provider
-            .stream_chat(&request, token, &mut |event| match event {
-                ChatEvent::TextDelta(text) => on_event(ChatStreamEvent::Text { text }),
-                ChatEvent::Usage { input, output } => on_event(ChatStreamEvent::Usage {
-                    input_tokens: input,
-                    output_tokens: output,
-                }),
-                ChatEvent::Done(stop_reason) => on_event(ChatStreamEvent::Done { stop_reason }),
-                // No tools are offered before Phase 5.
-                _ => {}
-            })
-            .await
+        let mut turns = packed.turns;
+        let mut book = packed.book;
+        let mut used = packed.tokens;
+        let started = Instant::now();
+        let mut wrote_text = false;
+        for round in 0..=MAX_TOOL_ROUNDS {
+            let tools_now = tools_on
+                && round < MAX_TOOL_ROUNDS
+                && used < budget.saturating_mul(9) / 10
+                && started.elapsed() < TOOL_DEADLINE;
+            let mut request =
+                Self::request(config, Some(packed.system.clone()), turns.clone(), window);
+            if tools_now {
+                request.tools = tools::specs();
+            } else if tools_on && round > 0 {
+                // Earlier rounds called tools: keep them defined, but answer now.
+                request.tools = tools::specs();
+                request.allow_tool_calls = false;
+            }
+            let mut text = String::new();
+            let mut calls: Vec<ToolCall> = Vec::new();
+            let mut reasoning = Vec::new();
+            let mut stop = StopReason::Other;
+            provider
+                .stream_chat(&request, token, &mut |event| match event {
+                    ChatEvent::TextDelta(delta) => {
+                        // Text from an earlier round ends with its own paragraph.
+                        if text.is_empty() && wrote_text {
+                            on_event(ChatStreamEvent::Text {
+                                text: "\n\n".into(),
+                            });
+                        }
+                        text.push_str(&delta);
+                        wrote_text = true;
+                        on_event(ChatStreamEvent::Text { text: delta });
+                    }
+                    ChatEvent::ToolCallStart { id, name } => calls.push(ToolCall {
+                        id,
+                        name,
+                        arguments: String::new(),
+                    }),
+                    ChatEvent::ToolCallArgsDelta { id, delta } => {
+                        if let Some(call) = calls.iter_mut().rev().find(|c| c.id == id) {
+                            call.arguments.push_str(&delta);
+                        }
+                    }
+                    ChatEvent::ToolCallEnd { .. } => {}
+                    ChatEvent::Reasoning(block) => reasoning.push(block),
+                    ChatEvent::Usage { input, output } => on_event(ChatStreamEvent::Usage {
+                        input_tokens: input,
+                        output_tokens: output,
+                    }),
+                    ChatEvent::Done(reason) => stop = reason,
+                })
+                .await?;
+            if !tools_now || calls.is_empty() {
+                let stop_reason = if stop == StopReason::ToolUse {
+                    StopReason::EndTurn
+                } else {
+                    stop
+                };
+                on_event(ChatStreamEvent::Done { stop_reason });
+                return Ok(());
+            }
+            if token.is_cancelled() {
+                return Err(AiError::cancelled());
+            }
+            used += tokens::estimate(&text)
+                + calls
+                    .iter()
+                    .map(|c| tokens::estimate(&c.arguments) + tokens::PER_MESSAGE)
+                    .sum::<u32>();
+            turns.push(Turn::Assistant {
+                text,
+                tool_calls: calls.clone(),
+                reasoning,
+            });
+            for call in calls {
+                let room = budget
+                    .saturating_sub(used)
+                    .saturating_sub(tokens::PER_MESSAGE);
+                let first_new = book.sources.len();
+                let output = run_tool(library, &call, &mut book, room);
+                used += tokens::estimate(&output.content) + tokens::PER_MESSAGE;
+                on_event(ChatStreamEvent::Tool {
+                    activity: output.activity,
+                });
+                if book.sources.len() > first_new {
+                    on_event(ChatStreamEvent::Sources {
+                        sources: book.sources[first_new..].to_vec(),
+                    });
+                }
+                turns.push(Turn::ToolResult {
+                    call_id: call.id,
+                    name: call.name,
+                    content: output.content,
+                    is_error: output.is_error,
+                });
+            }
+        }
+        unreachable!("the last round offers no tools and returns")
     }
 
     /// Stops a running chat. Also works if the chat hasn't started yet.
@@ -391,13 +517,10 @@ impl AiService {
             .unwrap_or(ModelCapabilities::UNKNOWN);
         let mut request = Self::request(
             config,
-            vec![Message {
-                role: Role::User,
-                content: "Reply with the word OK.".into(),
-            }],
+            None,
+            vec![Turn::User("Reply with the word OK.".into())],
             Self::context_window(config, &caps),
         );
-        request.system = None;
         request.max_output_tokens = Some(16);
         let started = Instant::now();
         let cancel = CancellationToken::new();
@@ -427,4 +550,25 @@ impl AiService {
             )),
         }
     }
+}
+
+/// Runs one tool call against the notes. Without a workspace, the call is
+/// answered with an error the model can read.
+fn run_tool(
+    library: Option<&Library>,
+    call: &ToolCall,
+    book: &mut SourceBook,
+    room: u32,
+) -> tools::ToolOutput {
+    library
+        .and_then(|l| l.read(|view| tools::run(view, &call.name, &call.arguments, book, room)))
+        .unwrap_or_else(|| tools::ToolOutput {
+            content: serde_json::json!({ "error": "No workspace is open." }).to_string(),
+            is_error: true,
+            activity: ToolActivity {
+                tool: call.name.clone(),
+                label: "No workspace is open".into(),
+                failed: true,
+            },
+        })
 }

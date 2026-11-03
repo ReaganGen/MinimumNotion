@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use common::*;
 use forma_ai::AiService;
+use forma_ai::knowledge::{AskContext, ChatInput};
 use forma_ai::secrets::MemoryStore;
 use forma_ai::types::{Message, Role};
 use forma_core::settings::{AppSettings, ProviderKind};
@@ -64,10 +65,14 @@ async fn keys_never_reach_logs_or_ipc_payloads() {
         .chat(
             &ai,
             "req-1",
-            vec![Message {
-                role: Role::User,
-                content: "Hi".into(),
-            }],
+            ChatInput {
+                messages: vec![Message {
+                    role: Role::User,
+                    content: "Hi".into(),
+                }],
+                context: AskContext::default(),
+            },
+            None,
             |event| payloads.push(serde_json::to_string(&event).unwrap()),
         )
         .await;

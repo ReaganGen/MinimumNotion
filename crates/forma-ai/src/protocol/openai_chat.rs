@@ -6,9 +6,9 @@ use std::collections::btree_map::Entry;
 
 use serde_json::{Value, json};
 
-use super::{Decoder, Frame, json, role, u32_at};
+use super::{Decoder, Frame, json, u32_at};
 use crate::error::{AiError, kind_for_code};
-use crate::types::{ChatEvent, ChatRequest, ModelCapabilities, ModelInfo, StopReason, Tri};
+use crate::types::{ChatEvent, ChatRequest, ModelCapabilities, ModelInfo, StopReason, Tri, Turn};
 
 pub fn chat_url(base: &str) -> String {
     format!("{base}/chat/completions")
@@ -29,11 +29,7 @@ pub fn chat_body(req: &ChatRequest) -> Value {
     if let Some(system) = &req.system {
         messages.push(json!({ "role": "system", "content": system }));
     }
-    messages.extend(
-        req.messages
-            .iter()
-            .map(|m| json!({ "role": role(m.role), "content": m.content })),
-    );
+    messages.extend(req.messages.iter().map(message));
     let mut body = json!({
         "model": req.model,
         "messages": messages,
@@ -59,8 +55,35 @@ pub fn chat_body(req: &ChatRequest) -> Value {
                 })
             })
             .collect();
+        if !req.allow_tool_calls {
+            body["tool_choice"] = json!("none");
+        }
     }
     body
+}
+
+fn message(turn: &Turn) -> Value {
+    match turn {
+        Turn::User(text) => json!({ "role": "user", "content": text }),
+        Turn::Assistant {
+            text, tool_calls, ..
+        } if tool_calls.is_empty() => {
+            json!({ "role": "assistant", "content": text })
+        }
+        Turn::Assistant {
+            text, tool_calls, ..
+        } => json!({
+            "role": "assistant",
+            "content": if text.is_empty() { Value::Null } else { json!(text) },
+            "tool_calls": tool_calls.iter().map(|c| json!({
+                "id": c.id, "type": "function",
+                "function": { "name": c.name, "arguments": c.arguments },
+            })).collect::<Vec<_>>(),
+        }),
+        Turn::ToolResult {
+            call_id, content, ..
+        } => json!({ "role": "tool", "tool_call_id": call_id, "content": content }),
+    }
 }
 
 pub fn parse_models(body: &Value) -> Vec<ModelInfo> {
@@ -245,7 +268,7 @@ mod tests {
     use crate::error::AiErrorKind;
     use crate::protocol::Framing;
     use crate::protocol::testing::{decode_every_way, text};
-    use crate::types::{Message, Role};
+    use crate::types::ToolCall;
 
     fn decode(bytes: &[u8]) -> Result<Vec<ChatEvent>, AiError> {
         decode_every_way(ChatDecoder::default, Framing::Sse, bytes)
@@ -315,11 +338,26 @@ mod tests {
         let body = chat_body(&ChatRequest {
             model: "qwen".into(),
             system: Some("Be brief.".into()),
-            messages: vec![Message {
-                role: Role::User,
-                content: "Hi".into(),
-            }],
+            messages: vec![
+                Turn::User("Hi".into()),
+                Turn::Assistant {
+                    text: String::new(),
+                    reasoning: vec![],
+                    tool_calls: vec![ToolCall {
+                        id: "call_9".into(),
+                        name: "list_pages".into(),
+                        arguments: "{}".into(),
+                    }],
+                },
+                Turn::ToolResult {
+                    call_id: "call_9".into(),
+                    name: "list_pages".into(),
+                    content: "[]".into(),
+                    is_error: false,
+                },
+            ],
             tools: vec![],
+            allow_tool_calls: true,
             max_output_tokens: Some(256),
             temperature: Some(0.2),
             context_window: None,
@@ -329,6 +367,16 @@ mod tests {
         assert_eq!(body["max_tokens"], 256);
         assert_eq!(body["stream_options"]["include_usage"], true);
         assert!((body["temperature"].as_f64().unwrap() - 0.2).abs() < 1e-6);
+        assert_eq!(
+            body["messages"][2],
+            json!({"role": "assistant", "content": null, "tool_calls": [
+                {"id": "call_9", "type": "function", "function": {"name": "list_pages", "arguments": "{}"}}
+            ]})
+        );
+        assert_eq!(
+            body["messages"][3],
+            json!({"role": "tool", "tool_call_id": "call_9", "content": "[]"})
+        );
     }
 
     #[test]

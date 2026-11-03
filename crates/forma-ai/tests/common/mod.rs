@@ -237,7 +237,7 @@ pub fn enabled(config: ProviderConfig) -> AiSettings {
         enabled: true,
         active_provider: Some(config.id.clone()),
         providers: vec![config],
-        cloud_acknowledged: Default::default(),
+        cloud_consent: Default::default(),
     }
 }
 

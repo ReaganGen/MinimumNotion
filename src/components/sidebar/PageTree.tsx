@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   ChevronRight,
   Copy,
   FileText,
@@ -6,6 +7,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Sparkles,
   Star,
   Table2,
   Trash2,
@@ -25,6 +27,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { askAboutPage, summarizePage } from "@/features/ai/actions";
+import { useSettingsStore } from "@/features/settings/settingsStore";
 import { type DropZone, dropZone, placeDrop } from "@/features/workspace/dropPlacement";
 import { flushAllEdits, ROOT, useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import type { PageSummary } from "@/lib/ipc/bindings/PageSummary";
@@ -118,6 +122,7 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
   const { openPage, toggleExpanded, expand, reportError } = useWorkspaceStore.getState();
   const actions = usePageActions(page);
   const [renaming, setRenaming] = useState(false);
+  const aiEnabled = useSettingsStore((s) => s.settings.ai.enabled);
   const [moving, setMoving] = useState(false);
   const [zone, setZone] = useState<DropZone | null>(null);
 
@@ -177,6 +182,17 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
       <Item onSelect={actions.toggleFavorite}>
         <Star aria-hidden /> {page.favorite ? "Remove from Favorites" : "Add to Favorites"}
       </Item>
+      {aiEnabled && (
+        <>
+          <Separator />
+          <Item onSelect={() => askAboutPage({ id: page.id, title: page.title })}>
+            <Sparkles aria-hidden /> Ask AI about this page
+          </Item>
+          <Item onSelect={() => summarizePage({ id: page.id, title: page.title })}>
+            <BookOpen aria-hidden /> Summarize with AI
+          </Item>
+        </>
+      )}
       <Separator />
       <Item onSelect={actions.trash}>
         <Trash2 aria-hidden /> Move to Trash

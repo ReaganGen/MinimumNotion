@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use forma_core::workspace::Workspace;
+use forma_core::workspace::retrieval::{RetrievalFilter, Retriever};
 
 fn time<T>(label: &str, runs: u32, mut f: impl FnMut() -> T) -> T {
     let mut best = Duration::MAX;
@@ -62,6 +63,18 @@ fn main() {
     ] {
         let hits = time(&format!("search {query:?}"), 20, || ws.search(query, 50));
         println!("{:<44} {} hits", "", hits.len());
+    }
+    for question in [
+        "How does attention help protein design?",
+        "what did I write about the garden plan",
+        "注意力机制在蛋白质结构预测中有什么用",
+        "知识",
+    ] {
+        let found = time(&format!("retrieve passages {question:?}"), 20, || {
+            ws.read_view()
+                .retrieve(question, 8, &RetrievalFilter::default())
+        });
+        println!("{:<44} {} passages", "", found.len());
     }
     time("quick open \"garden\"", 20, || {
         ws.quick_open("garden", 30).len()

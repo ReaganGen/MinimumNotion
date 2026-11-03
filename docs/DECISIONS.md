@@ -44,6 +44,8 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 | 038 | Provider APIs as verified in Phase 4: OpenAI through the Responses API, Anthropic API version 2026-10-21 | Accepted, user-chosen |
 | 039 | The AI service: one provider type, rules in Rust, answers over a Channel | Accepted |
 | 040 | Chat answers are rendered from Markdown tokens as React elements | Accepted |
+| 041 | Retrieval as built: passage chunks, stemmed BM25, CJK through page trigrams, rank fusion | Accepted |
+| 042 | Asking about notes: numbered sources, a packed context, read-only tools, and a new cloud agreement | Accepted |
 
 ---
 
@@ -509,4 +511,36 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Decision:** `marked` 17.0.6, already installed through `@tiptap/markdown` and now a direct dependency at that version, only tokenizes the answer. Forma builds React elements from the tokens, so nothing passes through `innerHTML`. Raw HTML appears as text. An image shows as "[Image: alt · address]" and isn't loaded. Only `https:`, `http:` and `mailto:` links can be opened: they're buttons that name their destination and open it in the browser on click. Other links show their address as text.
 - **Alternatives:** `marked` to HTML plus a sanitizer (DOMPurify). A sanitizer bug or setting would become an XSS hole, and XSS here could defeat the approval boundary (ARCHITECTURE §2.1). A read-only Tiptap editor: heavy for a chat answer.
 - **Consequences:** The renderer handles the token types it knows (headings, paragraphs, lists and task lists, code, quotes, tables, rules, and the inline forms). Anything newer shows as its source text. HTML entities written by the model (for example `&amp;`) show as written.
+
+## ADR-041: Retrieval as built: passage chunks, stemmed BM25, CJK through page trigrams, rank fusion
+
+- **Status:** Accepted. Implements ADR-022. **Date:** 2026-11-03 (Phase 5)
+- **Context:** The assistant needs the passages of the notes that bear on a question, for any model and offline. Questions are sentences, not keywords, and many of the user's notes are in Chinese, which unicode61 can't split into words (ADR-036).
+- **Decision:**
+  - **Passages.** A page body is cut at headings and between blocks into passages that close once they reach 250 tokens and never exceed 400 (long blocks are cut at lines, then sentences, then characters). Headings with nothing under them yet stay with what follows. Each passage keeps its heading path, its byte range in the body, its Markdown and its plain text. Index schema 2 adds `passages` and `passages_fts` (title, headings and text, `porter unicode61`, so "folded" finds "fold"); an older index is rebuilt automatically.
+  - **Words.** The question's words, without English stop words, are OR-ed in one FTS5 query, ranked by BM25 with the title and headings weighted above the text.
+  - **CJK.** The question's CJK runs become three-character pieces. The existing page trigram table finds the pages sharing the most pieces (BM25); their passages are then ranked in Rust by how many pieces each contains. Two-character words ("知识") fall back to a bounded scan.
+  - **Fusion.** The two rankings are merged by reciprocal rank (k = 60). At most three passages come from one page. `Retriever::retrieve(query, k, filter)` is the interface; `ReadView` implements it.
+- **Alternatives:**
+  - A second, passage-level trigram table. Measured on 5,000 pages: cold open 2.2 s and a 71 MB index, against 0.83 s and 51 MB without it, with the labeled questions answered as well.
+  - Requiring every word to match, as ⌘K does. Questions contain words the notes don't ("how", "should").
+  - Embeddings. Out of scope for v0.1 (ADR-022).
+- **Consequences:** Recall rests on shared words or characters: a paraphrase with none in common finds nothing, and then the assistant says the notes don't cover it. On 5,000 pages, a cold open takes about 0.2 s longer than in Phase 4 (0.83 s against 0.63 s, same machine), a rebuild 0.68 s, and the index is 46% larger (51 MB). A labeled set in `tests/fixtures/retrieval/` (17 questions in English and Chinese, one with no answer) guards the ranking.
+
+## ADR-042: Asking about notes: numbered sources, a packed context, read-only tools, and a new cloud agreement
+
+- **Status:** Accepted. **Date:** 2026-11-03 (Phase 5)
+- **Context:** Phase 5 lets the assistant read the notes. What it reads must be visible, citable and bounded by the model's window, and it must not be able to write.
+- **Decision:**
+  - **Read-only by type.** The assistant reaches the workspace only through `forma_core::workspace::read::ReadView`, which has no method that writes (`Workspace` has a few `&self` methods that write recovery buffers and snapshots; they aren't on it). `forma_ai::knowledge::Library` hands out nothing else. Each Ask tool's `run` takes a `ReadView` and its arguments.
+  - **Sources.** Every piece of the notes sent to a model is a `<source key="S#" kind page page_id section>` block, keyed for the conversation (keys continue across messages). A source gets its key only if its text is actually sent. Source text can't close its block, and the system prompt says sources are data, not instructions. The panel receives the sources from Rust and checks each citation in an answer against the sources of that answer; any other key is marked unverified and links nowhere.
+  - **Packing.** Within the window less the answer's reserve: the system prompt and the new message, then the selection (up to 30% of what's left), the attached page (up to 60%; a long page is cut to the passages nearest the cursor, gaps marked "[…]"), retrieved passages (up to 60% of what's left), then earlier turns, newest first. Rust reports what went in (page, selection, passage count, turns left out). A window that neither the user nor the provider gives counts as 8,192 tokens.
+  - **Tools.** Models that can call tools (as the provider reports, or as the user sets in Settings → AI) also get `search_pages`, `read_page`, `list_pages` and `get_page_metadata`: typed JSON Schemas with no extra properties, page IDs only (checked as UUIDs, looked up in the index), results cut to 3,000 tokens and to the room left, at most 6 rounds and 10 minutes, then one round that must answer. That last round keeps the tools defined with `tool_choice: none`, because some APIs reject a conversation that uses undefined tools. Anthropic's thinking blocks are passed back unchanged with tool results, as its API requires.
+  - **Search notes switch.** On by default. Turned off, nothing from the notes is sent unless the user attaches a page or a selection, and no tools are offered, since tools read notes too.
+  - **A new cloud agreement.** Phase 4's agreement said Forma sends "never your notes". Agreements now live in `ai.cloud_consent`, and the text says that the parts of the notes a question needs go to the provider. Agreements recorded in Phase 4's `cloud_acknowledged` aren't carried over, so a cloud provider asks once more.
+- **Alternatives:**
+  - Sending sources in the system prompt. Providers recommend documents in the user's turn; it also keeps each message's sources next to it.
+  - Re-numbering sources from S1 in every message. Answers in the history would then cite keys that now mean something else.
+  - Carrying the Phase 4 agreement over. It was given on the promise that notes are never sent.
+- **Consequences:** No real provider has seen these requests yet (no keys or local models were available), so the tool message formats follow the documentation. Citations depend on the model following the instructions; one that doesn't cite shows its answer without sources, and the panel says which sources it was given.
 

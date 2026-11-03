@@ -138,6 +138,7 @@ pub fn facts_from_bytes(bytes: &[u8]) -> FileFacts {
             tags: fields.tags,
             links: extracted.links,
             frontmatter: json,
+            passages: crate::passages::chunk(split.body),
         },
     }
 }

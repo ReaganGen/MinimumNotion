@@ -1,6 +1,9 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetAiChatStoreForTests, useAiChatStore } from "@/features/ai/aiStore";
+import { defaultSettings } from "@/features/settings/defaults";
+import { resetSettingsStoreForTests, useSettingsStore } from "@/features/settings/settingsStore";
 import {
   resetWorkspaceStoreForTests,
   useWorkspaceStore,
@@ -16,6 +19,7 @@ vi.mock("@/lib/ipc/client", () => ({
     createPage: vi.fn(),
     listFavorites: vi.fn(),
     movePage: vi.fn(),
+    saveSettings: vi.fn(),
   },
 }));
 
@@ -35,6 +39,8 @@ function summary(id: string, title: string, extra: Partial<PageSummary> = {}): P
 
 beforeEach(() => {
   resetWorkspaceStoreForTests();
+  resetSettingsStoreForTests();
+  resetAiChatStoreForTests();
   for (const fn of Object.values(ipc)) vi.mocked(fn).mockReset();
   useWorkspaceStore.setState({
     status: "open",
@@ -126,6 +132,27 @@ describe("PageTree", () => {
     await user.click(await within(dialog).findByRole("button", { name: "Forma" }));
     expect(ipc.movePage).toHaveBeenCalledWith("b", "c", null);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("offers AI actions only when AI is on", async () => {
+    const user = userEvent.setup();
+    vi.mocked(ipc.saveSettings).mockImplementation(
+      async () => useSettingsStore.getState().settings,
+    );
+    const { unmount } = render(<PageTree />);
+    await user.click(screen.getByRole("button", { name: "Actions for Journal" }));
+    expect(await screen.findByRole("menuitem", { name: "Move to…" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Ask AI/ })).toBeNull();
+    await user.keyboard("{Escape}");
+    unmount();
+
+    const settings = defaultSettings();
+    useSettingsStore.setState({ settings: { ...settings, ai: { ...settings.ai, enabled: true } } });
+    render(<PageTree />);
+    await user.click(screen.getByRole("button", { name: "Actions for Journal" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Ask AI about this page" }));
+    expect(useAiChatStore.getState().page).toEqual({ id: "b", title: "Journal" });
+    expect(useSettingsStore.getState().settings.layout.ai_panel.visible).toBe(true);
   });
 
   it("shows an empty workspace honestly", () => {

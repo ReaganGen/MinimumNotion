@@ -10,7 +10,16 @@ use serde_json::Value;
 
 use crate::error::AiError;
 use crate::framing::SseEvent;
-use crate::types::{ChatEvent, Role};
+use crate::types::ChatEvent;
+
+/// A tool call's arguments as a JSON object, for protocols that want one.
+/// Arguments that don't parse become `{}`; the tool then reports what's missing.
+pub(crate) fn arguments_object(arguments: &str) -> Value {
+    match serde_json::from_str::<Value>(arguments) {
+        Ok(value @ Value::Object(_)) => value,
+        _ => Value::Object(Default::default()),
+    }
+}
 
 pub enum Frame {
     Sse(SseEvent),
@@ -35,13 +44,6 @@ pub trait Decoder: Send {
 
 pub(crate) fn json(data: &str) -> Result<Value, AiError> {
     serde_json::from_str(data).map_err(AiError::invalid_response)
-}
-
-pub(crate) fn role(role: Role) -> &'static str {
-    match role {
-        Role::User => "user",
-        Role::Assistant => "assistant",
-    }
 }
 
 pub(crate) fn u32_at(value: &Value, pointer: &str) -> Option<u32> {

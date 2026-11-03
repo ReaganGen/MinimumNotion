@@ -2,11 +2,74 @@
 // Nothing is ever parsed as HTML: raw HTML shows as text, images aren't loaded
 // (their address is shown instead), and only web and email links can be opened,
 // with a click and their destination in view (ARCHITECTURE §10.4).
+// Citations such as [S2] become buttons when they name a source Forma
+// provided; any other key is marked unverified and does nothing.
 import { Lexer, type Token, type Tokens } from "marked";
-import { Fragment, type ReactNode, useMemo } from "react";
+import { createContext, Fragment, type ReactNode, useContext, useMemo } from "react";
+import { splitCitations } from "@/features/ai/citations";
+import type { Source } from "@/lib/ipc/bindings/Source";
 import { ipc } from "@/lib/ipc/client";
+import { cn } from "@/lib/utils";
 
 const OPENABLE = /^(https?:|mailto:)/i;
+
+interface Citations {
+  sources: Map<string, Source>;
+  open: (source: Source) => void;
+}
+
+const CitationContext = createContext<Citations | null>(null);
+
+function TextWithCitations({ text }: { text: string }) {
+  const citations = useContext(CitationContext);
+  if (!citations) return <>{text}</>;
+  return (
+    <>
+      {splitCitations(text).map((part, i) =>
+        typeof part === "string" ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional
+          <Fragment key={i}>{part}</Fragment>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: parts are positional
+          <span key={i} className="whitespace-nowrap">
+            {part.keys.map((key) => (
+              <Citation key={key} citeKey={key} source={citations.sources.get(key)} />
+            ))}
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
+function Citation({ citeKey, source }: { citeKey: string; source: Source | undefined }) {
+  const citations = useContext(CitationContext);
+  const chip =
+    "mx-px inline-flex h-4 items-center rounded px-1 align-[1px] text-[10.5px] font-medium";
+  if (!source) {
+    return (
+      <span
+        title="Not a source Forma provided: unverified"
+        className={cn(chip, "text-faint-foreground line-through decoration-1")}
+      >
+        <span className="sr-only">Unverified citation </span>
+        {citeKey}
+      </span>
+    );
+  }
+  const where = [source.title, ...source.section].join(" › ");
+  return (
+    <button
+      type="button"
+      title={`Open ${where}`}
+      aria-label={`Source ${citeKey}: ${where}`}
+      onClick={() => citations?.open(source)}
+      className={cn(chip, "bg-muted text-muted-foreground hover:bg-selected hover:text-foreground")}
+    >
+      {citeKey}
+    </button>
+  );
+}
 
 function Inline({ tokens }: { tokens: Token[] | undefined }) {
   return <>{(tokens ?? []).map((token, i) => inline(token, i))}</>;
@@ -18,7 +81,7 @@ function inline(token: Token, key: number): ReactNode {
       return "tokens" in token && token.tokens ? (
         <Inline key={key} tokens={token.tokens} />
       ) : (
-        <Fragment key={key}>{token.text}</Fragment>
+        <TextWithCitations key={key} text={token.text} />
       );
     case "escape":
       return <Fragment key={key}>{token.text}</Fragment>;
@@ -202,11 +265,29 @@ function block(token: Token, key: number): ReactNode {
   }
 }
 
-export function ChatMarkdown({ text }: { text: string }) {
+export function ChatMarkdown({
+  text,
+  sources,
+  onOpenSource,
+}: {
+  text: string;
+  /** The sources this answer was given; citations are checked against them. */
+  sources?: Source[];
+  onOpenSource?: (source: Source) => void;
+}) {
   const tokens = useMemo(() => Lexer.lex(text, { gfm: true }), [text]);
+  const citations = useMemo<Citations | null>(
+    () =>
+      sources && onOpenSource
+        ? { sources: new Map(sources.map((s) => [s.key, s])), open: onOpenSource }
+        : null,
+    [sources, onOpenSource],
+  );
   return (
-    <div className="selectable text-[13.5px] leading-[1.6] break-words">
-      <Blocks tokens={tokens} />
-    </div>
+    <CitationContext.Provider value={citations}>
+      <div className="selectable text-[13.5px] leading-[1.6] break-words">
+        <Blocks tokens={tokens} />
+      </div>
+    </CitationContext.Provider>
   );
 }

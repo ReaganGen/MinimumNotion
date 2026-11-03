@@ -7,9 +7,9 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
-use super::{Decoder, Frame, json, role, str_at, u32_at};
+use super::{Decoder, Frame, arguments_object, json, str_at, u32_at};
 use crate::error::{AiError, kind_for_code};
-use crate::types::{ChatEvent, ChatRequest, ModelCapabilities, ModelInfo, StopReason, Tri};
+use crate::types::{ChatEvent, ChatRequest, ModelCapabilities, ModelInfo, StopReason, Tri, Turn};
 
 pub const API_VERSION: &str = "2026-10-21";
 /// `max_tokens` is required; this is used when the user hasn't set one.
@@ -35,12 +35,58 @@ fn encode(part: &str) -> String {
     url::form_urlencoded::byte_serialize(part.as_bytes()).collect()
 }
 
+/// Tool calls are `tool_use` blocks in the assistant's message; their
+/// results are `tool_result` blocks, all in one user message.
+fn messages(turns: &[Turn]) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    for turn in turns {
+        match turn {
+            Turn::User(text) => out.push(json!({ "role": "user", "content": text })),
+            Turn::Assistant {
+                text, tool_calls, ..
+            } if tool_calls.is_empty() => {
+                out.push(json!({ "role": "assistant", "content": text }));
+            }
+            Turn::Assistant {
+                text,
+                tool_calls,
+                reasoning,
+            } => {
+                // Thinking first, as the model produced it.
+                let mut blocks = reasoning.clone();
+                if !text.is_empty() {
+                    blocks.push(json!({ "type": "text", "text": text }));
+                }
+                blocks.extend(tool_calls.iter().map(|c| {
+                    json!({ "type": "tool_use", "id": c.id, "name": c.name,
+                            "input": arguments_object(&c.arguments) })
+                }));
+                out.push(json!({ "role": "assistant", "content": blocks }));
+            }
+            Turn::ToolResult {
+                call_id,
+                content,
+                is_error,
+                ..
+            } => {
+                let block = json!({ "type": "tool_result", "tool_use_id": call_id,
+                                    "content": content, "is_error": is_error });
+                match out.last_mut() {
+                    Some(last) if last["role"] == "user" && last["content"].is_array() => {
+                        if let Some(blocks) = last["content"].as_array_mut() {
+                            blocks.push(block);
+                        }
+                    }
+                    _ => out.push(json!({ "role": "user", "content": [block] })),
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn chat_body(req: &ChatRequest) -> Value {
-    let messages: Vec<Value> = req
-        .messages
-        .iter()
-        .map(|m| json!({ "role": role(m.role), "content": m.content }))
-        .collect();
+    let messages = messages(&req.messages);
     let mut body = json!({
         "model": req.model,
         "max_tokens": req.max_output_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
@@ -56,6 +102,9 @@ pub fn chat_body(req: &ChatRequest) -> Value {
             .iter()
             .map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.parameters }))
             .collect();
+        if !req.allow_tool_calls {
+            body["tool_choice"] = json!({ "type": "none" });
+        }
     }
     body
 }
@@ -93,6 +142,13 @@ pub fn parse_capabilities(body: &Value) -> ModelCapabilities {
 enum Block {
     Text,
     Tool(String),
+    /// Thinking is kept, with its signature, because a tool-using answer
+    /// must send it back unchanged.
+    Thinking {
+        thinking: String,
+        signature: String,
+    },
+    Redacted(Value),
     Other,
 }
 
@@ -144,14 +200,25 @@ impl Decoder for AnthropicDecoder {
                         });
                         Block::Tool(id)
                     }
-                    // Thinking and server-tool blocks aren't shown in Phase 4.
+                    Some("thinking") => Block::Thinking {
+                        thinking: block["thinking"].as_str().unwrap_or_default().to_string(),
+                        signature: block["signature"].as_str().unwrap_or_default().to_string(),
+                    },
+                    Some("redacted_thinking") => Block::Redacted(block.clone()),
+                    // Server-tool blocks aren't used.
                     _ => Block::Other,
                 };
                 self.blocks.insert(index, kind);
             }
             "content_block_delta" => {
                 let delta = &data["delta"];
-                match (delta["type"].as_str(), self.blocks.get(&index)) {
+                match (delta["type"].as_str(), self.blocks.get_mut(&index)) {
+                    (Some("thinking_delta"), Some(Block::Thinking { thinking, .. })) => {
+                        thinking.push_str(delta["thinking"].as_str().unwrap_or_default());
+                    }
+                    (Some("signature_delta"), Some(Block::Thinking { signature, .. })) => {
+                        signature.push_str(delta["signature"].as_str().unwrap_or_default());
+                    }
                     (Some("text_delta"), _) => {
                         if let Some(text) = delta["text"].as_str() {
                             out.push(ChatEvent::TextDelta(text.to_string()));
@@ -169,11 +236,17 @@ impl Decoder for AnthropicDecoder {
                     _ => {}
                 }
             }
-            "content_block_stop" => {
-                if let Some(Block::Tool(id)) = self.blocks.remove(&index) {
-                    out.push(ChatEvent::ToolCallEnd { id });
-                }
-            }
+            "content_block_stop" => match self.blocks.remove(&index) {
+                Some(Block::Tool(id)) => out.push(ChatEvent::ToolCallEnd { id }),
+                Some(Block::Thinking {
+                    thinking,
+                    signature,
+                }) => out.push(ChatEvent::Reasoning(json!({
+                    "type": "thinking", "thinking": thinking, "signature": signature,
+                }))),
+                Some(Block::Redacted(block)) => out.push(ChatEvent::Reasoning(block)),
+                _ => {}
+            },
             "message_delta" => {
                 if let Some(reason) = str_at(&data, "/delta/stop_reason") {
                     self.stop = Some(stop_reason(reason));
@@ -223,7 +296,7 @@ mod tests {
     use crate::error::AiErrorKind;
     use crate::protocol::Framing;
     use crate::protocol::testing::{decode_every_way, text};
-    use crate::types::{Message, Role, ToolSpec};
+    use crate::types::{ToolCall, ToolSpec};
 
     fn decode(bytes: &[u8]) -> Result<Vec<ChatEvent>, AiError> {
         decode_every_way(AnthropicDecoder::default, Framing::Sse, bytes)
@@ -266,6 +339,12 @@ mod tests {
             json!({"query": "protein design"})
         );
         assert!(events.contains(&ChatEvent::ToolCallEnd { id }));
+        // The thinking block, signature and all, goes back with the result.
+        assert!(events.contains(&ChatEvent::Reasoning(json!({
+            "type": "thinking",
+            "thinking": "The user wants notes about protein design.",
+            "signature": "EqQBCgIYAhIM1gbcDa9GJwZA2b3hGgxBdjrkzLoky3dl1pkiMOYds",
+        }))));
         assert_eq!(events.last(), Some(&ChatEvent::Done(StopReason::ToolUse)));
     }
 
@@ -288,15 +367,45 @@ mod tests {
         let body = chat_body(&ChatRequest {
             model: "claude-x".into(),
             system: Some("Be brief.".into()),
-            messages: vec![Message {
-                role: Role::User,
-                content: "Hi".into(),
-            }],
+            messages: vec![
+                Turn::User("Hi".into()),
+                Turn::Assistant {
+                    text: "Let me look.".into(),
+                    reasoning: vec![
+                        json!({"type": "thinking", "thinking": "Hmm.", "signature": "sig"}),
+                    ],
+                    tool_calls: vec![
+                        ToolCall {
+                            id: "toolu_1".into(),
+                            name: "search_pages".into(),
+                            arguments: r#"{"query":"x"}"#.into(),
+                        },
+                        ToolCall {
+                            id: "toolu_2".into(),
+                            name: "list_pages".into(),
+                            arguments: "not json".into(),
+                        },
+                    ],
+                },
+                Turn::ToolResult {
+                    call_id: "toolu_1".into(),
+                    name: "search_pages".into(),
+                    content: "found".into(),
+                    is_error: false,
+                },
+                Turn::ToolResult {
+                    call_id: "toolu_2".into(),
+                    name: "list_pages".into(),
+                    content: "bad".into(),
+                    is_error: true,
+                },
+            ],
             tools: vec![ToolSpec {
                 name: "t".into(),
                 description: "d".into(),
                 parameters: json!({"type": "object"}),
             }],
+            allow_tool_calls: false,
             max_output_tokens: None,
             temperature: Some(0.5),
             context_window: None,
@@ -307,7 +416,27 @@ mod tests {
             body["messages"][0],
             json!({"role": "user", "content": "Hi"})
         );
+        assert_eq!(
+            body["messages"][1]["content"],
+            json!([
+                {"type": "thinking", "thinking": "Hmm.", "signature": "sig"},
+                {"type": "text", "text": "Let me look."},
+                {"type": "tool_use", "id": "toolu_1", "name": "search_pages", "input": {"query": "x"}},
+                {"type": "tool_use", "id": "toolu_2", "name": "list_pages", "input": {}},
+            ])
+        );
+        // Both results go back in one user message.
+        assert_eq!(body["messages"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            body["messages"][2],
+            json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_1", "content": "found", "is_error": false},
+                {"type": "tool_result", "tool_use_id": "toolu_2", "content": "bad", "is_error": true},
+            ]})
+        );
         assert_eq!(body["tools"][0]["input_schema"], json!({"type": "object"}));
+        // The last round keeps the tools defined but lets the model only answer.
+        assert_eq!(body["tool_choice"], json!({"type": "none"}));
         assert!(body.get("temperature").is_none());
     }
 

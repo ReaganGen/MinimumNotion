@@ -1,8 +1,9 @@
 //! AI commands (ARCHITECTURE §9). Settings changes go through the settings
 //! store; API keys go into the Keychain and no command ever returns one.
 
+use forma_ai::knowledge::{ChatInput, Library, MAX_SELECTION_CHARS};
 use forma_ai::presets::{ProviderUpdate, apply_update, new_provider};
-use forma_ai::types::{Message, ModelCapabilities, ModelInfo};
+use forma_ai::types::{ModelCapabilities, ModelInfo};
 use forma_ai::{AiError, AiErrorKind, AiService, ChatStreamEvent, ConnectionReport};
 use forma_core::error::{ErrorCode, ErrorPayload};
 use forma_core::settings::{AiSettings, AppSettings, ProviderConfig, ProviderKind};
@@ -11,6 +12,7 @@ use tauri::State;
 use tauri::ipc::Channel;
 
 use crate::AppState;
+use crate::session::Session;
 
 type Result<T> = std::result::Result<T, ErrorPayload>;
 
@@ -107,7 +109,7 @@ pub async fn ai_update_provider(
         let moved = apply_update(find(ai, &id)?, update).map_err(invalid)?;
         // A new destination needs a new agreement before messages go there.
         if moved {
-            ai.cloud_acknowledged.remove(&id);
+            ai.cloud_consent.remove(&id);
         }
         Ok(())
     })?;
@@ -126,7 +128,7 @@ pub async fn ai_remove_provider(
     service.forget(&id);
     change(&state, |ai| {
         ai.providers.retain(|p| p.id != id);
-        ai.cloud_acknowledged.remove(&id);
+        ai.cloud_consent.remove(&id);
         if ai.active_provider.as_deref() == Some(id.as_str()) {
             ai.active_provider = ai.providers.first().map(|p| p.id.clone());
         }
@@ -174,12 +176,13 @@ pub async fn ai_remove_api_key(
     })
 }
 
-/// Records that the user agreed to send messages to this provider's host.
+/// Records that the user agreed to send messages, and the note excerpts
+/// they need, to this provider's host.
 #[tauri::command]
 pub async fn ai_acknowledge_cloud(state: State<'_, AppState>, id: String) -> Result<AppSettings> {
     change(&state, |ai| {
         find(ai, &id)?;
-        ai.cloud_acknowledged.insert(id, now_rfc3339());
+        ai.cloud_consent.insert(id, now_rfc3339());
         Ok(())
     })
 }
@@ -215,21 +218,34 @@ pub async fn ai_test_connection(
 }
 
 /// Streams one answer from the active provider into `on_event`. Resolves
-/// when the answer ends; failures arrive as a `failed` event.
+/// when the answer ends; failures arrive as a `failed` event. Notes are read
+/// from the open workspace through a read-only view, never written.
 #[tauri::command]
 pub async fn ai_chat(
     state: State<'_, AppState>,
     service: State<'_, AiService>,
+    session: State<'_, Session>,
     request_id: String,
-    messages: Vec<Message>,
+    input: ChatInput,
     on_event: Channel<ChatStreamEvent>,
 ) -> Result<()> {
     if request_id.is_empty() || request_id.len() > 64 {
         return Err(invalid("A chat request needs a short ID."));
     }
+    if input
+        .context
+        .selection
+        .as_ref()
+        .is_some_and(|s| s.text.chars().count() > MAX_SELECTION_CHARS)
+    {
+        return Err(invalid(format!(
+            "The selection is longer than {MAX_SELECTION_CHARS} characters. Select less text."
+        )));
+    }
     let ai = ai_settings(&state)?;
+    let library = Library::new(session.shared());
     service
-        .chat(&ai, &request_id, messages, |event| {
+        .chat(&ai, &request_id, input, Some(library), |event| {
             // The window may have closed; there's no one left to tell.
             let _ = on_event.send(event);
         })

@@ -8,6 +8,12 @@
 //!   and Korean text, which unicode61 can't split into words (ADR-036).
 //!
 //! Both use the `pages` row's rowid, so one page's rows are replaced by key.
+//!
+//! Passages (schema 2, Phase 5) are what the AI assistant retrieves from
+//! (ARCHITECTURE §11, ADR-041): `passages` holds each one's place and
+//! Markdown, and `passages_fts`, keyed by its rowid, its words (with English
+//! stemming). CJK questions find pages through `pages_trigram` and rank
+//! their passages in Rust; a second trigram table cost more than it gave.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,9 +21,10 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::extract::{LinkKind, LinkRef};
+use crate::passages::Passage;
 
 /// Bump to drop and rebuild every existing index.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = "
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -46,6 +53,17 @@ CREATE INDEX links_target ON links(kind, target);
 CREATE VIRTUAL TABLE pages_fts USING fts5(title, body, tags, props,
   tokenize = 'unicode61 remove_diacritics 2');
 CREATE VIRTUAL TABLE pages_trigram USING fts5(text, tokenize = 'trigram remove_diacritics 1');
+CREATE TABLE passages (
+  page_id      TEXT NOT NULL,
+  ordinal      INTEGER NOT NULL,
+  heading_path TEXT NOT NULL,
+  byte_start   INTEGER NOT NULL,
+  byte_end     INTEGER NOT NULL,
+  markdown     TEXT NOT NULL,
+  PRIMARY KEY (page_id, ordinal)
+);
+CREATE VIRTUAL TABLE passages_fts USING fts5(title, heading, text,
+  tokenize = 'porter unicode61 remove_diacritics 2');
 ";
 
 /// One page as the tree and the startup scan know it.
@@ -76,6 +94,19 @@ pub struct PageContent {
     pub tags: Vec<String>,
     pub links: Vec<LinkRef>,
     pub frontmatter: Option<serde_json::Map<String, serde_json::Value>>,
+    pub passages: Vec<Passage>,
+}
+
+/// A passage as the index holds it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PassageRow {
+    pub page_id: String,
+    pub ordinal: u32,
+    pub heading_path: Vec<String>,
+    pub start: usize,
+    pub end: usize,
+    pub markdown: String,
+    pub text: String,
 }
 
 /// A search result. `snippet` marks matches with U+0001 … U+0002.
@@ -142,7 +173,8 @@ impl IndexDb {
         self.conn.execute_batch(
             "DROP TABLE IF EXISTS meta; DROP TABLE IF EXISTS pages; DROP TABLE IF EXISTS tags;
              DROP TABLE IF EXISTS links; DROP TABLE IF EXISTS pages_fts;
-             DROP TABLE IF EXISTS pages_trigram;",
+             DROP TABLE IF EXISTS pages_trigram; DROP TABLE IF EXISTS passages;
+             DROP TABLE IF EXISTS passages_fts;",
         )?;
         self.conn.execute_batch(SCHEMA)?;
         self.conn.execute(
@@ -282,6 +314,98 @@ impl IndexDb {
         Ok(hits)
     }
 
+    /// Passages matching an FTS5 query on their words, best first (BM25,
+    /// with the page title and headings counting more than the text).
+    pub fn search_passage_words(
+        &self,
+        fts_query: &str,
+        limit: usize,
+    ) -> rusqlite::Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT rowid FROM passages_fts WHERE passages_fts MATCH ?1
+             ORDER BY bm25(passages_fts, 4.0, 2.0, 1.0) LIMIT ?2",
+        )?;
+        let ids = stmt.query_map(params![fts_query, limit as i64], |r| r.get(0))?;
+        ids.collect()
+    }
+
+    /// Pages matching an FTS5 query of three-character pieces on the
+    /// trigram table, best first (BM25).
+    pub fn search_page_trigrams(
+        &self,
+        fts_query: &str,
+        limit: usize,
+    ) -> rusqlite::Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT p.id FROM pages_trigram JOIN pages p ON p.rowid = pages_trigram.rowid
+             WHERE pages_trigram MATCH ?1 ORDER BY bm25(pages_trigram) LIMIT ?2",
+        )?;
+        let ids = stmt.query_map(params![fts_query, limit as i64], |r| r.get(0))?;
+        ids.collect()
+    }
+
+    /// Pages containing any of `terms` (too short for the trigram index),
+    /// those containing more of them first. Scans at most `scan` rows.
+    pub fn scan_pages(&self, terms: &[String], scan: usize) -> rusqlite::Result<Vec<String>> {
+        if terms.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conditions = vec!["pages_trigram.text LIKE ? ESCAPE '\\'"; terms.len()].join(" OR ");
+        let sql = format!(
+            "SELECT p.id, pages_trigram.text FROM pages_trigram
+             JOIN pages p ON p.rowid = pages_trigram.rowid WHERE {conditions} LIMIT {scan}"
+        );
+        let patterns: Vec<String> = terms
+            .iter()
+            .map(|t| format!("%{}%", like_escape(t)))
+            .collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(patterns.iter()), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut found = Vec::new();
+        for row in rows {
+            let (id, text) = row?;
+            let text = text.to_lowercase();
+            let count = terms.iter().filter(|t| text.contains(t.as_str())).count();
+            found.push((count, id));
+        }
+        found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        Ok(found.into_iter().map(|(_, id)| id).collect())
+    }
+
+    /// A page's passages: rowid, and title, headings and text together.
+    pub fn passage_texts(&self, page_id: &str) -> rusqlite::Result<Vec<(i64, String)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT p.rowid, f.title || ' ' || f.heading || ' ' || f.text
+             FROM passages p JOIN passages_fts f ON f.rowid = p.rowid
+             WHERE p.page_id = ?1 ORDER BY p.ordinal",
+        )?;
+        let rows = stmt.query_map([page_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect()
+    }
+
+    /// The passage stored under `rowid`.
+    pub fn passage(&self, rowid: i64) -> rusqlite::Result<Option<PassageRow>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT p.page_id, p.ordinal, p.heading_path, p.byte_start, p.byte_end, p.markdown, f.text
+             FROM passages p JOIN passages_fts f ON f.rowid = p.rowid WHERE p.rowid = ?1",
+        )?;
+        stmt.query_row([rowid], |r| {
+            let path: String = r.get(2)?;
+            Ok(PassageRow {
+                page_id: r.get(0)?,
+                ordinal: r.get(1)?,
+                heading_path: serde_json::from_str(&path).unwrap_or_default(),
+                start: r.get::<_, i64>(3)?.try_into().unwrap_or(0),
+                end: r.get::<_, i64>(4)?.try_into().unwrap_or(0),
+                markdown: r.get(5)?,
+                text: r.get(6)?,
+            })
+        })
+        .optional()
+    }
+
     /// Pages whose body links to `target` with a page link.
     pub fn page_links_to(&self, target: &str) -> rusqlite::Result<Vec<String>> {
         let mut stmt = self.conn.prepare_cached(
@@ -345,6 +469,12 @@ impl IndexDb {
                 "SELECT p.id, t.text FROM pages_trigram t JOIN pages p ON p.rowid = t.rowid ORDER BY 1",
                 2,
             ),
+            (
+                "SELECT p.page_id, p.ordinal, p.heading_path, p.byte_start, p.byte_end, p.markdown,
+                        f.title, f.heading, f.text
+                 FROM passages p JOIN passages_fts f ON f.rowid = p.rowid ORDER BY 1, 2",
+                9,
+            ),
         ] {
             let mut stmt = self.conn.prepare(sql).unwrap();
             let rows = stmt
@@ -378,6 +508,7 @@ fn delete_page(tx: &Transaction<'_>, id: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM pages_fts WHERE rowid = ?1", [rowid])?;
         tx.execute("DELETE FROM pages_trigram WHERE rowid = ?1", [rowid])?;
     }
+    delete_passages(tx, id)?;
     tx.execute("DELETE FROM pages WHERE id = ?1", [id])?;
     tx.execute("DELETE FROM tags WHERE page_id = ?1", [id])?;
     tx.execute("DELETE FROM links WHERE source_id = ?1", [id])?;
@@ -470,6 +601,57 @@ fn replace_content(tx: &Transaction<'_>, id: &str, content: &PageContent) -> rus
             format!("{}\n{}\n{}", title.replace('\n', " "), content.text, props)
         ],
     )?;
+    replace_passages(tx, id, &title, &content.passages)
+}
+
+fn delete_passages(tx: &Transaction<'_>, id: &str) -> rusqlite::Result<()> {
+    // Row by row: FTS5 can't use an index for `rowid IN (subquery)` and
+    // would scan the whole table for every page.
+    let rowids = tx
+        .prepare_cached("SELECT rowid FROM passages WHERE page_id = ?1")?
+        .query_map([id], |r| r.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if rowids.is_empty() {
+        return Ok(());
+    }
+    let mut delete = tx.prepare_cached("DELETE FROM passages_fts WHERE rowid = ?1")?;
+    for rowid in rowids {
+        delete.execute([rowid])?;
+    }
+    tx.execute("DELETE FROM passages WHERE page_id = ?1", [id])?;
+    Ok(())
+}
+
+fn replace_passages(
+    tx: &Transaction<'_>,
+    id: &str,
+    title: &str,
+    passages: &[Passage],
+) -> rusqlite::Result<()> {
+    delete_passages(tx, id)?;
+    let mut insert = tx.prepare_cached(
+        "INSERT INTO passages (page_id, ordinal, heading_path, byte_start, byte_end, markdown)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    let mut words = tx.prepare_cached(
+        "INSERT INTO passages_fts (rowid, title, heading, text) VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for (ordinal, passage) in passages.iter().enumerate() {
+        let rowid = insert.insert(params![
+            id,
+            ordinal as i64,
+            serde_json::to_string(&passage.heading_path).unwrap_or_else(|_| "[]".into()),
+            passage.start as i64,
+            passage.end as i64,
+            passage.markdown,
+        ])?;
+        words.execute(params![
+            rowid,
+            title,
+            passage.heading_path.join(" › "),
+            passage.text
+        ])?;
+    }
     Ok(())
 }
 
@@ -670,6 +852,56 @@ mod tests {
     }
 
     #[test]
+    fn passages_are_searchable_and_replaced_with_their_page() {
+        let mut db = IndexDb::open(None).unwrap();
+        let body = "# Folding\n\nProteins fold into shapes.\n\n# 方法\n\n多序列比对和注意力机制。";
+        let with_passages = |body: &str| PageContent {
+            text: crate::extract::extract(body).text,
+            passages: crate::passages::chunk(body),
+            ..Default::default()
+        };
+        db.apply(
+            &[],
+            &[row("a", "Biology")],
+            &[("a".into(), with_passages(body))],
+        )
+        .unwrap();
+        // Stemmed: "folded" finds "fold".
+        let words = db.search_passage_words("\"folded\"", 10).unwrap();
+        assert_eq!(words.len(), 1);
+        let found = db.passage(words[0]).unwrap().unwrap();
+        assert_eq!(found.page_id, "a");
+        assert_eq!(found.heading_path, ["Folding"]);
+        assert_eq!(&body[found.start..found.end], found.markdown);
+        assert_eq!(found.text, "Folding\nProteins fold into shapes.");
+        // The title is searchable in every passage.
+        assert_eq!(db.search_passage_words("\"biology\"", 10).unwrap().len(), 2);
+        let pages = db
+            .search_page_trigrams("\"序列比\" OR \"不存在\"", 10)
+            .unwrap();
+        assert_eq!(pages, ["a"]);
+        assert_eq!(
+            db.scan_pages(&["方法".into(), "注意".into()], 100).unwrap(),
+            ["a"]
+        );
+        let texts = db.passage_texts("a").unwrap();
+        assert_eq!(texts.len(), 2);
+        assert!(texts[1].1.starts_with("Biology 方法 方法"));
+
+        db.apply(
+            &[],
+            &[row("a", "Biology")],
+            &[("a".into(), with_passages("Only this now."))],
+        )
+        .unwrap();
+        assert!(db.search_passage_words("\"fold\"", 10).unwrap().is_empty());
+        assert_eq!(db.search_passage_words("\"only\"", 10).unwrap().len(), 1);
+        db.apply(&["a".into()], &[], &[]).unwrap();
+        assert!(db.search_passage_words("\"only\"", 10).unwrap().is_empty());
+        assert!(db.passage_texts("a").unwrap().is_empty());
+    }
+
+    #[test]
     fn links_tags_and_frontmatter_are_cached() {
         let mut db = IndexDb::open(None).unwrap();
         let mut frontmatter = serde_json::Map::new();
@@ -695,6 +927,7 @@ mod tests {
                         },
                     ],
                     frontmatter: Some(frontmatter),
+                    passages: Vec::new(),
                 },
             )],
         )

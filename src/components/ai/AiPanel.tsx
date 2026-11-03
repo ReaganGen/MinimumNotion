@@ -1,17 +1,36 @@
-import { ArrowUp, Cloud, Laptop, RotateCcw, Sparkles, Square, Trash2, X } from "lucide-react";
+import {
+  ArrowUp,
+  BookOpen,
+  Cloud,
+  FileText,
+  Laptop,
+  RotateCcw,
+  Search,
+  Sparkles,
+  Square,
+  TextQuote,
+  Trash2,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/layout/IconButton";
+import { askAboutPage, openSource, summarizePage } from "@/features/ai/actions";
 import { type ChatTurn, useAiChatStore } from "@/features/ai/aiStore";
+import { checkCitations } from "@/features/ai/citations";
 import { destinationLabel, hostOf, isLocalUrl, readiness } from "@/features/ai/providers";
 import { runCommand, SHORTCUTS } from "@/features/commands/commands";
 import { useSettingsStore } from "@/features/settings/settingsStore";
 import { useUiStore } from "@/features/ui/uiStore";
+import { useWorkspaceStore } from "@/features/workspace/workspaceStore";
+import type { ContextReport } from "@/lib/ipc/bindings/ContextReport";
 import type { ProviderConfig } from "@/lib/ipc/bindings/ProviderConfig";
+import type { Source } from "@/lib/ipc/bindings/Source";
 import { ipc } from "@/lib/ipc/client";
 import { cn } from "@/lib/utils";
 import { ChatMarkdown } from "./ChatMarkdown";
 
-/** The AI assistant panel. Plain chat with the active provider; it sees no notes yet. */
+/** The AI assistant panel: chat with the active provider about your notes. */
 export function AiPanel() {
   const ai = useSettingsStore((s) => s.settings.ai);
   const turns = useAiChatStore((s) => s.turns);
@@ -47,7 +66,7 @@ export function AiPanel() {
         <EmptyState
           title="AI is off"
           action="Turn on in Settings"
-          body="Forma works fully without it. Turn it on to chat with OpenAI, Anthropic, or a local model through Ollama or LM Studio."
+          body="Forma works fully without it. Turn it on to ask about your notes with OpenAI, Anthropic, or a local model through Ollama or LM Studio."
         />
       )}
       {ready.state === "no-provider" && (
@@ -95,9 +114,18 @@ function EmptyState({ title, body, action }: { title: string; body: string; acti
   );
 }
 
+/** The open page, as the panel's actions need it. */
+function useOpenPage(): { id: string; title: string } | null {
+  const id = useWorkspaceStore((s) => s.activePageId);
+  const title = useWorkspaceStore((s) => s.breadcrumbs.at(-1)?.title);
+  return id && title !== undefined ? { id, title } : null;
+}
+
 function Conversation({ provider, agreed }: { provider: ProviderConfig; agreed: boolean }) {
   const turns = useAiChatStore((s) => s.turns);
   const busy = useAiChatStore((s) => s.requestId !== null);
+  const hasWorkspace = useWorkspaceStore((s) => s.info !== null);
+  const openPage = useOpenPage();
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
@@ -119,9 +147,26 @@ function Conversation({ provider, agreed }: { provider: ProviderConfig; agreed: 
         className="min-h-0 flex-1 overflow-y-auto px-4 pb-4"
       >
         {turns.length === 0 ? (
-          <p className="mt-6 text-[13px] leading-5 text-muted-foreground">
-            Ask anything. The assistant can't see your notes yet: it only knows what you write here.
-          </p>
+          <div className="mt-6 text-[13px] leading-5 text-muted-foreground">
+            {hasWorkspace ? (
+              <p>Ask about your notes. Answers cite the passages they draw on.</p>
+            ) : (
+              <p>
+                Open a workspace to ask about your notes. Until then, the assistant only knows what
+                you write here.
+              </p>
+            )}
+            {openPage && agreed && (
+              <div className="mt-3 flex flex-col items-start gap-1">
+                <SuggestionButton onClick={() => summarizePage(openPage)}>
+                  <BookOpen aria-hidden /> Summarize this page
+                </SuggestionButton>
+                <SuggestionButton onClick={() => askAboutPage(openPage)}>
+                  <FileText aria-hidden /> Ask about this page
+                </SuggestionButton>
+              </div>
+            )}
+          </div>
         ) : (
           <ol aria-label="Conversation" className="flex flex-col gap-4 pt-2">
             {turns.map((turn, i) => (
@@ -136,9 +181,58 @@ function Conversation({ provider, agreed }: { provider: ProviderConfig; agreed: 
           </ol>
         )}
       </div>
-      {agreed ? <Composer provider={provider} /> : <CloudAgreement provider={provider} />}
+      {agreed ? (
+        <Composer provider={provider} hasWorkspace={hasWorkspace} />
+      ) : (
+        <CloudAgreement provider={provider} />
+      )}
     </>
   );
+}
+
+function SuggestionButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-foreground hover:bg-accent [&_svg]:size-3.5 [&_svg]:text-muted-foreground"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** What a message included, in words. */
+export function describeContext(context: ContextReport): string | null {
+  const parts: string[] = [];
+  if (context.selection) {
+    parts.push(context.selection_complete ? "the selection" : "part of the selection");
+  }
+  if (context.page) {
+    parts.push(
+      context.page_complete ? `“${context.page.title}”` : `part of “${context.page.title}”`,
+    );
+  }
+  if (context.passages > 0) {
+    parts.push(`${context.passages} passage${context.passages === 1 ? "" : "s"} from your notes`);
+  }
+  const sentences: string[] = [];
+  if (parts.length > 0) {
+    const list =
+      parts.length === 1
+        ? parts[0]
+        : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+    sentences.push(`Included ${list}.`);
+  }
+  if (context.searched && context.passages === 0) {
+    sentences.push(parts.length > 0 ? "No other notes matched." : "No notes matched.");
+  }
+  if (context.left_out_turns > 0) {
+    sentences.push(
+      `${context.left_out_turns} earlier message${context.left_out_turns === 1 ? " was" : "s were"} left out to fit.`,
+    );
+  }
+  return sentences.length > 0 ? sentences.join(" ") : null;
 }
 
 function Turn({
@@ -154,13 +248,22 @@ function Turn({
 }) {
   const retry = useAiChatStore((s) => s.retry);
   if (turn.role === "user") {
+    const included = turn.context ? describeContext(turn.context) : null;
     return (
       <li className="flex flex-col items-end">
         <div className="selectable max-w-[90%] rounded-lg bg-muted px-3 py-2 text-[13.5px] leading-[1.6] whitespace-pre-wrap break-words">
           {turn.content}
         </div>
         {turn.sentTo && (
-          <span className="mt-1 text-[11px] text-faint-foreground">{turn.sentTo}</span>
+          <span className="mt-1 text-right text-[11px] leading-4 text-faint-foreground">
+            {turn.sentTo}
+            {included && (
+              <>
+                <br />
+                {included}
+              </>
+            )}
+          </span>
         )}
       </li>
     );
@@ -168,13 +271,35 @@ function Turn({
   const canRetry = last && !busy && (turn.status === "failed" || turn.status === "stopped");
   return (
     <li aria-busy={turn.status === "streaming"}>
+      {turn.activity.length > 0 && (
+        <ul aria-label="Lookups" className="mb-1.5 flex flex-col gap-0.5">
+          {turn.activity.map((step, i) => (
+            <li
+              // biome-ignore lint/suspicious/noArrayIndexKey: steps only grow
+              key={i}
+              className={cn(
+                "flex items-center gap-1.5 text-[12px] text-muted-foreground",
+                step.failed && "text-destructive",
+              )}
+            >
+              {step.failed ? (
+                <TriangleAlert className="size-3 shrink-0" aria-hidden />
+              ) : (
+                <Search className="size-3 shrink-0" aria-hidden />
+              )}
+              {step.label}
+            </li>
+          ))}
+        </ul>
+      )}
       {turn.content ? (
-        <ChatMarkdown text={turn.content} />
+        <ChatMarkdown text={turn.content} sources={turn.sources} onOpenSource={openSource} />
       ) : (
         turn.status === "streaming" && (
           <p className="text-[13px] text-muted-foreground">Waiting for {provider.model}…</p>
         )
       )}
+      {turn.status !== "streaming" && turn.sources.length > 0 && <Sources turn={turn} />}
       {turn.status === "stopped" && (
         <p className="mt-1 text-[12px] text-muted-foreground">Stopped.</p>
       )}
@@ -206,35 +331,132 @@ function Turn({
   );
 }
 
-function Destination({ provider }: { provider: ProviderConfig }) {
+/** The sources an answer cites, each opening its page; uncited ones on request. */
+function Sources({ turn }: { turn: ChatTurn }) {
+  const { cited, unverified } = checkCitations(turn.content, turn.sources);
+  const uncited = turn.sources.filter((s) => !cited.includes(s));
+  return (
+    <div className="mt-2 text-[12px]">
+      {cited.length > 0 && <SourceList label="Sources" sources={cited} />}
+      {uncited.length > 0 && (
+        <details className="mt-1 text-muted-foreground">
+          <summary className="cursor-default rounded px-1 hover:text-foreground">
+            {cited.length > 0
+              ? `${uncited.length} more provided, not cited`
+              : `${uncited.length} source${uncited.length === 1 ? "" : "s"} provided, none cited`}
+          </summary>
+          <SourceList label="Not cited" sources={uncited} />
+        </details>
+      )}
+      {unverified.length > 0 && (
+        <p className="mt-1 flex items-start gap-1 px-1 text-muted-foreground">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden />
+          <span>
+            Unverified: {unverified.join(", ")} {unverified.length === 1 ? "isn't" : "aren't"} among
+            the sources Forma provided.
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SourceList({ label, sources }: { label: string; sources: Source[] }) {
+  return (
+    <ul aria-label={label} className="flex flex-col">
+      {sources.map((source) => (
+        <li key={source.key}>
+          <button
+            type="button"
+            onClick={() => openSource(source)}
+            title={source.excerpt}
+            className="flex w-full min-w-0 items-baseline gap-1.5 rounded px-1 py-0.5 text-left hover:bg-accent"
+          >
+            <span className="shrink-0 rounded bg-muted px-1 text-[10.5px] font-medium text-muted-foreground">
+              {source.key}
+            </span>
+            <span className="truncate text-foreground">
+              {source.title}
+              {source.section.length > 0 && (
+                <span className="text-muted-foreground"> › {source.section.join(" › ")}</span>
+              )}
+              {source.kind === "selection" && (
+                <span className="text-muted-foreground"> (selection)</span>
+              )}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Destination({ provider, notes }: { provider: ProviderConfig; notes: boolean }) {
   const local = isLocalUrl(provider.base_url);
   const Icon = local ? Laptop : Cloud;
   return (
     <p className="mt-1.5 flex items-start gap-1.5 px-1 text-[11.5px] leading-4 text-faint-foreground">
       <Icon className="mt-0.5 size-3 shrink-0" aria-hidden />
       <span>
-        {destinationLabel(provider)} · {provider.model} · no notes included
+        {destinationLabel(provider)} · {provider.model} ·{" "}
+        {notes ? "with passages from your notes" : "no notes included"}
       </span>
     </p>
   );
 }
 
-function Composer({ provider }: { provider: ProviderConfig }) {
-  const [text, setText] = useState("");
+function Chip({
+  icon,
+  label,
+  onRemove,
+  removeLabel,
+}: {
+  icon: ReactNode;
+  label: string;
+  onRemove: () => void;
+  removeLabel: string;
+}) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted py-0.5 pr-0.5 pl-1.5 text-[12px] text-foreground [&_svg]:size-3 [&_svg]:shrink-0">
+      {icon}
+      <span className="truncate">{label}</span>
+      <button
+        type="button"
+        aria-label={removeLabel}
+        title={removeLabel}
+        onClick={onRemove}
+        className="rounded-sm p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <X aria-hidden />
+      </button>
+    </span>
+  );
+}
+
+function Composer({ provider, hasWorkspace }: { provider: ProviderConfig; hasWorkspace: boolean }) {
+  const text = useAiChatStore((s) => s.draft);
   const busy = useAiChatStore((s) => s.requestId !== null);
-  const { send, stop } = useAiChatStore.getState();
+  const page = useAiChatStore((s) => s.page);
+  const selection = useAiChatStore((s) => s.selection);
+  const searchNotes = useAiChatStore((s) => s.searchNotes);
+  const focusRequest = useAiChatStore((s) => s.focusRequest);
+  const { send, stop, setDraft, attachPage, attachSelection, setSearchNotes } =
+    useAiChatStore.getState();
+  const openPage = useOpenPage();
   const input = useRef<HTMLTextAreaElement>(null);
   const visible = useSettingsStore((s) => s.settings.layout.ai_panel.visible);
 
-  // The panel stays mounted while hidden; focus the message box when it opens.
+  // The panel stays mounted while hidden; focus the message box when it
+  // opens, and when an action asks for it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focusRequest is the trigger
   useEffect(() => {
     if (visible) input.current?.focus();
-  }, [visible]);
+  }, [visible, focusRequest]);
 
   function submit() {
     if (busy || !text.trim()) return;
     void send(text, provider);
-    setText("");
+    setDraft("");
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -245,30 +467,82 @@ function Composer({ provider }: { provider: ProviderConfig }) {
     }
   }
 
+  const notes = hasWorkspace && (searchNotes || page !== null || selection !== null);
+  const canAddPage = hasWorkspace && openPage !== null && page?.id !== openPage.id;
   return (
     <div className="shrink-0 px-3 pb-3">
-      <div className="flex items-end gap-1.5 rounded-lg px-2.5 py-2 shadow-popover">
-        <textarea
-          ref={input}
-          aria-label="Message"
-          rows={1}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={`Message ${provider.model}`}
-          className="max-h-40 min-h-6 flex-1 resize-none bg-transparent text-[13.5px] leading-6 outline-none [field-sizing:content] placeholder:text-faint-foreground"
-        />
-        {busy ? (
-          <ComposerButton label="Stop" onClick={stop}>
-            <Square className="size-3 fill-current" aria-hidden />
-          </ComposerButton>
-        ) : (
-          <ComposerButton label="Send" onClick={submit} disabled={!text.trim()}>
-            <ArrowUp className="size-4" aria-hidden />
-          </ComposerButton>
+      <div className="rounded-lg px-2.5 py-2 shadow-popover">
+        {hasWorkspace && (
+          <div className="mb-1.5 flex flex-wrap items-center gap-1">
+            {selection && (
+              <Chip
+                icon={<TextQuote aria-hidden />}
+                label={`“${selection.text.replace(/\s+/g, " ")}”`}
+                onRemove={() => attachSelection(null)}
+                removeLabel="Remove the selection"
+              />
+            )}
+            {page && (
+              <Chip
+                icon={<FileText aria-hidden />}
+                label={page.title}
+                onRemove={() => attachPage(null)}
+                removeLabel={`Remove “${page.title}”`}
+              />
+            )}
+            {canAddPage && openPage && (
+              <button
+                type="button"
+                onClick={() => attachPage(openPage)}
+                className="inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-3"
+              >
+                <FileText aria-hidden className="shrink-0" />
+                <span className="truncate">Add “{openPage.title}”</span>
+              </button>
+            )}
+            <button
+              type="button"
+              aria-pressed={searchNotes}
+              onClick={() => setSearchNotes(!searchNotes)}
+              title={
+                searchNotes
+                  ? "Each message searches your notes for passages to include"
+                  : "Messages don't search your notes"
+              }
+              className={cn(
+                "ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] [&_svg]:size-3",
+                searchNotes
+                  ? "text-foreground hover:bg-accent"
+                  : "text-faint-foreground line-through hover:bg-accent",
+              )}
+            >
+              <Search aria-hidden /> Search notes
+            </button>
+          </div>
         )}
+        <div className="flex items-end gap-1.5">
+          <textarea
+            ref={input}
+            aria-label="Message"
+            rows={1}
+            value={text}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder={`Message ${provider.model}`}
+            className="max-h-40 min-h-6 flex-1 resize-none bg-transparent text-[13.5px] leading-6 outline-none [field-sizing:content] placeholder:text-faint-foreground"
+          />
+          {busy ? (
+            <ComposerButton label="Stop" onClick={stop}>
+              <Square className="size-3 fill-current" aria-hidden />
+            </ComposerButton>
+          ) : (
+            <ComposerButton label="Send" onClick={submit} disabled={!text.trim()}>
+              <ArrowUp className="size-4" aria-hidden />
+            </ComposerButton>
+          )}
+        </div>
       </div>
-      <Destination provider={provider} />
+      <Destination provider={provider} notes={notes} />
     </div>
   );
 }
@@ -318,8 +592,9 @@ function CloudAgreement({ provider }: { provider: ProviderConfig }) {
           <Cloud className="size-3.5" aria-hidden /> Messages leave this Mac
         </p>
         <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
-          What you write here goes to {provider.name} at {hostOf(provider.base_url)}, under its
-          terms. Forma sends only what you type in this panel, never your notes.
+          What you write here, and the parts of your notes needed to answer it, go to{" "}
+          {provider.name} at {hostOf(provider.base_url)}, under its terms. Turn off “Search notes”
+          and attach nothing to send only what you type.
         </p>
         {error && <p className="mt-1 text-[12.5px] text-destructive">{error}</p>}
         <div className="mt-2.5 flex gap-2">

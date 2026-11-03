@@ -5,6 +5,7 @@
  */
 export type GenerationOptions = { temperature: number | null, max_output_tokens: number | null, context_window_override: number | null, 
 /**
- * Reserved for Act mode (Phase 6): the user vouches that the model can call tools.
+ * Whether the model can call tools, when the user knows better than the
+ * provider reports (OpenAI reports nothing). `None`: what the provider says.
  */
 tool_calling_override: boolean | null, };

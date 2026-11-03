@@ -2,11 +2,30 @@
 
 ## Current Phase
 
-Phase 4: AI Provider Integration (approved 2026-11-03). **Implemented and verified; waiting for the user's approval to proceed to Phase 5.**
+Phase 5: AI Knowledge Retrieval (approved 2026-11-03). **Implemented and verified; waiting for the user's approval to proceed to Phase 6.**
 
 ## Status
 
-Phase 4 is complete as far as automated, preview, live-endpoint and release-app checks can show. No API key, Ollama or LM Studio was available, so a real conversation with each provider is the first manual check below.
+Phase 5 is complete as far as automated, preview and release-app checks can show. As in Phase 4, no API key, Ollama or LM Studio was available, so no real model has answered a question about the notes yet; that's the first manual check below.
+
+### Phase 5 journal
+
+- **Passages (ADR-041).** Each page body is cut at headings and between blocks into passages of 250–400 tokens, keeping their heading path and byte range (`forma-core/src/passages.rs`). Index schema 2 stores them with a stemmed word index, and an older index is rebuilt by itself (checked in the release app).
+- **Retrieval.** `Retriever` with one BM25 implementation: any of the question's words (stemmed, without stop words), plus, for Chinese, Japanese and Korean, pages found through the trigram table whose passages are ranked by shared three-character pieces; the two rankings are merged by reciprocal rank, at most three passages per page. A labeled set of 17 questions (English and Chinese, one with no answer) finds the right page first for all 16 answerable ones and nothing for the other. The set was written for this test, so it guards against regressions rather than measuring quality.
+- **Read-only by type (ADR-042).** The assistant reaches notes only through `ReadView`, a view of the workspace with no method that writes. The four Ask tools (`search_pages`, `read_page`, `list_pages`, `get_page_metadata`) each take that view and their arguments: page IDs only, typed schemas, results cut to fit.
+- **Packing.** Each request is fitted to the model's window: the message, then the selection, the attached page (cut around the cursor if long), retrieved passages, then as many earlier turns as fit. Rust reports what went in, and the panel shows it under the message ("Included “Plan” and 3 passages from your notes.").
+- **Sources and citations.** Every piece of the notes sent is a numbered source (`S1`, `S2`…, unique in the conversation). Citations that match a source the answer was given open the page and highlight the passage; any other key is marked unverified. Each answer lists the sources it cited, the ones it was given but didn't cite, and unverified keys.
+- **Tools for capable models.** Up to 6 rounds of lookups, shown in the panel as they happen ("Searched the notes for “ice”"), then one round that must answer. Anthropic's thinking blocks go back with tool results, as its API requires. Settings → AI → "Look things up in your notes" (Automatic, On, Off) decides for models whose provider doesn't say (OpenAI).
+- **Actions.** "Ask AI about this page" and "Summarize with AI" in the page menu; "Summarize this page" and "Ask about this page" in an empty conversation; "Explain" and "Ask AI" in the selection menu. They appear only when AI is on.
+- **Privacy.** "Search notes" in the panel is on by default; off, nothing from the notes is sent unless attached, and no tools are offered. The cloud agreement now says that note excerpts go to the provider; agreements given under Phase 4's wording ("never your notes") no longer count, so a cloud provider asks once more.
+- **Bugs found and fixed during the phase:**
+  1. *A passage that didn't fit the budget still got a source key*, so the panel could list it as provided and accept a citation of it. Keys are now given only to text that's sent; the fuzz test checks that every key it sees was in the tool's output.
+  2. *With "Search notes" off, tool-capable models could still read notes through tools*, so "no notes included" wasn't true. Tools now follow the switch.
+  3. *Cold open slowed from 0.63 s to 2.2 s* on 5,000 pages. Deleting a page's passages used `rowid IN (subquery)`, which FTS5 answers by scanning the table (once per page), and a second trigram table cost 0.75 s. Both fixed: 0.83 s.
+  4. *The last tool round sent no tool definitions* although the conversation used tools, which some APIs reject. It now keeps them, with `tool_choice: none`.
+  5. *A page source's excerpt kept its Markdown*, so its citation couldn't find the text in the editor. Excerpts are plain text.
+  6. *A very large source number from the window could overflow* (a panic in debug builds). It's clamped.
+- **Design decisions:** ADR-041, ADR-042.
 
 ### Phase 4 journal
 
@@ -65,6 +84,7 @@ Phase 4 is complete as far as automated, preview, live-endpoint and release-app 
 - **Phase 1: macOS Application Foundation**, with the Phase 1.1 audit fixes. Commits `fd1dc6b` and `c2145e7`; design decisions recorded in `a90c3c6`.
 - **Phase 2: Document System and Editor.** Approved 2026-11-02 (commits `52c5d1e`, `7cbe4c7`).
 - **Phase 3: Collections, Links, and Search.** Approved 2026-11-03 (commit `4c4ade6`).
+- **Phase 4: AI Provider Integration.** Approved 2026-11-03 (commit `5e3825e`).
 
 ## Implemented Features
 
@@ -124,31 +144,44 @@ The architecture documents and CLAUDE.md. See the git history.
 
 ## Tests
 
-Run on 2026-11-03 at the end of Phase 4 (`npm run check` exits 0):
+Run on 2026-11-03 at the end of Phase 5 (`npm run check` exits 0):
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` (app and Vite config) | Pass |
-| `npx biome check .` | Pass, 0 diagnostics |
-| `npx vitest run` | 26 files, **173 tests passed** |
+| `npx biome check .` | Pass, 0 diagnostics (115 files) |
+| `npx vitest run` | 28 files, **184 tests passed** |
 | `cargo fmt --all --check` | Pass |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
-| `cargo test --workspace` | **207 passed, 2 ignored**: 146 in `forma-core`, 58 in `forma-ai` (44 unit, 13 against a local HTTP server, 1 key-leak check) and 3 in the shell |
-| `cargo test -p forma-ai --lib -- --ignored keychain` | Pass: a real login-keychain item was written, read, replaced and deleted; none was left behind |
-| `cargo test -p forma-ai --test live_endpoints -- --ignored` | Pass: api.anthropic.com and api.openai.com, reached over TLS, rejected a fake key with 401, reported as an authentication error with the key removed from the message |
-| `npm audit` | 0 vulnerabilities |
-| `npm run tauri -- build --bundles app` | Pass. `Forma.app` is 11.97 MiB, arm64 (10.43 MiB before; the HTTP and TLS stack). The JS bundle is 1.38 MB (422 KB gzipped) |
+| `cargo test --workspace` | **246 passed, 2 ignored**: 159 in `forma-core`, 84 in `forma-ai` (65 unit, 18 against a local HTTP server, 1 key-leak check) and 3 in the shell |
+| `npm audit` | 0 vulnerabilities (no dependency was added) |
+| `npm run tauri -- build --bundles app` | Pass. `Forma.app` is 12.16 MiB, arm64 (11.97 MiB in Phase 4). The JS bundle is 1.39 MB (426 KB gzipped) |
 | `codesign --verify --deep --strict Forma.app` | Pass (ad-hoc, hardened runtime). Not notarized |
 
-New in Phase 4: stream framing at every chunk size; each protocol's decoder on its fixtures (text, tool calls, usage, provider errors, truncation, a stream cut short); request bodies (no temperature for Anthropic, `store: false` for OpenAI, `num_ctx` for Ollama); HTTP status mapping; base-URL rules and loopback detection; and, against a local HTTP server, the headers and bodies each protocol sends, streaming, Stop during a stalled stream (stops within the test's 2 s limit), a Stop that arrives first, 401/429/404/400 mapping, unreachable servers, the connection test, Anthropic's paged model list, and every refusal before sending (AI off, no provider, no model, no agreement, no key, too long). The key-leak test records all log output at trace level, including the HTTP client's, and every payload that would cross IPC while a provider echoes the key back: the key appears in neither. In the UI: the panel's states, cloud agreement, streaming, Stop and Retry, errors with retry-after, history sent without failed answers, Clear; the Markdown renderer's safety rules; Settings → AI (turn on, add, key never shown again, models, a refused change put back, connection test, Anthropic without temperature, removal asks first).
+The two ignored tests (a real Keychain item; the cloud APIs with a fake key) were run in Phase 4 and not again: the code they cover didn't change.
 
-**Stream fixtures are not recordings.** `crates/forma-ai/fixtures/` follows the documented formats of each provider (2026-11-03), with some fields trimmed. No API key, Ollama or LM Studio was available to record real streams.
+New in Phase 5: passage cutting (headings, size limits, long blocks cut at lines, sentences and characters, byte ranges); the passage tables (stemmed words, replaced and removed with their page, kept in step on rebuild); retrieval (question terms, quoting, the per-page cap, excluded pages, the labeled set); packing (sources numbered from where the conversation is, attached page and selection first, a long page cut around the cursor, older turns dropped first, the budget held, a message too long refused, source blocks that can't be closed from inside, a passage that doesn't fit gets no key); the four tools (results, parts of long pages, metadata, 13 kinds of bad arguments, and **a fuzz test** of 3,000 random calls with paths, `..`, SQL, FTS syntax, wrong types and broken JSON that checks no call panics, every key given was sent, and **no file in the workspace changes**); a type test pinning the Ask registry to read-only tools; each protocol's tool turns (Anthropic's blocks and thinking, Responses items, Chat Completions `tool` messages, Ollama `tool_name`), and, against a local HTTP server, an answer with numbered sources, a full tool round trip with Anthropic (thinking sent back, results in one user message), the round cap, the user's tool setting winning over the provider, and "Search notes" off sending no notes and no tools. In the UI: citations (formats, verification, an invented key), the reveal (finding text across blocks, the highlight changing nothing), the panel (attaching the page, turning search off, what was included, sources listed and opened, unverified keys, numbering across messages, Summarize), and AI items in the page menu only when AI is on. Settings: a Phase 4 agreement isn't carried over.
 
-Runtime check on the release app (2026-11-03), with AI off and a generated 40-page workspace: the app **opened no network sockets** (`lsof -i` on its process), the quit handshake took 0.16 s, every file was unchanged, and settings.json was not rewritten. The settings file and window state were restored byte-for-byte afterwards, and the test index and workspace deleted.
+**Performance** with 5,000 generated pages (`cargo run --release -p forma-core --example measure -- sandbox-workspaces/perf`; Phase 4's code measured the same day on the same machine for comparison):
 
-Checked in the development browser preview (fake provider, no network), light and dark: AI off, turning it on, adding Anthropic, storing a key (then shown only as "Stored in your Keychain."), loading and choosing a model, model details, the cloud agreement, a streamed answer with code, a link, HTML shown as text and an image shown as its address. Duplicate-key warnings appeared in the preview's console only after hot reloads during editing; a fresh load and the same steps logged no errors.
+| Operation | Phase 4 | Phase 5 |
+|---|---|---|
+| Open, no index cache (cold) | 633 ms | 831 ms |
+| Open, with the cache | 27 ms | 28 ms |
+| Rebuild the index | 564 ms | 684 ms |
+| Index size on disk | 35.2 MB | 51.3 MB |
+| Retrieve 8 passages: English questions | — | 1.5–2.7 ms |
+| Retrieve 8 passages: a Chinese question, `知识` | — | 2.9 ms, 7.7 ms |
 
-**Unverified:** a real conversation with any provider (no keys, no Ollama or LM Studio here), and every interaction inside the native window.
+Runtime check on the release app (2026-11-03), with AI off and a generated 40-page workspace: the app **opened no network sockets**, built a schema 2 index (41 pages, 59 passages), quit in 0.14 s, and on a second launch rebuilt an index whose version was set back to 1. Every file in the workspace was unchanged. The settings file and window state were restored byte-for-byte afterwards, and the test index and workspace deleted.
+
+Checked in the development browser preview (fake provider and retrieval, no network), light and dark: turning AI on and choosing a local model, the empty conversation's page actions, "Add" and "Search notes", a question showing what was included, a cited source and an invented one (struck through, "Unverified: S99…"), the source list, a citation opening another page and highlighting the passage, the selection menu's Explain and Ask AI, and the selection chip. A fresh load and those steps logged no errors; duplicate-key warnings appeared only after hot reloads, as in Phase 4.
+
+**Unverified:** any real model answering from the notes, calling the tools or citing (no keys, no Ollama or LM Studio here); every interaction inside the native window.
+
+### Phase 4 test record
+
+Phase 4 ran `npm run check` (173 frontend and 207 Rust tests then), a real Keychain round trip, the cloud APIs rejecting a fake key with 401 over TLS, and the release app with AI off (no sockets, quit in 0.16 s, files unchanged). New then: stream framing at every chunk size; each protocol's decoder on its fixtures; request bodies; HTTP status mapping; base-URL rules; against a local HTTP server, headers and bodies, streaming, Stop, error mapping, the connection test and every refusal before sending; the key-leak test; and the panel, the Markdown renderer and Settings → AI. **Stream fixtures are not recordings**: `crates/forma-ai/fixtures/` follows each provider's documented format.
 
 ### Phase 3 test record
 
@@ -195,6 +228,16 @@ Checked in the development browser preview, not the native app: the editor's ren
 
 Use a test folder, not real notes. Open `target/release/bundle/macos/Forma.app`.
 
+**Phase 5**
+1. **Ask about notes:** set up a provider (Phase 4, steps 2–3), open the AI panel (⌘⇧A) and ask something a few of your test pages answer. Under your message it says what was included; the answer cites [S1], [S2]…; each citation and each entry under "Sources" opens its page with the passage highlighted.
+2. **Chinese:** ask in Chinese about Chinese pages (for example a question containing a word from a page). The right passages should be cited.
+3. **Missing information:** ask about something no page mentions. It should say "No notes matched." and the answer should say the notes don't cover it.
+4. **Page and selection:** in the page menu, "Summarize with AI"; in a page, select text, then "Explain" or "Ask AI". The page or selection shows above the message box and in "Included…".
+5. **Search notes off:** turn off "Search notes" in the panel and remove attachments: the line under the box says "no notes included", and the answer has no sources.
+6. **Tools:** with a model that calls tools (Anthropic, or Settings → AI → "Look things up in your notes" → On for OpenAI), ask something that needs several pages. Lookups appear above the answer ("Searched the notes for…", "Read “…”").
+7. **Cloud agreement:** a cloud provider agreed to in Phase 4 asks again, with the new wording.
+8. **Nothing written:** after all of the above, no page file changed (Forma never writes from the assistant).
+
 **Phase 4**
 1. **AI off:** with AI off (the default), the panel (⌘⇧A) says so and Forma works as before.
 2. **Local model:** install Ollama (or LM Studio) and pull a model. Settings → AI → Use AI → Add provider → Ollama. Load models, choose one, Test connection. Chat in the panel: the answer streams, the message says "Stays on this Mac", and Stop works mid-answer.
@@ -238,23 +281,25 @@ Not separately reviewed, and kept as documented: favorites and order in `.forma/
 ## Known Issues and Open Decisions
 
 1. **Native interactions are unverified by Claude.** The manual steps above cover them.
-2. **No real AI conversation has been tested.** Phase 4's stream fixtures follow the documentation, not recordings; the live test only covers authentication failures (ADR-038).
-3. **OpenAI models show no context window or tool support** (its model list has none), so the conversation-size check only applies when the user sets a context window. Phase 5 packs context against a conservative default.
-4. **The conversation isn't trimmed to fit the window yet.** A conversation that's too long is refused with a message to clear it; packing is Phase 5.
-5. **Development builds may ask for Keychain access again** after each rebuild (ad-hoc signing, risk R7).
-6. **Rebuilding the index, or a cold first open, briefly blocks other workspace requests** (about 0.6 s at 5,000 pages; ADR-035).
-7. **CJK search results are substring matches without relevance ranking** (ADR-036).
-8. **Recent pages in ⌘P last for the session only.**
-9. **Index caches of workspaces that were moved or deleted stay in Application Support** until removed by hand.
-10. **A collection's sidebar list stops at 50 entries** (ADR-037).
-11. **Wide tables scroll sideways inside the page's reading column.**
-12. **Recovery buffers** are cleared by a later successful save only when the same editor kept them (Phase 2).
-13. **The title field doesn't follow a title changed outside Forma** while the page is open (Phase 2).
-14. **The frontend bundle is 1.38 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
-15. **Each development build re-asks macOS for folder access** (ad-hoc signing; Phase 7).
-16. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
-17. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
+2. **No real AI conversation has been tested**, with or without notes. Stream fixtures and tool message formats follow the providers' documentation (ADR-038, ADR-042).
+3. **Retrieval matches words and characters, not meaning** (ADR-041). A question phrased with none of the notes' words finds nothing; the assistant then says the notes don't cover it.
+4. **Citations depend on the model.** One that ignores the instructions answers without citations; the panel still lists the sources it was given.
+5. **OpenAI models report no context window or tool support.** Forma packs for 8,192 tokens and offers no tools unless the user sets a window or turns tools on in Settings → AI.
+6. **A long attached page is cut to fit**, around the cursor if the page is open. The line under the message says "part of “…”".
+7. **Development builds may ask for Keychain access again** after each rebuild (ad-hoc signing, risk R7).
+8. **Rebuilding the index, or a cold first open, briefly blocks other workspace requests** (about 0.8 s at 5,000 pages; ADR-035, ADR-041). The index is 46% larger than in Phase 4.
+9. **CJK search results are substring matches without relevance ranking** in ⌘K (ADR-036); the assistant's retrieval ranks them.
+10. **Recent pages in ⌘P last for the session only.**
+11. **Index caches of workspaces that were moved or deleted stay in Application Support** until removed by hand.
+12. **A collection's sidebar list stops at 50 entries** (ADR-037).
+13. **Wide tables scroll sideways inside the page's reading column.**
+14. **Recovery buffers** are cleared by a later successful save only when the same editor kept them (Phase 2).
+15. **The title field doesn't follow a title changed outside Forma** while the page is open (Phase 2).
+16. **The frontend bundle is 1.39 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
+17. **Each development build re-asks macOS for folder access** (ad-hoc signing; Phase 7).
+18. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
+19. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
 
 ## Next Phase
 
-**Phase 5: AI Knowledge Retrieval (read-only)** (IMPLEMENTATION_PLAN §8): passage search over the notes, read-only tools, context packing within the model's window, and answers with citations that open the cited page. It starts only after your approval.
+**Phase 6: AI Agent and Knowledge Management** (IMPLEMENTATION_PLAN §9): proposed changes as ChangeSets with a diff preview, approve or reject, conflict checks against each page's revision, undo from the operation log, and prompt-injection tests. It starts only after your approval.

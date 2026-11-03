@@ -322,6 +322,8 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 
 ## 8. Phase 5: AI Knowledge Retrieval (read-only)
 
+> **Status (2026-11-03):** implemented; see PROGRESS.md. Decisions: ADR-041 (passages, stemmed BM25, CJK through page trigrams, rank fusion) and ADR-042 (numbered sources, packing, read-only tools, the new cloud agreement). No new dependencies. Deviations: the tool message formats follow the providers' documentation, untested against real providers (no keys or local models were available); Ask mode allows 6 tool rounds, not 12; a "Search notes" switch in the panel and a tool-use setting in Settings → AI were added, because tools also read notes and OpenAI doesn't report tool support.
+
 ### 8.1 Tasks
 
 1. Passage chunking and passage FTS (DATA_MODEL §9), plus the `Retriever` trait and its BM25 implementation.

@@ -3,13 +3,13 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { CellInput } from "./bindings/CellInput";
+import type { ChatInput } from "./bindings/ChatInput";
 import type { ChatStreamEvent } from "./bindings/ChatStreamEvent";
 import type { CollectionData } from "./bindings/CollectionData";
 import type { CollectionViews } from "./bindings/CollectionViews";
 import type { ConnectionReport } from "./bindings/ConnectionReport";
 import type { EntryData } from "./bindings/EntryData";
 import type { ErrorPayload } from "./bindings/ErrorPayload";
-import type { Message } from "./bindings/Message";
 import type { ModelCapabilities } from "./bindings/ModelCapabilities";
 import type { ModelInfo } from "./bindings/ModelInfo";
 import type { PageDocument } from "./bindings/PageDocument";
@@ -148,9 +148,9 @@ export const ipc = {
   aiModelCapabilities: (id: string) => call<ModelCapabilities>("ai_model_capabilities", { id }),
   aiTestConnection: (id: string) => call<ConnectionReport>("ai_test_connection", { id }),
   /** Streams one answer into `onEvent`. Resolves when it ends; failures arrive as events. */
-  aiChat: (requestId: string, messages: Message[], onEvent: (event: ChatStreamEvent) => void) => {
+  aiChat: (requestId: string, input: ChatInput, onEvent: (event: ChatStreamEvent) => void) => {
     const channel = new Channel<ChatStreamEvent>(onEvent);
-    return call<void>("ai_chat", { requestId, messages, onEvent: channel });
+    return call<void>("ai_chat", { requestId, input, onEvent: channel });
   },
   aiCancel: (requestId: string) => call<void>("ai_cancel", { requestId }),
 

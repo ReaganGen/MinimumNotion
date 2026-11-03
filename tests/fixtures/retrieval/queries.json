@@ -1,0 +1,19 @@
+[
+  { "query": "How does AlphaFold predict protein structures?", "expected": "Protein Folding" },
+  { "query": "what is self-attention", "expected": "Transformer Architecture" },
+  { "query": "how long should the dough ferment", "expected": "Sourdough Bread" },
+  { "query": "temples I visited in Kyoto", "expected": "Trip to Kyoto" },
+  { "query": "borrow checker and lifetimes", "expected": "Rust Ownership" },
+  { "query": "how should I taper before the race", "expected": "Marathon Training" },
+  { "query": "when to water the tomatoes", "expected": "Garden Plan" },
+  { "query": "Cal Newport on shallow work", "expected": "Book Notes - Deep Work" },
+  { "query": "what did the budget meeting decide", "expected": "Weekly Review 2026-10-27" },
+  { "query": "positional encodings in transformers", "expected": "Transformer Architecture" },
+  { "query": "AlphaFold2 是怎么利用注意力机制的？", "expected": "蛋白质结构预测" },
+  { "query": "卡片笔记法是什么", "expected": "知识管理方法" },
+  { "query": "红烧肉需要放冰糖吗", "expected": "红烧肉做法" },
+  { "query": "知识", "expected": "知识管理方法" },
+  { "query": "多序列比对很浅会怎样", "expected": "蛋白质结构预测" },
+  { "query": "Zettelkasten 双向链接", "expected": "知识管理方法" },
+  { "query": "volcano eruption magma", "expected": null }
+]
