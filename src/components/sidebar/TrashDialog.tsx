@@ -75,7 +75,7 @@ export function TrashDialog({ open, onOpenChange }: TrashDialogProps) {
                   <button
                     type="button"
                     onClick={() => deleteForever(entry)}
-                    className="rounded-md bg-destructive px-2 py-1 text-[12.5px] text-white"
+                    className="rounded-md bg-destructive-fill px-2 py-1 text-[12.5px] text-primary-foreground"
                   >
                     Delete
                   </button>

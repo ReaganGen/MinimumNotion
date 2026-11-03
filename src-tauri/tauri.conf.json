@@ -60,6 +60,7 @@
     "active": true,
     "targets": ["app"],
     "category": "Productivity",
+    "copyright": "© 2026 Forma contributors",
     "shortDescription": "A quieter place to think.",
     "icon": [
       "icons/32x32.png",

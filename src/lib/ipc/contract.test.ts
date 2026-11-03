@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import aiCommands from "../../../src-tauri/src/ai_commands.rs?raw";
 import settingsCommands from "../../../src-tauri/src/commands.rs?raw";
+import dataCommands from "../../../src-tauri/src/data_commands.rs?raw";
 import shell from "../../../src-tauri/src/main.rs?raw";
 import workspaceCommands from "../../../src-tauri/src/workspace_commands.rs?raw";
 import client from "./client.ts?raw";
@@ -45,7 +46,7 @@ function clientCalls(source: string): Map<string, string[]> {
 
 describe("IPC contract", () => {
   const rust = new Map(
-    [shell, settingsCommands, workspaceCommands, aiCommands].flatMap((source) => [
+    [shell, settingsCommands, workspaceCommands, aiCommands, dataCommands].flatMap((source) => [
       ...rustCommands(source),
     ]),
   );

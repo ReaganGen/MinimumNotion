@@ -345,3 +345,15 @@ Still open: F5–F14 and the user decisions in §5.2 and §8.
 | F7 | **Fixed** | `tauri-plugin-log` writes to `~/Library/Logs/app.forma.desktop/forma.log` (Info in release, Debug in development). Window-API errors are logged through `warn_on_err` | The release app wrote `opened workspace …` to the log file in the runtime checks. Logs never contain note text or credentials |
 
 Still open: F6, F8–F14.
+
+### 9.4 Resolved during Phase 7 (2026-11-03)
+
+| ID | Status | Change | Verification |
+|---|---|---|---|
+| F8 | **Fixed** (found already fixed) | `atomic.rs` reports success once the rename succeeded and only logs a failed directory fsync. This was done with F5 in Phase 2 but not recorded | Code read: `replace_with` logs the `sync_dir` error and returns `Ok` |
+| F9 | **Fixed** | A corrupt settings file is moved to `settings.json.corrupt-<seconds>`, or `-2`, `-3`… when that name is taken | `corrupt_file_is_kept_aside_and_defaults_used` now loads two corrupt files in a row and checks that both are kept |
+| F10 | **Fixed** (test) | `src/lib/ipc/mirrors.test.ts` reads `settings.rs` and `menu.rs` and compares the panel width ranges and every shortcut label with the Rust values | Passes; changing `⌘K` to `⌘J` in `commands.ts` made it fail ("open-search: expected '⌘K' to be '⌘J'") |
+| F11 | **Fixed** | `save_settings` applies the window theme only when the theme changed. The startup theme is applied separately in `main.rs` | clippy and the settings tests pass. Native title bar not observed (no screenshots of the app) |
+| F12 | **Fixed** | A floating side panel closes with Esc (unless a dialog, menu or list has it) or a click beside it | AppShell test "closes a floating panel with Esc or a click beside it" |
+
+Still open: F6 (an invalid settings field resets the whole file), F13 and F14 (informational).

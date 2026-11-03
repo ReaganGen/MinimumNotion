@@ -563,3 +563,34 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
   - Letting the model pass `base_rev`. It adds a way to fail without adding safety: the tool captures the revision the edit was checked against.
 - **Consequences:** No real model has proposed changes yet; the formats follow the providers' documentation (ADR-042). Undoing a page created inside a page that had no sub-pages leaves that page as a folder (`Name/index.md`), and a page ID written so a link works stays written. `tree.json` (advisory order) isn't journaled. A proposal lasts until it's applied, rejected or the chat is cleared, and is lost when Forma quits.
 
+
+## ADR-044: Export, backup and restore through Rust-opened dialogs; diagnostics without content
+
+- **Status:** Accepted. **Date:** 2026-11-03 (Phase 7)
+- **Context:** Users need to take their notes elsewhere, keep a complete copy, and get one back. A bug report needs facts about the app without exposing notes, page titles or keys. Architecture rule 4 keeps paths out of the webview.
+- **Decision:**
+  - **Export** copies every file of the workspace except `.forma/` into a new folder, "*name* export *date*" (then " 2", " 3"… if taken), in a folder the user picks. **Backup** writes a zip of the whole workspace, `.forma/` included but without `.forma/tmp/` and `.forma/lock`, with every entry under one top folder named after the workspace (DATA_MODEL §7.8). It's written as `<name>.zip.partial` and renamed when complete, while the workspace is held for reading, so no save lands halfway through. **Restore** unpacks a zip into a **new** folder beside nothing it could overwrite, then opens it. Both refuse a destination inside the workspace.
+  - **Restore validates the whole archive before writing anything:** each raw entry name must be relative (no leading `/` or `\`, no NUL), pass `enclosed_name`, and have only normal components; symbolic links are refused; it must hold a `.md` file or `.forma/workspace.json`; there are at most 500,000 entries and 20 GB. Each entry is read up to its declared size only. It unpacks into `.forma-restore-<uuid>` next to the destination and renames that into place, and removes a stale `.forma/lock`.
+  - **The shell opens the folder and file dialogs itself** (`tauri-plugin-dialog`'s blocking pickers in the command) and passes paths to `forma-core`, so no path crosses IPC.
+  - **zip 9.3.0** with only `deflate-flate2-zlib-rs` (pure Rust, Zlib license); no other compression formats.
+  - **Diagnostics:** `read_log` returns the last 400 lines for the viewer on this Mac. "Copy diagnostics" returns versions, the macOS version, page count, read-only state, theme, AI on or off and, per provider, its kind, active or not, on this Mac or remote, agreement, model, whether a key is stored and the tool setting; then the last 80 log lines with every quoted string and every path that starts a token replaced (`diagnostics.rs`). It never contains server addresses, note text, titles or keys. The webview copies it to the clipboard; nothing is sent anywhere.
+- **Alternatives:**
+  - Paths from an HTML file input or the dialog plugin's JavaScript API. Both put user paths in the webview, against rule 4.
+  - Restore into the open workspace, or over an existing folder. Either can destroy data that isn't in the backup.
+  - Upload diagnostics to a server. Out of scope (no network, no telemetry).
+- **Consequences:** A restored workspace keeps the original's workspace and page IDs. The search index is keyed by workspace ID and location, so the original and the restored copy each get their own. The path sanitizer is conservative: a path that holds spaces is cut only at `": "`, `)` or the end of the line, which may also hide text after it. Entry permissions aren't restored from zips; files get the default mode.
+
+## ADR-045: Release builds: universal, ad-hoc signed, drafted by CI
+
+- **Status:** Accepted. **Date:** 2026-11-03 (Phase 7)
+- **Context:** The project has no Apple Developer ID (R13). Tauri can build a universal binary from Apple silicon (R14). Nothing should reach users without the maintainer looking at it.
+- **Decision:**
+  - The release is one universal `.app` (arm64 and x86_64) in a DMG, built with `tauri build --target universal-apple-darwin --bundles app,dmg`, ad-hoc signed (`signingIdentity: "-"`, hardened runtime) and not notarized. `scripts/verify-bundle.sh` checks both architectures, `codesign --verify --deep --strict` and the DMG checksum, and records the Gatekeeper result, which is "rejected" without notarization. The user guide explains how to allow the app once.
+  - **CI** (`.github/workflows/ci.yml`, `macos-26`): `npm run check`, a check that generated bindings are committed, `npm audit`, `cargo audit` (0.22.2), and the bundle build with verification. **Release** (`release.yml`) runs on a `v*` tag that matches the app version and creates a **draft** GitHub release with the DMG, its SHA-256 and the signing details. Third-party actions are pinned to commit SHAs; Rust is installed with the runner's rustup and pinned to 1.99.1.
+  - The About panel shows the version, "© 2026 Forma contributors", the tagline and the license (macOS shows only `copyright` and `credits`).
+  - First run: an empty workspace offers **Add a getting-started page**, which creates a page through the ordinary create and save. Nothing is created automatically.
+- **Alternatives:**
+  - An arm64-only build. Smaller (about half), but drops Intel Macs that macOS 13 still supports.
+  - Publishing releases automatically. A draft lets the maintainer try the DMG first.
+  - A Developer ID path in the workflow without a certificate to test it with. Untested signing code would be presented as working; CONTRIBUTING.md lists the variables Tauri reads instead.
+- **Consequences:** Each build has a new ad-hoc identity, so after an update macOS asks again to open the app, for Keychain access (R7) and for Desktop or Documents access. The workflows haven't run on GitHub; their steps were run locally. The x86_64 slice was run under Rosetta 2, not on an Intel Mac.

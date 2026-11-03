@@ -91,4 +91,23 @@ describe("AppShell", () => {
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("status")).toBeNull();
   });
+
+  it("closes a floating panel with Esc or a click beside it", async () => {
+    const user = userEvent.setup();
+    const width = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 600 });
+    try {
+      renderShell();
+      expect(panel("Sidebar")).toHaveAttribute("data-mode", "overlay");
+      await user.keyboard("{Escape}");
+      expect(panel("Sidebar")).toHaveAttribute("data-state", "closed");
+
+      await user.click(screen.getByRole("button", { name: "Show sidebar" }));
+      expect(panel("Sidebar")).toHaveAttribute("data-state", "open");
+      await user.click(screen.getByRole("button", { name: "Close the floating panel" }));
+      expect(panel("Sidebar")).toHaveAttribute("data-state", "closed");
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    }
+  });
 });

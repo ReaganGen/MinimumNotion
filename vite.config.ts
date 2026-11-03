@@ -24,5 +24,7 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     restoreMocks: true,
+    // The contrast test reads the design tokens as text; other CSS stays out of tests.
+    css: { include: [/tokens\.css/] },
   },
 });

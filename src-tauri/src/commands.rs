@@ -29,11 +29,15 @@ pub fn save_settings(
     update: SettingsUpdate,
 ) -> Result<AppSettings, ErrorPayload> {
     let mut store = state.settings.lock().map_err(|_| poisoned())?;
+    let before = store.settings().appearance.theme;
     let saved = store
         .update(update)
         .map_err(|e| ErrorPayload::from(&e))?
         .for_ui();
-    window::apply_theme(&webview_window, saved.appearance.theme);
+    // Most saves are panel widths while dragging; the window only changes with the theme.
+    if saved.appearance.theme != before {
+        window::apply_theme(&webview_window, saved.appearance.theme);
+    }
     Ok(saved)
 }
 

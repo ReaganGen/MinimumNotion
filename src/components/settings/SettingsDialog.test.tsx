@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSettings } from "@/features/settings/defaults";
@@ -20,6 +20,14 @@ vi.mock("@/lib/ipc/client", () => ({
     chooseWorkspace: vi.fn(),
     revealWorkspace: vi.fn(),
     rebuildIndex: vi.fn(),
+    exportWorkspace: vi.fn(),
+    backupWorkspace: vi.fn(),
+    restoreBackup: vi.fn(),
+    readLog: vi.fn(),
+    diagnostics: vi.fn(),
+    listChildren: vi.fn(async () => []),
+    listFavorites: vi.fn(async () => []),
+    listRecovery: vi.fn(async () => []),
   },
 }));
 
@@ -139,5 +147,93 @@ describe("SettingsDialog", () => {
     const { dialog } = renderOpen();
     await user.click(within(dialog).getByRole("button", { name: "Data" }));
     expect(within(dialog).getByRole("button", { name: "Rebuild search index" })).toBeDisabled();
+  });
+
+  it("exports and backs up, and says where", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({ status: "open" });
+    useUiStore.setState({ settingsSection: "data" });
+    vi.mocked(ipc.exportWorkspace).mockResolvedValue({
+      path: "/Users/me/Desktop/Notes export 2026-11-03",
+      files: 41,
+      bytes: 2_500_000,
+    });
+    vi.mocked(ipc.backupWorkspace).mockResolvedValue(null);
+    renderOpen();
+    await user.click(screen.getByRole("button", { name: "Export…" }));
+    expect(
+      await screen.findByText(
+        "Exported 41 files (2.4 MB) to /Users/me/Desktop/Notes export 2026-11-03.",
+      ),
+    ).toBeInTheDocument();
+    // Cancelling the save dialog says nothing.
+    await user.click(screen.getByRole("button", { name: "Back up…" }));
+    expect(ipc.backupWorkspace).toHaveBeenCalled();
+    expect(screen.queryByText(/Exported/)).toBeNull();
+  });
+
+  it("restores into a new folder and opens it", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ settingsSection: "data" });
+    vi.mocked(ipc.restoreBackup).mockResolvedValue({
+      root: "/Users/me/Restored/Notes",
+      name: "Notes",
+      id: "w",
+      read_only_reason: null,
+      notices: [],
+    });
+    renderOpen();
+    expect(screen.getByRole("button", { name: "Export…" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Restore…" }));
+    expect(
+      await screen.findByText("Restored and opened /Users/me/Restored/Notes."),
+    ).toBeInTheDocument();
+    expect(useWorkspaceStore.getState().info?.root).toBe("/Users/me/Restored/Notes");
+  });
+
+  it("says nothing when a restore is cancelled, and shows why one failed", async () => {
+    const user = userEvent.setup();
+    const current = {
+      root: "/Users/me/Notes",
+      name: "Notes",
+      id: "w",
+      read_only_reason: null,
+      notices: [],
+    };
+    useWorkspaceStore.setState({ status: "open", info: current, error: "an older error" });
+    useUiStore.setState({ settingsSection: "data" });
+    vi.mocked(ipc.restoreBackup).mockResolvedValueOnce(null);
+    renderOpen();
+    await user.click(screen.getByRole("button", { name: "Restore…" }));
+    await waitFor(() => expect(ipc.restoreBackup).toHaveBeenCalled());
+    expect(screen.queryByText(/Restored/)).toBeNull();
+    expect(screen.queryByText("an older error")).toBeNull();
+    expect(useWorkspaceStore.getState().info).toEqual(current);
+
+    vi.mocked(ipc.restoreBackup).mockRejectedValueOnce(
+      new Error("This file can't be restored: it's damaged."),
+    );
+    await user.click(screen.getByRole("button", { name: "Restore…" }));
+    expect(
+      await screen.findByText("This file can't be restored: it's damaged."),
+    ).toBeInTheDocument();
+    expect(useWorkspaceStore.getState().info).toEqual(current);
+  });
+
+  it("shows the log and copies diagnostics", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ settingsSection: "data" });
+    vi.mocked(ipc.readLog).mockResolvedValue("[INFO] opened workspace");
+    vi.mocked(ipc.diagnostics).mockResolvedValue("Forma 0.1.0 (aarch64)");
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    renderOpen();
+    await user.click(screen.getByRole("button", { name: "Show log" }));
+    expect(await screen.findByRole("log", { name: "Log" })).toHaveTextContent("opened workspace");
+    await user.click(screen.getByRole("button", { name: "Hide log" }));
+    expect(screen.queryByRole("log")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Copy diagnostics" }));
+    expect(writeText).toHaveBeenCalledWith("Forma 0.1.0 (aarch64)");
+    expect(await screen.findByText("Copied. Paste it into a bug report.")).toBeInTheDocument();
   });
 });

@@ -64,7 +64,7 @@ Terminology: **durable** means stored in the workspace folder and part of the us
     └── lock                           advisory flock target
 ```
 
-Outside the workspace, in `~/Library/Application Support/<bundle-id>/`: `settings.json` (§11), `index/<workspace-key>/index.db` (§9) and `logs/`. Secrets live in the Keychain (§11.2).
+Outside the workspace, in `~/Library/Application Support/<bundle-id>/`: `settings.json` (§11), `.window-state.json` (window size and position) and `index/<workspace-key>/index.db` (§9). The log is `~/Library/Logs/<bundle-id>/forma.log`. Secrets live in the Keychain (§11.2).
 
 The workspace root is the page-tree root. It is not itself a page. Opening any existing folder makes it a workspace. Forma creates `.forma/` and writes nothing else until the user acts (§4.4).
 
@@ -479,6 +479,14 @@ Paths are relative to the workspace root. Rollback goes newest first: a `write` 
 ### 7.7 Recovery: `recovery/<page-id>.md` and `.json`
 
 These hold editor buffers that couldn't be saved normally (conflict, deleted file, save failure). The `.json` file records `{ page_id, title, saved_at, reason }`, where `reason` is `conflict` or `unsaved`. Recovery buffers are offered back to the user on the next launch and deleted only after the user resolves them (keep as a new page, or discard), or when the editor that kept one later saves that page successfully.
+
+### 7.8 Backup archives and exports (outside the workspace)
+
+Settings → Data writes these where the user chooses (ADR-044). Neither is read by Forma except a backup being restored.
+
+- **Backup:** a zip, by default `<name> backup <YYYY-MM-DD>.zip`. Every entry is under one top folder named after the workspace: `<name>/Page.md`, `<name>/.forma/workspace.json`, … It holds every file of the workspace, `.forma/` included, except `.forma/tmp/` and `.forma/lock`. Entries are Deflate-compressed. Directory entries may be present; symbolic links are never written.
+- **Restore** accepts a zip with relative entry names and no links that holds at least one `.md` file or a `.forma/workspace.json`. If all entries share one top folder, its name becomes the new folder's name and its contents are unpacked into it; otherwise the zip's file name is used. An existing name gets " 2", " 3"…
+- **Export:** a folder `<name> export <YYYY-MM-DD>` with the workspace's files and attachments, without `.forma/`. It is a plain Markdown tree that Forma or any other app can open; opening it in Forma makes it a new workspace.
 
 ---
 

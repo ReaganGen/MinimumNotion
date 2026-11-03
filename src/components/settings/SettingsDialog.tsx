@@ -5,7 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useSettingsStore } from "@/features/settings/settingsStore";
 import { type SettingsSection, useUiStore } from "@/features/ui/uiStore";
-import { useWorkspaceStore } from "@/features/workspace/workspaceStore";
+import { flushAllEdits, useWorkspaceStore } from "@/features/workspace/workspaceStore";
+import type { ArchiveResult } from "@/lib/ipc/bindings/ArchiveResult";
 import type { ThemePreference } from "@/lib/ipc/bindings/ThemePreference";
 import { ipc } from "@/lib/ipc/client";
 import { cn } from "@/lib/utils";
@@ -178,6 +179,16 @@ function SettingsButton({
 function DataSection() {
   const hasWorkspace = useWorkspaceStore((s) => s.status === "open");
   const [state, setState] = useState<"idle" | "working" | "done" | string>("idle");
+  const [archive, setArchive] = useState<{
+    busy: boolean;
+    message: string | null;
+    error?: boolean;
+  }>({
+    busy: false,
+    message: null,
+  });
+  const [log, setLog] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
 
   async function rebuild() {
     setState("working");
@@ -186,6 +197,31 @@ function DataSection() {
       setState("done");
     } catch (error) {
       setState(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function run(action: () => Promise<string | null>) {
+    setArchive({ busy: true, message: null });
+    try {
+      // What's being typed reaches the disk first.
+      await flushAllEdits();
+      setArchive({ busy: false, message: await action() });
+    } catch (error) {
+      setArchive({ busy: false, message: (error as Error).message, error: true });
+    }
+  }
+
+  const described = (verb: string, result: ArchiveResult | null) =>
+    result &&
+    `${verb} ${result.files.toLocaleString("en-US")} files (${formatBytes(result.bytes)}) to ${result.path}.`;
+
+  async function copyDiagnostics() {
+    try {
+      const report = await ipc.diagnostics();
+      await copyText(report);
+      setCopied("Copied. Paste it into a bug report.");
+    } catch (error) {
+      setCopied(`Couldn't copy: ${(error as Error).message}`);
     }
   }
 
@@ -211,10 +247,121 @@ function DataSection() {
             {state === "done" ? "Rebuilt." : state === "idle" || state === "working" ? "" : state}
           </span>
         </div>
-        <p className="mt-6 text-[13px] leading-5 text-muted-foreground">
-          Export, backup and restore come in a later build.
+      </div>
+
+      <div className="mt-5 border-t pt-4">
+        <p className="text-[14px]">Export and backup</p>
+        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px] leading-5">
+          <dt className="text-foreground">Export</dt>
+          <dd className="text-muted-foreground">
+            A copy of your pages and attachments as plain files, without Forma's own data.
+          </dd>
+          <dt className="text-foreground">Back up</dt>
+          <dd className="text-muted-foreground">
+            A zip of the whole workspace, with page history, the trash and AI change records.
+          </dd>
+          <dt className="text-foreground">Restore</dt>
+          <dd className="text-muted-foreground">
+            Unzips a backup into a new folder and opens it. Nothing that exists is replaced.
+          </dd>
+        </dl>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <SettingsButton
+            disabled={!hasWorkspace || archive.busy}
+            onClick={() => void run(async () => described("Exported", await ipc.exportWorkspace()))}
+          >
+            Export…
+          </SettingsButton>
+          <SettingsButton
+            disabled={!hasWorkspace || archive.busy}
+            onClick={() =>
+              void run(async () => described("Backed up", await ipc.backupWorkspace()))
+            }
+          >
+            Back up…
+          </SettingsButton>
+          <SettingsButton
+            disabled={archive.busy}
+            onClick={() =>
+              void run(async () => {
+                const info = await useWorkspaceStore.getState().restoreBackup();
+                return info ? `Restored and opened ${info.root}.` : null;
+              })
+            }
+          >
+            Restore…
+          </SettingsButton>
+        </div>
+        {(archive.busy || archive.message) && (
+          <p
+            role="status"
+            className={cn(
+              "mt-2 text-[13px] leading-5 break-words",
+              archive.error ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {archive.busy ? "Working…" : archive.message}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-5 border-t pt-4">
+        <p className="text-[14px]">Diagnostics</p>
+        <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
+          “Copy diagnostics” copies Forma's version, macOS version, a settings summary and recent
+          log lines with every file path and quoted name removed. It never includes note text, page
+          titles, server addresses or keys.
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <SettingsButton
+            onClick={() =>
+              log === null
+                ? void ipc
+                    .readLog()
+                    .then((text) => setLog(text || "The log is empty."))
+                    .catch((e) => setLog(`The log can't be read: ${(e as Error).message}`))
+                : setLog(null)
+            }
+          >
+            {log === null ? "Show log" : "Hide log"}
+          </SettingsButton>
+          <SettingsButton onClick={() => void copyDiagnostics()}>Copy diagnostics</SettingsButton>
+          {copied && (
+            <span role="status" className="text-[13px] text-muted-foreground">
+              {copied}
+            </span>
+          )}
+        </div>
+        {log !== null && (
+          <pre
+            role="log"
+            aria-label="Log"
+            className="selectable mt-3 max-h-64 overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-[11.5px] leading-4 whitespace-pre-wrap break-all"
+          >
+            {log}
+          </pre>
+        )}
       </div>
     </section>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** The clipboard API, or a selected text area where it isn't allowed. */
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    if (!ok) throw new Error("the clipboard isn't available");
+  }
 }

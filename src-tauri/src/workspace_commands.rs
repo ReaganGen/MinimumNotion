@@ -27,7 +27,7 @@ fn invalid(message: impl Into<String>) -> ErrorPayload {
 }
 
 /// Opens `path` and remembers it for the next launch.
-fn open_and_remember(
+pub(crate) fn open_and_remember(
     app: &AppHandle,
     session: &Session,
     state: &AppState,

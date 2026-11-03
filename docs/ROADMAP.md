@@ -10,8 +10,8 @@
 | 3 | Collections, Links, and Search | Simple databases (list and table views), ID-stable page links, backlinks, FTS5 search | Complete |
 | 4 | AI Provider Integration | OpenAI, Anthropic, OpenAI-compatible endpoints, Ollama and LM Studio; Keychain credentials; streaming chat | Complete |
 | 5 | AI Knowledge Retrieval | Read-only Q&A, summaries and cited answers over the user's notes | Complete |
-| 6 | AI Agent and Knowledge Management | Proposed changes with diff preview, approval, conflict checks and undo | Implemented; awaiting approval |
-| 7 | Product Polish and Release | Accessibility, performance, backup and export, CI, DMG packaging | Not started |
+| 6 | AI Agent and Knowledge Management | Proposed changes with diff preview, approval, conflict checks and undo | Complete |
+| 7 | Product Polish and Release | Accessibility, performance, backup and export, CI, DMG packaging | Implemented; awaiting approval |
 
 Details: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Live status: [PROGRESS.md](PROGRESS.md).
 

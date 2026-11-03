@@ -301,7 +301,8 @@ impl SettingsStore {
     /// Loads settings from `dir/settings.json`, creating `dir` if needed.
     ///
     /// Never fails because of bad file contents: a corrupt file is renamed to
-    /// `settings.json.corrupt-<unix-seconds>` and defaults are used.
+    /// `settings.json.corrupt-<unix-seconds>` (`-2`, `-3`… when that name is
+    /// taken) and defaults are used.
     pub fn load(dir: &Path) -> Result<(Self, Option<String>), SettingsError> {
         let path = dir.join(SETTINGS_FILE_NAME);
         let io_err = |source| SettingsError::Io {
@@ -330,13 +331,21 @@ impl SettingsStore {
                 Ok((Self::with(path, settings.normalized(), reason), notice))
             }
             Err(_) => {
-                let backup = path.with_file_name(format!(
-                    "{SETTINGS_FILE_NAME}.corrupt-{}",
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or_default()
-                ));
+                let stamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or_default();
+                // rename(2) replaces, so a second corrupt file in the same
+                // second gets its own name instead of replacing the first.
+                let backup = (1..)
+                    .map(|n| {
+                        path.with_file_name(match n {
+                            1 => format!("{SETTINGS_FILE_NAME}.corrupt-{stamp}"),
+                            n => format!("{SETTINGS_FILE_NAME}.corrupt-{stamp}-{n}"),
+                        })
+                    })
+                    .find(|p| !p.exists())
+                    .expect("an unused name");
                 fs::rename(&path, &backup).map_err(io_err)?;
                 let notice = format!(
                     "Your settings file couldn't be read, so Forma reset it to defaults. The old file was kept as {}.",
@@ -504,6 +513,19 @@ mod tests {
             fs::read(dir.path().join(&backups[0])).unwrap(),
             b"{ not json"
         );
+
+        // A second corrupt file, almost surely within the same second, keeps
+        // the first backup.
+        fs::write(&path, b"{ also bad").unwrap();
+        SettingsStore::load(dir.path()).unwrap();
+        let mut kept: Vec<Vec<u8>> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.to_string_lossy().contains("settings.json.corrupt-"))
+            .map(|p| fs::read(p).unwrap())
+            .collect();
+        kept.sort();
+        assert_eq!(kept, [b"{ also bad".to_vec(), b"{ not json".to_vec()]);
     }
 
     #[test]

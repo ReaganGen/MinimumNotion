@@ -1,0 +1,102 @@
+# Lint, typecheck, tests, dependency audits and a macOS bundle build
+# (IMPLEMENTATION_PLAN §10.1). Third-party actions are pinned to commits.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The toolchain the release was verified with; clippy lints change between versions.
+  RUST_TOOLCHAIN: "1.99.1"
+  NODE_VERSION: "24"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Lint, typecheck and test
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: npm ci
+      # typecheck, Biome, Vitest, rustfmt, clippy -D warnings, cargo test
+      - run: npm run check
+      # cargo test regenerates the ts-rs bindings; anything changed or new wasn't committed.
+      - name: Generated TypeScript bindings are committed
+        run: |
+          changed=$(git status --porcelain -- src/lib/ipc/bindings)
+          if [ -n "$changed" ]; then echo "$changed"; exit 1; fi
+
+  audit:
+    name: Dependency audit
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: npm audit
+        run: npm audit
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit
+
+  bundle:
+    name: macOS bundle
+    needs: check
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: npm ci
+      - name: Build the universal app and DMG
+        run: npx tauri build --target universal-apple-darwin --bundles app,dmg
+      - name: Check architectures and the ad-hoc signature
+        run: scripts/verify-bundle.sh target/universal-apple-darwin/release/bundle
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: forma-dmg
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          retention-days: 7
+          if-no-files-found: error

@@ -8,6 +8,8 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 pub const MENU_EVENT: &str = "forma://menu";
 
+const COPYRIGHT: &str = "© 2026 Forma contributors";
+
 /// (command id, label, accelerator)
 const VIEW_ITEMS: [(&str, &str, &str); 2] = [
     ("toggle-sidebar", "Toggle Sidebar", "CmdOrCtrl+Shift+L"),
@@ -40,7 +42,11 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         .about(Some(AboutMetadata {
             name: Some("Forma".into()),
             version: Some(app.package_info().version.to_string()),
-            comments: Some("A quieter place to think.".into()),
+            // macOS shows the copyright and credits; it ignores `comments` and `license`.
+            copyright: Some(COPYRIGHT.into()),
+            credits: Some(
+                "A quieter place to think.\n\nOpen source under the Apache License 2.0.".into(),
+            ),
             ..Default::default()
         }))
         .separator()

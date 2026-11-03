@@ -71,6 +71,11 @@
     "allow-apply-changeset",
     "allow-reject-changeset",
     "allow-list-operations",
-    "allow-undo-operation"
+    "allow-undo-operation",
+    "allow-export-workspace",
+    "allow-backup-workspace",
+    "allow-restore-backup",
+    "allow-read-log",
+    "allow-diagnostics"
   ]
 }

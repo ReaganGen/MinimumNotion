@@ -190,7 +190,7 @@ function DeletePropertyDialog({
               onClose();
               void apply({ op: "remove_property", property_id: property.id });
             }}
-            className="rounded-md bg-destructive px-3 py-1.5 text-[13px] text-primary-foreground hover:bg-destructive/90"
+            className="rounded-md bg-destructive-fill px-3 py-1.5 text-[13px] text-primary-foreground hover:bg-destructive-fill/90"
           >
             Delete property
           </button>

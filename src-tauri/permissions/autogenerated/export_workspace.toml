@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-workspace"
+description = "Enables the export_workspace command without any pre-configured scope."
+commands.allow = ["export_workspace"]
+
+[[permission]]
+identifier = "deny-export-workspace"
+description = "Denies the export_workspace command without any pre-configured scope."
+commands.deny = ["export_workspace"]

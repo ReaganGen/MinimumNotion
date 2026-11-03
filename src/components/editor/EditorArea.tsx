@@ -1,7 +1,7 @@
 import { FolderOpen, Plus } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
 import { SHORTCUTS } from "@/features/commands/commands";
-import { useWorkspaceStore } from "@/features/workspace/workspaceStore";
+import { ROOT, useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import { PageView } from "./PageView";
 
 /** The main column: welcome screen, empty state, or the open page. */
@@ -73,6 +73,8 @@ function WelcomeButton({
 
 function NoPageOpen() {
   const createPage = useWorkspaceStore((s) => s.createPage);
+  const empty = useWorkspaceStore((s) => s.children[ROOT]?.length === 0);
+  const readOnly = useWorkspaceStore((s) => s.info?.read_only_reason != null);
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-10 pb-16 text-center">
       <p className="text-[14px] text-muted-foreground">
@@ -85,6 +87,15 @@ function NoPageOpen() {
       >
         New page <Kbd className="text-muted-foreground">{SHORTCUTS["new-page"].keys}</Kbd>
       </button>
+      {empty && !readOnly && (
+        <button
+          type="button"
+          onClick={() => void useWorkspaceStore.getState().addGettingStarted()}
+          className="mt-1 inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-[13.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          Add a getting-started page
+        </button>
+      )}
     </div>
   );
 }

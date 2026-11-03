@@ -1,0 +1,82 @@
+# Builds the release for a version tag (v0.1.0, ...) and attaches it to a
+# draft GitHub release, which the maintainer reviews and publishes by hand.
+#
+# Signing: the app is ad-hoc signed and not notarized, because the project has
+# no Apple Developer ID. macOS asks users to allow it once (docs/USER_GUIDE.md,
+# Installing). Developer ID signing and notarization need certificates this
+# workflow doesn't have; see CONTRIBUTING.md, Releases.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: "1.99.1"
+  NODE_VERSION: "24"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: write # create the draft release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The tag matches the app version
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME doesn't match tauri.conf.json version $version" >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+          rustup default "$RUST_TOOLCHAIN"
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - run: npm ci
+      - run: npm run check
+      - name: Build the universal app and DMG
+        run: npx tauri build --target universal-apple-darwin --bundles app,dmg
+      - name: Verify the bundle and record the signing status
+        run: scripts/verify-bundle.sh target/universal-apple-darwin/release/bundle | tee signing.txt
+      - name: Checksums
+        working-directory: target/universal-apple-darwin/release/bundle/dmg
+        run: shasum -a 256 *.dmg | tee "$GITHUB_WORKSPACE/SHA256SUMS.txt"
+      - name: Release notes
+        run: |
+          {
+            echo "Forma $GITHUB_REF_NAME for macOS 13 or later (Apple silicon and Intel)."
+            echo
+            echo "**Signing:** ad-hoc signed, not notarized. macOS will say it can't check the app"
+            echo "for malicious software. To open it the first time, see Installing in the user guide:"
+            echo "https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/docs/USER_GUIDE.md#installing"
+            echo
+            echo '```'
+            cat signing.txt
+            echo '```'
+            echo
+            echo "SHA-256:"
+            echo '```'
+            cat SHA256SUMS.txt
+            echo '```'
+          } > notes.md
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          draft: true
+          body_path: notes.md
+          files: |
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            SHA256SUMS.txt
+          fail_on_unmatched_files: true

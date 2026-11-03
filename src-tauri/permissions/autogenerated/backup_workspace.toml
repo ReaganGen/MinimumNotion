@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-backup-workspace"
+description = "Enables the backup_workspace command without any pre-configured scope."
+commands.allow = ["backup_workspace"]
+
+[[permission]]
+identifier = "deny-backup-workspace"
+description = "Denies the backup_workspace command without any pre-configured scope."
+commands.deny = ["backup_workspace"]

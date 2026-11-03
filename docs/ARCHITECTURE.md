@@ -87,8 +87,10 @@ Consequences:
 │   └── forma-ai/         Provider adapters, agent runtime, tool registry, ChangeSets. Depends on forma-core.
 ├── src-tauri/            Thin Tauri shell: commands, events, window, menus, capabilities, bundling
 ├── tests/fixtures/       Shared fixtures, including the Markdown round-trip corpus used by TS and Rust tests
-├── docs/
-└── .github/workflows/    CI (Phase 7)
+├── scripts/              generate-workspace.mjs (performance fixtures), verify-bundle.sh (release checks)
+├── docs/                 USER_GUIDE.md for users; the rest for development
+├── CONTRIBUTING.md
+└── .github/workflows/    ci.yml (checks, audits, bundle build), release.yml (draft release on a version tag)
 ```
 
 There are two reasons to split `forma-core` from the Tauri shell. First, `cargo test -p forma-core` runs without compiling WebKit bindings, which keeps the test loop fast. Second, core logic stays platform-independent, so a future CLI, sync daemon or other OS port can reuse it. `forma-ai` is separate so that `forma-core` has no network dependency at all, which keeps the security boundary visible in `Cargo.toml`.
@@ -256,6 +258,16 @@ On open, the service:
 5. Cleans up orphaned trash entries.
 6. Offers any `.forma/recovery/` buffers back to the user.
 7. Reconciles the index (§5.3).
+
+### 4.11 Export, backup and restore
+
+Settings → Data (ADR-044). The shell opens the folder or file dialog itself and passes the chosen path to `forma-core::archive`, so no path crosses IPC. Export and backup run while the session holds the workspace for reading, so no save lands halfway through. Each writes under a staging name (`.forma-export-<uuid>`, `<name>.zip.partial`, `.forma-restore-<uuid>`) and renames when complete, so a failure leaves nothing under the final name.
+
+- **Export:** the workspace's files without `.forma/`, into a new folder.
+- **Backup:** a zip of the workspace with `.forma/`, without `.forma/tmp/` and `.forma/lock` (DATA_MODEL §7.8).
+- **Restore:** validates every entry before writing (relative names only, no links, size and count limits), unpacks into a new folder and opens it. It never writes into an existing folder or the open workspace.
+
+Diagnostics (`data_commands.rs`, `forma-core::diagnostics`): the log viewer shows the last 400 lines of `~/Library/Logs/<bundle-id>/forma.log`; "Copy diagnostics" builds a report of versions and a settings summary plus 80 log lines with quoted strings and paths replaced. Neither contains note text, titles, keys or server addresses.
 
 ---
 
@@ -549,7 +561,9 @@ As built in Phase 5 (ADR-041, ADR-042).
 | Prompt injection driving writes | Capability separation, proposals only, user-only apply, diff preview, per-op revision checks |
 | Unauthorized workspace access | One workspace root per session. The asset protocol and tools are scoped to it |
 | Concurrent writers | Single instance, workspace `flock`, single-writer service, revision checks |
-| Supply chain | Minimal dependencies, lockfiles committed, `cargo audit` and `npm audit` in CI (Phase 7), no Tiptap Pro or other non-OSI dependencies |
+| Supply chain | Minimal dependencies, lockfiles committed, `cargo audit` and `npm audit` in CI, third-party GitHub Actions pinned to commit SHAs, no Tiptap Pro or other non-OSI dependencies |
+| Malicious backup archives (zip slip, links, zip bombs) | Restore checks every entry before writing: relative names only, normal components, no symbolic links, at most 500,000 entries and 20 GB, each entry read up to its declared size. It unpacks into a staging folder and never over existing files (ADR-044) |
+| Bug reports leaking notes | "Copy diagnostics" holds no note text, titles, keys or server addresses; log lines have quoted strings and paths replaced. Nothing is sent; the user pastes it |
 
 ---
 
@@ -578,14 +592,14 @@ Expected future work, intentionally deferred: identity and authorship metadata, 
 | R4 | macOS path limits (`PATH_MAX` 1024 bytes) with deep trees and long titles | Low / Medium | Filename stems capped at 100 bytes, a depth warning, and an error message that points at the problem before any write is attempted | 2 |
 | R5 | APFS is case- and normalization-insensitive by default, so sibling names collide | Medium / Low | NFC normalization and case-folded uniqueness checks with numeric suffixes | 2 |
 | R6 | CJK full-text search quality with `unicode61` | High (for CJK users) / Medium | **Mitigated in Phase 3** (ADR-036): trigram table with `LIKE`, plus a bounded scan for 1–2-character queries. No dictionary segmentation, so results are substring matches, not word matches | 3 |
-| R7 | Keychain access prompts during development (ad-hoc signatures change between builds) | High in dev / Low | Documented. Keys are read once per session. Release builds use a stable signing identity | 4, 7 |
+| R7 | Keychain access prompts during development (ad-hoc signatures change between builds) | High in dev / Low | Documented. Keys are read once per session. **Phase 7:** releases are ad-hoc signed too, so every update asks again (USER_GUIDE, CONTRIBUTING). A Developer ID would give a stable identity | 4, 7 |
 | R8 | Provider API drift (OpenAI Chat Completions vs Responses, Anthropic versions, Ollama endpoints) | Medium / Medium | **Checked in Phase 4** (ADR-038). Protocols isolated in modules with stream-fixture tests; an ignored live test checks the cloud APIs' auth and TLS | 4 |
 | R9 | Local models silently truncate context (Ollama's `num_ctx` default) | High / Medium | **Phase 4:** native Ollama API with an explicit `num_ctx`. **Phase 5:** every request is packed to fit that window, and tool rounds stop before it fills | 4–5 |
 | R10 | Prompt injection through retrieved notes | High / Medium | §10.4. The structural guarantee doesn't depend on model behavior. **Phase 5:** sources are delimited data blocks that can't close themselves, the system prompt says to ignore instructions in them, and the assistant has only a read-only view. **Phase 6:** proposals are data; only the review dialog applies them; tests run a model that obeys an injected note and check that nothing changes | 5–6 |
 | R11 | XSS in the webview defeats the approval boundary | Low / High | No raw HTML, strict CSP, sanitized link schemes, security tests | 2, 6 |
 | R12 | Lazy ID persistence leaves links pointing at index-only IDs | Low / Medium | Invariant: `ensure_persisted_id` runs before any durable reference is created, covered by tests | 2–3 |
-| R13 | Distribution: unsigned or un-notarized DMG is blocked by Gatekeeper | High / Medium | Needs an Apple Developer ID (user decision). Otherwise ship ad-hoc-signed with documented steps, and report the status accurately | 7 |
-| R14 | Intel support: `x86_64-apple-darwin` is a Tier 2 Rust target, and Intel CI runners are scarce | Medium / Low | Cross-compile a universal binary from Apple Silicon. Intel smoke testing is best-effort and reported as such | 7 |
-| R15 | The "Forma" name collides with existing products (for example Autodesk Forma) | Medium / Medium | Trademark and name search before any public release (user decision) | 7 |
+| R13 | Distribution: unsigned or un-notarized DMG is blocked by Gatekeeper | High / Medium | **Phase 7:** ad-hoc signed, not notarized; `spctl` rejects it, as expected. The user guide explains how to allow it once, and every release states the signing status (ADR-045). Notarization needs an Apple Developer ID (user decision) | 7 |
+| R14 | Intel support: `x86_64-apple-darwin` is a Tier 2 Rust target, and Intel CI runners are scarce | Medium / Low | **Phase 7:** the release is a universal binary cross-compiled on Apple silicon. Its x86_64 slice was launched under Rosetta 2 (window shown, idle, clean quit); it hasn't run on an Intel Mac | 7 |
+| R15 | The "Forma" name collides with existing products (for example Autodesk Forma) | **High** / Medium | **Phase 7 quick web search (not a legal clearance):** "Forma – Notes & Tasks", a Mac notes and tasks app; Autodesk's "AUTODESK FORMA" application in class 42 (software); an iOS PDF app named Forma. A professional trademark search, or a new name, before any public release (user decision). The bundle ID `app.forma.desktop` follows the name and can't change later without moving settings and Keychain items | 7 |
 | R16 | TypeScript 7 ecosystem incompatibility | Avoided | Pinned to TypeScript 6.0 (ADR-016). Revisit when typescript-eslint, editors and other tools support TS 7 | — |
 | R17 | Automatically loaded `https:` images in notes reveal reading activity (tracking pixels), and an approved AI edit could add an exfiltration URL | Medium / Medium | User-accepted tradeoff (ADR-031). `http:` isn't loaded. AI chat output never loads remote images. Change previews show image URLs and flag new external images. A setting to turn remote images off can be added if needed | 2, 6 |

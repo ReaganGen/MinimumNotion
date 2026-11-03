@@ -2,11 +2,30 @@
 
 ## Current Phase
 
-Phase 6: AI Agent and Knowledge Management (approved 2026-11-03). **Implemented and verified; waiting for the user's approval to proceed to Phase 7.**
+Phase 7: Product Polish and Release (approved 2026-11-03), the last phase of the v0.1.0 plan. **Implemented and verified; waiting for the user's review.** Releasing needs the user's decisions on the name (R15), signing and pushing (Known Issues 1–3).
 
 ## Status
 
-Phase 6 is complete as far as automated, preview and release-app checks can show. As before, no API key, Ollama or LM Studio was available, so no real model has proposed changes yet; that's the first manual check below.
+Phase 7 is complete as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The GitHub workflows were written and their steps run locally, but have not run on GitHub.
+
+### Phase 7 journal
+
+- **Accessibility.** Text and focus contrast are computed from `tokens.css` in both themes (`src/styles/contrast.test.ts`): every text tone is at least 4.5:1 on every surface, the focus ring 3:1. Six token values failed and were changed (light faint text 2.65, muted text on a chip 4.39, the light ring 2.28; dark faint text 3.33, white on the dark primary 3.88 and on the destructive fill 3.24), plus a `destructive-fill` token for filled delete buttons. axe-core checks names, roles and ARIA on the welcome screen, a workspace with the AI panel and a proposal, all four settings sections, the review dialog, search and the AI history (`src/a11y.test.tsx`; 0 violations). Reduced motion and `:focus-visible` were already in place. Floating side panels now close with Esc or a click beside them (audit F12).
+- **Settings → Data (ADR-044).** Export (pages and attachments without `.forma`), Back up (a zip with `.forma`), Restore (validated, unpacked into a new folder, then opened). The shell opens the dialogs, so no path crosses IPC. Each shows what it did ("Exported 41 files (2.4 MB) to …").
+- **Diagnostics.** Show log (the last 400 lines) and Copy diagnostics: versions, a settings summary and 80 log lines with paths and quoted names replaced; no note text, titles, keys or server addresses.
+- **First run.** In an empty workspace, "Add a getting-started page" creates a short page through the normal create and save. Its Markdown is already in the editor's canonical form, so editing it rewrites nothing else (tested). Nothing is created automatically.
+- **About and icon.** The About panel shows the version, "© 2026 Forma contributors", the tagline and the license; `comments` was never shown on macOS. Info.plist has the copyright. The "F" icon is no longer marked provisional.
+- **Audit items.** F8 was already fixed in Phase 2 (recorded now); F9 (a second corrupt settings file kept its own backup name), F10 (a test compares the panel widths and shortcut labels with Rust; it caught a deliberate drift), F11 (the window theme is applied only when it changes) and F12 are fixed.
+- **CI and release (ADR-045).** `ci.yml`: `npm run check`, generated bindings committed, `npm audit`, `cargo audit`, and the universal bundle build with `scripts/verify-bundle.sh`. `release.yml`: on a `v*` tag that matches the version, the same checks and build, then a **draft** release with the DMG, SHA-256 and signing status. Actions are pinned to commit SHAs.
+- **Docs.** `docs/USER_GUIDE.md` (installing past Gatekeeper, every feature, data, diagnostics, uninstalling), `CONTRIBUTING.md` (setup, rules, checks, releases, signing), README, ADR-044, ADR-045, ARCHITECTURE §4.11, DATA_MODEL §7.8.
+- **Name search (R15).** A quick web search, not a legal clearance, found "Forma – Notes & Tasks" (a Mac notes and tasks app), an "AUTODESK FORMA" application covering software in class 42, and an iOS PDF app named Forma. No trademark policy was written; the name is the user's decision.
+- **Bugs found and fixed during the phase:**
+  1. *A damaged backup restored without an error.* Each entry was read up to its declared size and no further, and the zip library checks the CRC only when a read reaches the end. Restore now reads once more, so a bad checksum fails the restore and nothing is left (a test flips one byte; it failed before the fix).
+  2. *Cancelling Restore said "Restored and opened" the current workspace*, and an older error could be shown as the restore's. The store now returns the restore's own result.
+  3. *A zip whose only top-level entry was a page couldn't be restored* (the page was taken for the folder to unpack).
+  4. *"Inside the workspace" compared paths as written*, so a link into the workspace passed. Export, backup and restore now compare real paths, and Restore also refuses a folder inside the open workspace.
+  5. *An early typing measurement showed 84–119 ms per key on a long page.* It was the hidden preview delaying tasks, not work: the key's own handling measured 0.8 ms. Recorded so the first number isn't quoted.
+- **Design decisions:** ADR-044, ADR-045.
 
 ### Phase 6 journal
 
@@ -101,6 +120,7 @@ Phase 6 is complete as far as automated, preview and release-app checks can show
 - **Phase 3: Collections, Links, and Search.** Approved 2026-11-03 (commit `4c4ade6`).
 - **Phase 4: AI Provider Integration.** Approved 2026-11-03 (commit `5e3825e`).
 - **Phase 5: AI Knowledge Retrieval.** Approved 2026-11-03 (commit `3f5bf0d`).
+- **Phase 6: AI Agent and Knowledge Management.** Approved 2026-11-03 (commit `6505ae6`).
 
 ## Implemented Features
 
@@ -160,19 +180,46 @@ The architecture documents and CLAUDE.md. See the git history.
 
 ## Tests
 
-Run on 2026-11-03 at the end of Phase 6 (`npm run check` exits 0):
+Run on 2026-11-03 at the end of Phase 7 (`npm run check` exits 0):
 
 | Command | Result |
 |---|---|
 | `npm run typecheck` (app and Vite config) | Pass |
-| `npx biome check .` | Pass, 0 diagnostics (119 files) |
-| `npx vitest run` | 29 files, **191 tests passed** |
+| `npx biome check .` | Pass, 0 diagnostics (127 files) |
+| `npx vitest run` | 34 files, **226 tests passed** |
 | `cargo fmt --all --check` | Pass |
 | `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
-| `cargo test --workspace` | **276 passed, 2 ignored**: 183 in `forma-core`, 90 in `forma-ai` (68 unit, 21 against a local HTTP server, 1 key-leak check) and 3 in the shell |
+| `cargo test --workspace` | **287 passed, 2 ignored** (74 of them generate the TypeScript bindings): 194 in `forma-core`, 90 in `forma-ai` (68 unit, 21 against a local HTTP server, 1 key-leak check) and 3 in the shell |
 | `npm audit` | 0 vulnerabilities |
-| `npm run tauri -- build --bundles app` | Pass. `Forma.app` is 12.67 MiB, arm64 (12.16 MiB in Phase 5). The JS bundle is 1.41 MB (431 KB gzipped) |
-| `codesign --verify --deep --strict Forma.app` | Pass (ad-hoc, hardened runtime). Not notarized |
+| `cargo audit` (0.22.2, 1,403 advisories, 547 crates) | 0 vulnerabilities; 5 warnings, all in crates only Tauri's Linux backend uses (Known Issues 21) |
+| `npx tauri build --target universal-apple-darwin --bundles app,dmg` | Pass. `Forma.app` 27.07 MiB (arm64 and x86_64; the arm64-only app was 12.67 MiB in Phase 6), `Forma_0.1.0_universal.dmg` 13.23 MiB. The JS bundle is 1.42 MB |
+| `scripts/verify-bundle.sh target/universal-apple-darwin/release/bundle` | Pass: both architectures; `codesign --verify --deep --strict` valid (ad-hoc, hardened runtime, no Team ID); Gatekeeper `spctl` **rejected** (not notarized, expected); DMG checksum valid; the app inside the mounted DMG verifies too |
+
+New in Phase 7: contrast of every text tone, the ring and tag colors in both themes (16); axe-core on 8 surfaces; export, backup and restore (round trip of every file, never overwriting, refusing `..`, absolute names, NUL, links, non-Forma zips, garbage, a damaged entry, links into the workspace; a single top-level page); log sanitizing (3); a second corrupt settings file; the getting-started page (only on a click, through the normal save, canonical Markdown); Settings → Data (export message, cancelled backup, restore, cancelled and failed restore, log, copy diagnostics); Esc and click-beside for floating panels; values mirrored from Rust.
+
+### Phase 7 measurements
+
+Apple M4, 16 GB, macOS 26.3. Release builds. Only these numbers are claimed.
+
+| What | How | Result |
+|---|---|---|
+| Open 5,000 pages, empty index | `measure` example, release | 705 ms |
+| Open 5,000 pages, warm index | same, 3 runs | 28 ms best, 197 ms mean |
+| Full-text search | same, 6 queries × 20 runs (English, prefix, Chinese, no hits) | 0.2–4.7 ms |
+| Passage retrieval | same, 4 questions × 20 runs | 1.5–8.0 ms |
+| Rescan, nothing changed / rebuild the index | same | 17 ms / 697 ms; index 51.4 MB |
+| Window visible after launch, 5,000-page workspace | universal app via `open -n`, polling on-screen windows | 0.46–0.61 s (4 runs); 1.73–2.19 s on the first launch of each new build (macOS checks a new binary) |
+| Window visible, x86_64 slice under Rosetta 2 | `open --arch x86_64` | 3.98 s first (translation), then 0.67 s |
+| Idle CPU, window open, 5,000 pages | user + system time of the app and its 3 WebKit processes over 60 s | 0.18 s, **0.30 % of one core** |
+| Quit after a quit request | `osascript`, 3 runs | 0.13–0.15 s; no "didn't confirm saving" in the log |
+| Network sockets with AI off | `lsof -i` on the app and its WebKit networking process | 0 |
+| Typing, one key's handling (keydown to the end of the input event, no paint) | browser preview, development build, hidden pane, 43 keys each | 54 KB page: p50 0.80 ms, p95 1.40 ms, max 4.10 ms. Short page: p50 0.40 ms, p95 1.40 ms, max 2.30 ms |
+
+Runtime check on the release app with a copy of the 5,000-page workspace in a temporary folder: every one of the 5,001 page files was unchanged afterwards; the settings file and window state were restored byte for byte and the test index and copy deleted. Typing in the native window wasn't measured (no input to it from this session).
+
+### Phase 6 test record
+
+Phase 6 ran `npm run check` (191 frontend and 276 Rust tests then), the injection tests, a crash at each step of an apply, and the release app with AI off (no sockets, quit in 0.14 s, files unchanged); in the browser preview, the review dialog, apply, undo and redo.
 
 New in Phase 6, in `forma-core`: proposing and previewing write nothing (every byte compared, `.forma/` too); applying writes every change and undo restores the exact bytes, then redo; an edit made meanwhile is a conflict and nothing is written; **a crash after each of the first actions of an apply** (renames, a new folder, writes) leaves, after the next start, every file as before; a failure halfway (an unwritable folder) undoes what was done; chosen changes need the changes they depend on; a container proposed later is created first; collections and values (new and existing); page references with paths, `..`, `.forma`, unknown IDs and missing `new-N` are refused; undo refuses when a page changed since; linking writes the target's ID and the preview says so; previews flag new external images and diff Chinese per character; only the newest 100 operations are kept, with their snapshots; a set's text is bounded. In `forma-ai`: a type test pinning the Edit registry to a read-only view plus the change set; each proposal tool's results and 12 refusals; a fuzz test of 3,000 proposal calls (no panic, no file changed); against a local HTTP server, a model obeying an injected note (nothing changes until applied; the image it adds is flagged; apply, then undo restores the bytes), Ask mode without proposal tools (the model's calls are refused), and Edit mode refused for a model without tools. In the UI: Edit mode (proposal card, review with diff, image warning, dependent choices, apply, undo), conflicts with "Ask for a new proposal", rejecting, Edit unavailable without tools, the history with Redo and its conflicts, the diff display and dependency helpers.
 
@@ -233,7 +280,18 @@ Checked in the development browser preview, not the native app: the editor's ren
 
 ## Manual Verification Steps (for the user)
 
-Use a test folder, not real notes. Open `target/release/bundle/macos/Forma.app`.
+Use a test folder, not real notes. Open `target/universal-apple-darwin/release/bundle/dmg/Forma_0.1.0_universal.dmg` and drag Forma to Applications (or open `target/universal-apple-darwin/release/bundle/macos/Forma.app`).
+
+**Phase 7**
+1. **Gatekeeper:** open the app from the DMG copy. macOS blocks it; follow [USER_GUIDE.md, Installing](USER_GUIDE.md#installing). It opens after "Open Anyway".
+2. **First run:** open an empty folder. "Add a getting-started page" appears; click it. The page opens and reads well. Nothing appeared before the click.
+3. **Export:** Settings → Data → Export… → choose a folder. The message names the new folder; it holds the pages and images, no `.forma`.
+4. **Back up and restore:** Back up… → save the zip. Restore… → choose the zip, then a folder outside the workspace. The restored workspace opens with the same pages, trash and AI history. Try choosing a folder inside the open workspace: it's refused. Cancel at either dialog: nothing changes and nothing is shown.
+5. **Diagnostics:** Show log, then Copy diagnostics and paste it into TextEdit. It has versions and settings, and no page names, paths, addresses or keys.
+6. **VoiceOver (⌘F5):** move through the sidebar, the editor, the AI panel and Settings. Every button and field is announced by name.
+7. **Narrow window:** make the window narrow, open the sidebar (it floats), press Esc or click beside it: it closes.
+8. **About Forma:** shows version 0.1.0, the copyright and the license line.
+9. **Intel Mac** (if available): the same DMG runs.
 
 **Phase 6**
 1. **Propose and reject:** with a model that calls tools (Anthropic, or Settings → AI → "Look things up in your notes" → On), switch the panel to **Edit** and ask for a change ("Create a page Ideas with three bullet points, and link it from Plan"). Review changes: each change shows what it does. Reject all. No file changed (check in Finder or `git status` if the test folder is a repository).
@@ -292,32 +350,38 @@ After the implementation audit, the user reviewed the decisions that the PRD had
 | License | Apache-2.0 | ADR-026, accepted |
 | CLAUDE.md transparency rules | Adopted, with this file as the journal | CLAUDE.md |
 
-Not separately reviewed, and kept as documented: favorites and order in `.forma/tree.json` (ADR-014), TypeScript 6 with Biome (ADR-016), menu-accelerator shortcuts (ADR-030), Act mode requiring tool-calling models, and chat transcripts not being saved. The bundle identifier `app.forma.desktop` stays provisional.
+Not separately reviewed, and kept as documented: favorites and order in `.forma/tree.json` (ADR-014), TypeScript 6 with Biome (ADR-016), menu-accelerator shortcuts (ADR-030), Act mode requiring tool-calling models, and chat transcripts not being saved. The bundle identifier `app.forma.desktop` stays provisional, tied to the name decision (Known Issues 1).
 
 ## Known Issues and Open Decisions
 
-1. **Native interactions are unverified by Claude.** The manual steps above cover them.
-2. **No real AI conversation has been tested**, including proposals and tool calls. Stream fixtures and tool formats follow the providers' documentation (ADR-038, ADR-042, ADR-043).
-3. **Undo is all or nothing.** If any page changed after the change was applied, nothing is undone (the pages are named); undo those edits first, or change the pages by hand.
-4. **Undoing a page created inside a page without sub-pages leaves that page as a folder** (`Name/index.md`), and a page ID written so a link works stays written.
-5. **Proposals last for the session**: they're lost when Forma quits or the chat is cleared. Applied changes and their history are kept.
-6. **Retrieval matches words and characters, not meaning** (ADR-041).
-7. **Citations depend on the model** following the instructions.
-8. **OpenAI models report no context window or tool support.** Forma packs for 8,192 tokens and offers no tools (and no Edit mode) unless the user sets them in Settings → AI.
-9. **Development builds may ask for Keychain access again** after each rebuild (ad-hoc signing, risk R7).
-10. **Rebuilding the index, or a cold first open, briefly blocks other workspace requests** (about 0.8 s at 5,000 pages).
-11. **CJK search results are substring matches without relevance ranking** in ⌘K (ADR-036).
-12. **Recent pages in ⌘P last for the session only.**
-13. **Index caches of workspaces that were moved or deleted stay in Application Support** until removed by hand.
-14. **A collection's sidebar list stops at 50 entries** (ADR-037).
-15. **Wide tables scroll sideways inside the page's reading column.**
-16. **Recovery buffers** are cleared by a later successful save only when the same editor kept them (Phase 2).
-17. **The title field doesn't follow a title changed outside Forma** while the page is open (Phase 2).
-18. **The frontend bundle is 1.41 MB** (one chunk, loaded from disk). Code splitting can wait for Phase 7.
-19. **Each development build re-asks macOS for folder access** (ad-hoc signing; Phase 7).
-20. **Open audit items:** F6, F8–F14 (IMPLEMENTATION_AUDIT §8, §9.3).
-21. **Bundle identifier, icon, Intel build:** unchanged from Phase 1 (provisional; Phase 7).
+**Release decisions for the user:**
+
+1. **The name "Forma" has conflicts** in software (R15): "Forma – Notes & Tasks" for Mac, Autodesk's "AUTODESK FORMA" application in class 42, an iOS PDF app. A professional trademark search, or a new name, before any public release. The bundle ID `app.forma.desktop` follows the name and can't change later without moving settings and Keychain items.
+2. **Signing:** the release is ad-hoc signed and not notarized, so macOS blocks the first open and every update asks again (also for Keychain and folder access). Notarization needs an Apple Developer ID; CONTRIBUTING.md lists what Tauri reads.
+3. **The workflows haven't run on GitHub:** pushing wasn't authorized. Their steps ran locally.
+
+**Known issues:**
+
+4. **Native interactions are unverified by Claude**, including VoiceOver, the Gatekeeper steps and the native dialogs of Export, Back up and Restore. The manual steps above cover them.
+5. **No real AI conversation has been tested**, including proposals and tool calls. Stream fixtures and tool formats follow the providers' documentation (ADR-038, ADR-042, ADR-043).
+6. **Intel:** the x86_64 half of the universal app ran under Rosetta 2 on Apple silicon (window, idle, quit), not on an Intel Mac.
+7. **Typing latency** was measured in the browser preview (development build, hidden pane, no paint), not in the native app.
+8. **Undo is all or nothing.** If any page changed after the change was applied, nothing is undone (the pages are named).
+9. **Undoing a page created inside a page without sub-pages leaves that page as a folder** (`Name/index.md`), and a page ID written so a link works stays written.
+10. **Proposals last for the session**: they're lost when Forma quits or the chat is cleared.
+11. **Retrieval matches words and characters, not meaning** (ADR-041). **Citations depend on the model** following the instructions.
+12. **OpenAI models report no context window or tool support.** Forma packs for 8,192 tokens and offers no tools (and no Edit mode) unless the user sets them in Settings → AI.
+13. **Rebuilding the index, a cold first open, an export or a backup holds the workspace**, so saves wait (about 0.7 s for a cold open at 5,000 pages; a backup takes as long as zipping the folder).
+14. **Restored files get default permissions**; Finder tags and other extended attributes aren't in backups.
+15. **CJK search results are substring matches without relevance ranking** in ⌘K (ADR-036).
+16. **Recent pages in ⌘P last for the session only.**
+17. **Index caches of workspaces that were moved or deleted stay in Application Support** until removed by hand.
+18. **A collection's sidebar list stops at 50 entries** (ADR-037). **Wide tables scroll sideways** inside the reading column.
+19. **Recovery buffers** are cleared by a later successful save only when the same editor kept them. **The title field doesn't follow a title changed outside Forma** while the page is open.
+20. **The frontend bundle is 1.42 MB in one chunk** (loaded from disk). The window appears in about 0.5 s regardless; code splitting wasn't needed for the measured numbers.
+21. **`cargo audit` warns about 5 crates** (4 unmaintained, 1 unsound) that only Tauri's Linux backend uses; none is compiled for macOS. 0 vulnerabilities.
+22. **Open audit items:** F6 (an invalid settings field resets the whole file); F13 and F14 are informational.
 
 ## Next Phase
 
-**Phase 7: Product Polish and Release** (IMPLEMENTATION_PLAN §10): accessibility, performance, backup and export, CI, and DMG packaging. It starts only after your approval.
+None: Phase 7 was the last phase of the v0.1.0 plan. Next are the release decisions above (name, signing, pushing and tagging), each the user's call. Candidates after v0.1.0 are in ROADMAP.md.

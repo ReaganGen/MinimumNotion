@@ -6,8 +6,10 @@
 //! SQLite index and search, link extraction, collections, and the passages
 //! and read-only view the AI assistant retrieves from.
 
+pub mod archive;
 pub mod atomic;
 pub mod collection;
+pub mod diagnostics;
 pub mod error;
 pub mod extract;
 pub mod frontmatter;

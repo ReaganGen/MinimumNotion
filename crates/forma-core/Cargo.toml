@@ -25,6 +25,7 @@ unicode-normalization = "0.1.26"
 unicode-segmentation = "1.13.3"
 uuid = { version = "1.29.0", features = ["v4"] }
 xattr = "1.7.0"
+zip = { version = "9.3.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 tempfile.workspace = true

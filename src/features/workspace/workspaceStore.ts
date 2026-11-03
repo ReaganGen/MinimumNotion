@@ -8,6 +8,7 @@ import type { PageSummary } from "@/lib/ipc/bindings/PageSummary";
 import type { WorkspaceChanges } from "@/lib/ipc/bindings/WorkspaceChanges";
 import type { WorkspaceInfo } from "@/lib/ipc/bindings/WorkspaceInfo";
 import { ipc } from "@/lib/ipc/client";
+import { GETTING_STARTED_BODY, GETTING_STARTED_TITLE } from "./gettingStarted";
 
 export const ROOT = "root";
 const RECENT_LIMIT = 12;
@@ -43,6 +44,8 @@ interface WorkspaceState {
   openLast: () => Promise<void>;
   choose: () => Promise<void>;
   createDefault: () => Promise<void>;
+  /** Unzips a backup into a new folder and opens it. Null when cancelled; throws on failure. */
+  restoreBackup: () => Promise<WorkspaceInfo | null>;
   loadChildren: (parentId: string | null) => Promise<void>;
   refresh: () => Promise<void>;
   applyChanges: (changes: WorkspaceChanges) => Promise<void>;
@@ -50,6 +53,8 @@ interface WorkspaceState {
   expand: (id: string) => Promise<void>;
   openPage: (id: string | null) => void;
   createPage: (parentId: string | null) => Promise<string | null>;
+  /** The optional first page, made only when the user asks for it. */
+  addGettingStarted: () => Promise<void>;
   dismissNotice: (message: string) => void;
   reportError: (error: unknown) => void;
   setBreadcrumbs: (crumbs: PageRef[]) => void;
@@ -129,6 +134,14 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
       await flushAllEdits();
       await attempt(ipc.createDefaultWorkspace, true);
     },
+    restoreBackup: async () => {
+      await flushAllEdits();
+      // The caller reports the outcome, so a cancel or failure leaves the
+      // open workspace and its error state alone.
+      const info = await ipc.restoreBackup();
+      if (info) await adopt(info);
+      return info;
+    },
 
     loadChildren: async (parentId) => {
       try {
@@ -205,6 +218,18 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
       } catch (error) {
         get().reportError(error);
         return null;
+      }
+    },
+
+    addGettingStarted: async () => {
+      try {
+        const page = await ipc.createPage(null, GETTING_STARTED_TITLE);
+        const { body_rev } = await ipc.getPage(page.id);
+        await ipc.savePage(page.id, body_rev, GETTING_STARTED_BODY);
+        await get().refresh();
+        set({ activePageId: page.id });
+      } catch (error) {
+        get().reportError(error);
       }
     },
 

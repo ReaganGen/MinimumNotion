@@ -1,6 +1,7 @@
 mod ai_commands;
 mod assets;
 mod commands;
+mod data_commands;
 mod menu;
 mod session;
 mod window;
@@ -211,6 +212,11 @@ fn main() {
             ai_commands::reject_changeset,
             ai_commands::list_operations,
             ai_commands::undo_operation,
+            data_commands::export_workspace,
+            data_commands::backup_workspace,
+            data_commands::restore_backup,
+            data_commands::read_log,
+            data_commands::diagnostics,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Forma");

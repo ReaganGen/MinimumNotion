@@ -16,8 +16,9 @@
   /* Surfaces and text */
   --background: #ffffff;
   --foreground: #2f2e2b;
-  --muted-foreground: #73716b;
-  --faint-foreground: #a19f99;
+  /* Text tones meet WCAG AA (4.5:1) on every surface: src/styles/contrast.test.ts */
+  --muted-foreground: #67655f;
+  --faint-foreground: #73716b;
   --sidebar: #f8f8f6;
   --sidebar-foreground: #5b5953;
   --popover: #ffffff;
@@ -32,7 +33,7 @@
   /* Lines and focus */
   --border: rgb(55 53 47 / 0.1);
   --input: rgb(55 53 47 / 0.16);
-  --ring: rgb(53 103 212 / 0.55);
+  --ring: rgb(53 103 212 / 0.8);
 
   /* Actions */
   --primary: #3567d4;
@@ -40,6 +41,8 @@
   --secondary: rgb(55 53 47 / 0.06);
   --secondary-foreground: #2f2e2b;
   --destructive: #c4443a;
+  /* Filled destructive buttons, with white text */
+  --destructive-fill: #c4443a;
   --link: #3567d4;
   --selection: rgb(53 103 212 / 0.18);
   /* Search matches: a quiet marker, not a bright accent */
@@ -90,8 +93,8 @@
 
   --background: #1c1c1b;
   --foreground: rgb(255 255 255 / 0.87);
-  --muted-foreground: rgb(255 255 255 / 0.56);
-  --faint-foreground: rgb(255 255 255 / 0.36);
+  --muted-foreground: rgb(255 255 255 / 0.62);
+  --faint-foreground: rgb(255 255 255 / 0.48);
   --sidebar: #222221;
   --sidebar-foreground: rgb(255 255 255 / 0.66);
   --popover: #262625;
@@ -106,11 +109,12 @@
   --input: rgb(255 255 255 / 0.14);
   --ring: rgb(120 162 240 / 0.6);
 
-  --primary: #4b7fe0;
+  --primary: #3f72d8;
   --primary-foreground: #ffffff;
   --secondary: rgb(255 255 255 / 0.07);
   --secondary-foreground: rgb(255 255 255 / 0.87);
   --destructive: #e06c62;
+  --destructive-fill: #c4443a;
   --link: #7ea6f0;
   --selection: rgb(120 162 240 / 0.28);
   --highlight: rgb(232 190 60 / 0.24);

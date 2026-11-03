@@ -2,6 +2,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings } from "./bindings/AppSettings";
+import type { ArchiveResult } from "./bindings/ArchiveResult";
 import type { CellInput } from "./bindings/CellInput";
 import type { ChangeOutcome } from "./bindings/ChangeOutcome";
 import type { ChatInput } from "./bindings/ChatInput";
@@ -121,6 +122,13 @@ export const ipc = {
   /** Writes the page's ID into its file before a link to it is created. */
   ensurePersistedId: (id: string) => call<void>("ensure_persisted_id", { id }),
   rebuildIndex: () => call<void>("rebuild_index"),
+
+  // Settings → Data. Each opens its own native dialog in Rust; null when cancelled.
+  exportWorkspace: () => call<ArchiveResult | null>("export_workspace"),
+  backupWorkspace: () => call<ArchiveResult | null>("backup_workspace"),
+  restoreBackup: () => call<WorkspaceInfo | null>("restore_backup"),
+  readLog: () => call<string>("read_log"),
+  diagnostics: () => call<string>("diagnostics"),
 
   getCollection: (id: string) => call<CollectionData>("get_collection", { id }),
   getEntry: (id: string) => call<EntryData | null>("get_entry", { id }),

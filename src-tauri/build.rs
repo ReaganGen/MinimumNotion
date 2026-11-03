@@ -68,6 +68,11 @@ fn main() {
             "reject_changeset",
             "list_operations",
             "undo_operation",
+            "export_workspace",
+            "backup_workspace",
+            "restore_backup",
+            "read_log",
+            "diagnostics",
         ]),
     ))
     .expect("failed to run tauri-build");

@@ -6,18 +6,23 @@ Forma is a minimal, local-first knowledge workspace for macOS. It pairs Notion-s
 
 ## Status
 
-**Pre-release. Phases 1–6 are implemented:** the app shell; Markdown pages with a Notion-style editor, autosave, history, trash and outside-edit safety; collections, page links, backlinks and full-text search (including Chinese); and an optional AI assistant (OpenAI, Anthropic, OpenAI-compatible servers, Ollama or LM Studio, with keys in the macOS Keychain) that answers questions about your notes, summarizes and explains them, and cites the passages it used. In Edit mode it proposes changes (new pages, edits, moves, collections, properties, links) that you review word by word and apply, all at once or not at all, and can undo. AI is off by default. See [docs/PROGRESS.md](docs/PROGRESS.md).
+**Version 0.1.0, pre-release.** All seven phases of the v0.1.0 plan are implemented: the app shell; Markdown pages with a Notion-style editor, autosave, history, trash and outside-edit safety; collections, page links, backlinks and full-text search (including Chinese); an optional AI assistant (OpenAI, Anthropic, OpenAI-compatible servers, Ollama or LM Studio, with keys in the macOS Keychain) that answers questions about your notes with citations and, in Edit mode, proposes changes you review, apply all at once or not at all, and can undo; and export, backup, restore and diagnostics. AI is off by default.
+
+The macOS build is a universal app (Apple silicon and Intel) for macOS 13 or later. It is **ad-hoc signed and not notarized**, so macOS asks you to allow it the first time; see [Installing](docs/USER_GUIDE.md#installing). Progress and measured performance: [docs/PROGRESS.md](docs/PROGRESS.md).
 
 ## Development
 
-Requirements: macOS 13 or later, Xcode Command Line Tools, Rust stable (via rustup) and Node 24 or later.
+Requirements: macOS 13 or later, Xcode Command Line Tools, Rust (via rustup) and Node 24 or later.
 
 ```bash
 npm install
 npm run tauri:dev      # run the app with hot reload
 npm run check          # typecheck, lint, and test both TypeScript and Rust
-npm run tauri:build    # build Forma.app into target/release/bundle/ (DMG packaging is Phase 7)
+npx tauri build --target universal-apple-darwin --bundles app,dmg
+                       # Forma.app and a DMG in target/universal-apple-darwin/release/bundle/
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the rules, checks and release steps.
 
 ## Principles
 
@@ -27,6 +32,8 @@ npm run tauri:build    # build Forma.app into target/release/bundle/ (DMG packag
 
 ## Documentation
 
+- [User guide](docs/USER_GUIDE.md)
+- [Contributing](CONTRIBUTING.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Data model and file formats](docs/DATA_MODEL.md)
 - [Decision records](docs/DECISIONS.md)

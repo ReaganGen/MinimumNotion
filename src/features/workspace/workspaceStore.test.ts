@@ -12,6 +12,8 @@ vi.mock("@/lib/ipc/client", () => ({
     listFavorites: vi.fn(),
     takeNotices: vi.fn(),
     createPage: vi.fn(),
+    getPage: vi.fn(),
+    savePage: vi.fn(),
   },
 }));
 
@@ -115,6 +117,16 @@ describe("workspaceStore", () => {
     expect(ipc.createPage).toHaveBeenCalledWith("a", "Untitled");
     expect(state().expanded.a).toBe(true);
     expect(state().activePageId).toBe("c");
+  });
+
+  it("adds the getting-started page only when asked, through the normal save", async () => {
+    vi.mocked(ipc.createPage).mockResolvedValue(summary("g", "Getting started"));
+    vi.mocked(ipc.getPage).mockResolvedValue({ body_rev: "empty" } as never);
+    vi.mocked(ipc.savePage).mockResolvedValue({ status: "saved" } as never);
+    await state().addGettingStarted();
+    expect(ipc.createPage).toHaveBeenCalledWith(null, "Getting started");
+    expect(ipc.savePage).toHaveBeenCalledWith("g", "empty", expect.stringContaining("## Writing"));
+    expect(state().activePageId).toBe("g");
   });
 
   it("loads a branch only when it's first expanded", async () => {
