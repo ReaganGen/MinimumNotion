@@ -11,9 +11,9 @@ On 2026-11-02 the development machine (macOS 26.3, Apple Silicon) had Xcode Comm
 | Tool | Requirement | Install |
 |---|---|---|
 | Xcode Command Line Tools | Present (`/Library/Developer/CommandLineTools`). Enough for Tauri desktop builds. Full Xcode isn't required | — |
-| Rust | stable ≥ 1.90 (`tauri` 2.12 MSRV), via rustup | Official installer from https://rustup.rs |
+| Rust | stable ≥ 1.90 (`tauri` 2.12 MSRV), via rustup. **Installed in Phase 1: 1.99.1**, plus the `x86_64-apple-darwin` target | Official installer from https://rustup.rs |
 | Rust targets | `aarch64-apple-darwin` (default). `x86_64-apple-darwin` is needed for the universal build in Phase 7 | `rustup target add x86_64-apple-darwin` |
-| Node.js | 24 LTS (≥ 24.22) | `brew install node@24` (keg-only, so add it to `PATH`), or nvm/fnm |
+| Node.js | ≥ 24 LTS. **Installed in Phase 1: 26.13.0 LTS** (Homebrew `node`, which is linked onto `PATH`) with npm 11.20 | `brew install node` (26 LTS), or `node@24`, nvm or fnm |
 | npm | Bundled with Node | — |
 
 ---
@@ -32,12 +32,12 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 | `vite` | 8.3.5 | Needs Node `^20.19 \|\| >=22.12` |
 | `@vitejs/plugin-react` | 6.2.1 | Peer `vite ^8` |
 | `tailwindcss`, `@tailwindcss/vite` | 4.3.4 | Peer `vite ^5–^8` |
-| `shadcn` (CLI) | 4.23.0 | Generates components into `src/components/ui/`. Uses `radix-ui` 1.8 |
+| `shadcn` (CLI) | 4.23.0 | Run as `npx shadcn@4.23.0 add …`; **not** a project dependency, because its own dependencies carry npm audit findings. Generated components live in `src/components/ui/` and use `radix-ui` 1.8, `class-variance-authority` 0.7.1, `clsx` 2.1.1, `tailwind-merge` 3.7.0 and `tw-animate-css` 1.4.0 |
 | `lucide-react` | 1.66.0 | |
 | `@tiptap/core`, `/react`, `/pm`, `/starter-kit`, `/markdown`, `/extension-*` | 3.32.2 | `@tiptap/markdown` uses `marked` 17 |
 | `katex` | 0.18.11 | Pinned below 0.19: `@tiptap/extension-mathematics` peer `^0.16 \|\| ^0.17 \|\| ^0.18` |
 | `zustand` | 5.0.16 | |
-| `react-resizable-panels` | 4.16.1 | |
+| `react-resizable-panels` | 4.16.1 | Not used: custom resize handles instead (ADR-029) |
 | `cmdk` | 1.1.1 | Quick open and command palette |
 | `@tanstack/react-virtual` | 3.14.25 | |
 | `vitest` | 5.1.0 | Peer `vite ^6.4 \|\| ^7 \|\| ^8` |
@@ -110,7 +110,7 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
    - Wire Tailwind 4 to these tokens with `@theme`.
    - Add shadcn/ui primitives as each is needed: button, dialog, dropdown-menu, context-menu, tooltip, input, scroll-area, separator, toggle.
 5. **Layout.**
-   - Three-panel layout with `react-resizable-panels`: sidebar (default 260 px, collapsible), editor (centered reading column, about 720 px max), AI panel (hidden by default and collapsible).
+   - Three-panel layout with custom pixel-width resize handles (ADR-029): sidebar (default 260 px, collapsible), editor (centered reading column, about 720 px max), AI panel (hidden by default and collapsible).
    - The AI panel only shows an honest empty state: "AI assistant arrives in a later version". It has no input and no controls that pretend to work.
 6. **Sidebar shell.** Search entry point, Favorites section, page tree section, and "New page". With no workspace, the sidebar shows an empty state ("No workspace open"). It shows no mock pages.
 7. **Editor area empty state** with a clear title area, and breadcrumb placeholders only where they reflect real state.

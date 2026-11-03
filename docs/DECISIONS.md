@@ -32,6 +32,8 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 | 026 | Open-source license | **Proposed (needs user approval)** |
 | 027 | Single instance plus a workspace lock | Accepted |
 | 028 | YAML handled by the saphyr family, not the deprecated `serde_yaml` | Accepted |
+| 029 | Custom pixel-width resize handles instead of `react-resizable-panels` | Accepted |
+| 030 | App shortcuts are native menu accelerators, routed through one command registry | Accepted |
 
 ---
 
@@ -338,3 +340,20 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Decision:** Use `saphyr` / `saphyr-parser` (YAML 1.2, maintained) for span-aware parsing, and Forma's own emitter for the values it writes. Phase 2 confirms the exact crate split and whether `serde-saphyr` 2.x is worth using for typed deserialization of `.forma/` files. Those files are JSON, so they use `serde_json`.
 - **Alternatives:** `serde_yaml_ng` and `serde_norway` (forks of the deprecated crate with slow maintenance, and no span API). `yaml-rust2` (maintained, but its span support is weaker).
 - **Consequences:** We need our own value-emission code (DATA_MODEL §4.7), with tests against YAML 1.1 ambiguities such as the "Norway problem".
+
+## ADR-029: Custom pixel-width resize handles instead of `react-resizable-panels`
+
+- **Status:** Accepted. **Date:** 2026-11-02 (Phase 1)
+- **Context:** The plan listed `react-resizable-panels` for the three-panel layout. Forma's side panels are fixed-width columns in pixels, like Notion's sidebar: their width shouldn't change when the window is resized. They also need to collapse smoothly and turn into overlays in narrow windows.
+- **Decision:** Use a small `ResizeHandle` component (pointer capture, keyboard arrows, Home/End, double-click to reset, `role="separator"` with ARIA values). Panel widths are stored in pixels and clamped in both TypeScript and Rust.
+- **Alternatives:** `react-resizable-panels` 4.x. It's capable, but its model is built around a group of panels that share the space, which is more than two independent fixed-width columns need.
+- **Rationale:** About 100 lines of code, with full control over animation and overlay behavior, and one dependency fewer.
+- **Consequences:** We own the handle's accessibility and pointer behavior, which tests cover.
+
+## ADR-030: App shortcuts are native menu accelerators, routed through one command registry
+
+- **Status:** Accepted. **Date:** 2026-11-02 (Phase 1)
+- **Context:** App shortcuts (⌘⇧L, ⌘⇧A, ⌘K, ⌘P, ⌘,) should show in the macOS menu bar. If the native menu and a JavaScript key handler both reacted to the same key, the shortcut could fire twice, depending on how WebKit orders key equivalents.
+- **Decision:** Each app-level shortcut is defined once, as a menu item accelerator in `src-tauri/src/menu.rs`. A menu click or accelerator sends `forma://menu` with a command ID. The frontend runs it through `runCommand` in `src/features/commands/commands.ts`. The webview doesn't listen for these keys. A Rust test checks that every menu ID exists in the frontend registry. Editor-level shortcuts (⌘B, ⌘I) stay in the editor (Phase 2).
+- **Alternatives:** JavaScript key handlers alone. The shortcuts wouldn't be visible or discoverable in the menu bar, and they'd conflict with macOS conventions.
+- **Consequences:** The display labels in `SHORTCUTS` have to be kept in step with the accelerators in `menu.rs`. A test checks the IDs, not the key labels. In the development browser preview, a harness maps the same keys to menu events.

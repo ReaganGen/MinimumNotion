@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the main window. Keep this list minimal (ARCHITECTURE §2.1).",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "allow-get-settings",
+    "allow-save-settings",
+    "allow-app-ready"
+  ]
+}

@@ -6,7 +6,18 @@ Forma is a minimal, local-first knowledge workspace for macOS. It pairs Notion-s
 
 ## Status
 
-**Pre-release. In Phase 0 (architecture).** There is no application code yet. See [docs/PROGRESS.md](docs/PROGRESS.md).
+**Pre-release. Phase 1 (app shell) is done.** The app launches with its layout, themes, menus and settings. Pages and the editor come in Phase 2. See [docs/PROGRESS.md](docs/PROGRESS.md).
+
+## Development
+
+Requirements: macOS 13 or later, Xcode Command Line Tools, Rust stable (via rustup) and Node 24 or later.
+
+```bash
+npm install
+npm run tauri:dev      # run the app with hot reload
+npm run check          # typecheck, lint, and test both TypeScript and Rust
+npm run tauri:build    # build Forma.app into target/release/bundle/ (DMG packaging is Phase 7)
+```
 
 ## Principles
 

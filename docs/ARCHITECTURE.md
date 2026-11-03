@@ -350,9 +350,11 @@ There are two Markdown parsers, `marked` (inside `@tiptap/markdown`) in TS and `
 - **State.** Small zustand stores per feature: layout and panels, theme, the active page and editor session, tree expansion, search UI, and AI chat. The application never holds the whole workspace in React state. Tree children load per expanded node through IPC, document content loads only for the open page, and search results are paged.
 - **Invalidation.** Stores subscribe to `workspace://changed` and refetch only the affected nodes and pages.
 - **Large lists** (sidebar tree, collection tables, search results) are virtualized with `@tanstack/react-virtual`.
-- **Layout.** Three panels using `react-resizable-panels`: sidebar (visible by default), editor, and AI panel (hidden by default). Panel sizes and visibility persist in app settings.
+- **Layout.** Three panels: sidebar (visible by default), editor, and AI panel (hidden by default). The side panels have fixed pixel widths, resized with small custom handles (ADR-029). Widths and visibility persist in app settings. When the window is too narrow for a panel to sit beside an editor at least 420 px wide, that panel floats over the editor instead of disappearing, so a toggle always does what it says.
 - **macOS window.** An overlay title bar with inset traffic lights and drag regions, native menus with standard shortcuts, and window-state persistence. Solid surfaces only; no glass effects.
-- **Theming.** Tokens are defined for light and dark, plus "follow system". The theme is applied before first paint to avoid a flash.
+- **Shortcuts.** App-level shortcuts are native menu accelerators. The menu sends a command ID to the webview, which runs it through one command registry (ADR-030). The webview doesn't handle those keys itself, so a shortcut can't fire twice.
+- **Theming.** Tokens are defined for light and dark, plus "follow system". The window starts hidden. The frontend loads settings, applies the theme, renders, and then calls `app_ready` to show the window, so the first visible frame already has the right theme. If `app_ready` never arrives, the shell shows the window after 3 s anyway. For explicit Light or Dark, the shell also sets the native window appearance, which keeps the title bar and `prefers-color-scheme` consistent.
+- **Browser preview (development only).** When `vite dev` is opened in an ordinary browser, a small harness stands in for the Rust side, with in-memory settings and keyboard-to-menu mapping, so the UI can be previewed without the app. Production builds strip it out.
 
 ---
 

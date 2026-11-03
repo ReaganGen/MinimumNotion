@@ -1,0 +1,19 @@
+[package]
+name = "forma"
+description = "Forma desktop shell: IPC commands, window, and menus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+forma-core.workspace = true
+tauri = { version = "2.12.5", features = [] }
+tauri-plugin-single-instance = "2.5.5"
+tauri-plugin-window-state = "2.5.0"
+
+[lints]
+workspace = true

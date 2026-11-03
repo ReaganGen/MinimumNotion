@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img">
+  <title>Forma</title>
+  <!-- Provisional app icon. Generate the platform sizes with: npx tauri icon src-tauri/icons/source.svg -->
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#efeee9"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#surface)"/>
+  <rect x="100.5" y="100.5" width="823" height="823" rx="185.5" fill="none" stroke="#000000" stroke-opacity="0.09"/>
+  <rect x="380" y="300" width="88" height="424" rx="8" fill="#2f2e2b"/>
+  <rect x="380" y="300" width="292" height="84" rx="8" fill="#2f2e2b"/>
+  <rect x="380" y="472" width="224" height="80" rx="8" fill="#2f2e2b"/>
+</svg>

@@ -1,0 +1,134 @@
+/*
+ * Forma design tokens. Every color, radius, shadow and motion value in the UI
+ * comes from here. Names follow the shadcn/ui convention so generated
+ * components work unchanged. The `--accent` token is the subtle hover fill,
+ * not a brand color.
+ */
+
+:root {
+  color-scheme: light;
+
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC",
+    "Hiragino Sans", sans-serif;
+  --font-code: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Surfaces and text */
+  --background: #ffffff;
+  --foreground: #2f2e2b;
+  --muted-foreground: #73716b;
+  --faint-foreground: #a19f99;
+  --sidebar: #f8f8f6;
+  --sidebar-foreground: #5b5953;
+  --popover: #ffffff;
+  --popover-foreground: #2f2e2b;
+
+  /* Interaction fills */
+  --accent: rgb(55 53 47 / 0.06);
+  --accent-foreground: #2f2e2b;
+  --muted: rgb(55 53 47 / 0.04);
+  --selected: rgb(55 53 47 / 0.09);
+
+  /* Lines and focus */
+  --border: rgb(55 53 47 / 0.1);
+  --input: rgb(55 53 47 / 0.16);
+  --ring: rgb(53 103 212 / 0.55);
+
+  /* Actions */
+  --primary: #3567d4;
+  --primary-foreground: #ffffff;
+  --secondary: rgb(55 53 47 / 0.06);
+  --secondary-foreground: #2f2e2b;
+  --destructive: #c4443a;
+  --link: #3567d4;
+  --selection: rgb(53 103 212 / 0.18);
+
+  /* Elevation */
+  --overlay: rgb(15 15 14 / 0.28);
+  --shadow-popover:
+    0 0 0 1px rgb(15 15 14 / 0.05), 0 3px 6px rgb(15 15 14 / 0.06), 0 9px 24px rgb(15 15 14 / 0.1);
+
+  /* Collection select colors (used from Phase 3) */
+  --tag-gray-bg: #ebeae7;
+  --tag-gray-fg: #5b5a55;
+  --tag-brown-bg: #eee3dc;
+  --tag-brown-fg: #6e4b38;
+  --tag-orange-bg: #f8e4d3;
+  --tag-orange-fg: #8a4b16;
+  --tag-yellow-bg: #f6ecc9;
+  --tag-yellow-fg: #7a5c0e;
+  --tag-green-bg: #dcece3;
+  --tag-green-fg: #2f6145;
+  --tag-blue-bg: #dde8f6;
+  --tag-blue-fg: #2c5384;
+  --tag-purple-bg: #e9e2f4;
+  --tag-purple-fg: #5a3d86;
+  --tag-pink-bg: #f4e1ea;
+  --tag-pink-fg: #86385d;
+  --tag-red-bg: #f6dfdb;
+  --tag-red-fg: #933a30;
+
+  /* Shape and motion */
+  --radius: 6px;
+  --duration-fast: 120ms;
+  --duration-panel: 160ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Layout */
+  --titlebar-height: 44px;
+  --traffic-lights-inset: 78px;
+  --reading-width: 720px;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #1c1c1b;
+  --foreground: rgb(255 255 255 / 0.87);
+  --muted-foreground: rgb(255 255 255 / 0.56);
+  --faint-foreground: rgb(255 255 255 / 0.36);
+  --sidebar: #222221;
+  --sidebar-foreground: rgb(255 255 255 / 0.66);
+  --popover: #262625;
+  --popover-foreground: rgb(255 255 255 / 0.87);
+
+  --accent: rgb(255 255 255 / 0.055);
+  --accent-foreground: rgb(255 255 255 / 0.87);
+  --muted: rgb(255 255 255 / 0.035);
+  --selected: rgb(255 255 255 / 0.09);
+
+  --border: rgb(255 255 255 / 0.085);
+  --input: rgb(255 255 255 / 0.14);
+  --ring: rgb(120 162 240 / 0.6);
+
+  --primary: #4b7fe0;
+  --primary-foreground: #ffffff;
+  --secondary: rgb(255 255 255 / 0.07);
+  --secondary-foreground: rgb(255 255 255 / 0.87);
+  --destructive: #e06c62;
+  --link: #7ea6f0;
+  --selection: rgb(120 162 240 / 0.28);
+
+  --overlay: rgb(0 0 0 / 0.5);
+  --shadow-popover:
+    0 0 0 1px rgb(255 255 255 / 0.07), 0 3px 6px rgb(0 0 0 / 0.25), 0 9px 24px rgb(0 0 0 / 0.35);
+
+  --tag-gray-bg: #3a3a38;
+  --tag-gray-fg: #cfcdc7;
+  --tag-brown-bg: #4a3b32;
+  --tag-brown-fg: #e0c3ad;
+  --tag-orange-bg: #563a24;
+  --tag-orange-fg: #f0bd8c;
+  --tag-yellow-bg: #4f4425;
+  --tag-yellow-fg: #ead48d;
+  --tag-green-bg: #2c4537;
+  --tag-green-fg: #a8d4b8;
+  --tag-blue-bg: #2b3e57;
+  --tag-blue-fg: #a9c6ee;
+  --tag-purple-bg: #3f3352;
+  --tag-purple-fg: #cbb6ec;
+  --tag-pink-bg: #4f3040;
+  --tag-pink-fg: #ecb3cf;
+  --tag-red-bg: #55302b;
+  --tag-red-fg: #f0aaa0;
+}

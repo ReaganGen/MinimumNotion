@@ -2,49 +2,96 @@
 
 ## Current Phase
 
-Phase 0: Architecture and Project Planning
+Phase 1: macOS Application Foundation
 
 ## Status
 
-Deliverables complete. **Awaiting user approval** to proceed to Phase 1.
+Implemented and verified (details below). **Awaiting user approval** to proceed to Phase 2.
 
 ## Completed Phases
 
-None. Phase 0 counts as complete only after the user approves it.
+- **Phase 0: Architecture and Project Planning.** Approved 2026-11-02 (commit `0b64019`).
 
 ## Implemented Features
 
-No application code yet. That is intentional in Phase 0.
+### Phase 1 (2026-11-02)
 
-Phase 0 deliverables:
+- **Toolchain:** Rust 1.99.1 (rustup, plus the `x86_64-apple-darwin` target) and Node 26.13.0 LTS with npm 11.20 (Homebrew).
+- **Project scaffold:**
+  - Cargo workspace: `crates/forma-core` and the `src-tauri` shell.
+  - Frontend: Vite 8, React 19, TypeScript 6, Tailwind 4, shadcn/ui primitives (button, dialog, tooltip, toggle group) and Biome.
+- **`forma-core`:**
+  - Atomic file writes: temp file, `F_FULLFSYNC`, rename, then fsync of the directory, plus cleanup of stale temp files.
+  - App settings store (`settings.json` in `~/Library/Application Support/app.forma.desktop/`):
+    - Defaults are used when the file is missing.
+    - A corrupt file is moved aside as `settings.json.corrupt-<ts>`, with a notice to the user.
+    - Widths are clamped.
+    - Unknown keys are preserved and never sent to the webview.
+    - A file from a newer format version is read-only.
+  - TypeScript bindings generated with ts-rs.
+- **Tauri shell:**
+  - Overlay title bar with inset traffic lights. The window stays hidden until the first themed frame (`app_ready`), with a 3 s fallback.
+  - Native window appearance and background follow the theme.
+  - Native menus: Forma, Edit, View, Go, Window.
+  - Single instance and window-state persistence.
+  - Strict CSP. Every app command needs an explicit capability permission.
+- **UI:**
+  - Three-panel layout: sidebar, editor, and AI panel (hidden by default).
+  - Smooth collapse, pixel-width resize handles (pointer, keyboard, double-click to reset), and overlay mode for narrow windows.
+  - Light, dark and system themes from design tokens.
+  - Honest empty states for the sidebar, editor, AI panel, ⌘K search and ⌘P quick open.
+  - Settings dialog: Appearance works. Workspace, AI and Data explain when they arrive and contain no controls.
+  - A notice bar for settings problems.
+- **Shortcuts (native menu accelerators, ADR-030):** ⌘⇧L sidebar, ⌘⇧A AI panel, ⌘K search, ⌘P quick open, ⌘, settings. Esc closes dialogs. Standard macOS items (⌘Q, ⌘H, ⌘M, ⌘W, Edit menu, full screen) are untouched.
+- **Development-only browser preview:** `npm run dev` opened in a browser uses an in-memory stand-in for the backend. Verified to be absent from the production bundle.
+- **New decisions:** ADR-029 (custom resize handles) and ADR-030 (menu-accelerator shortcuts).
 
-- `CLAUDE.md`: durable development rules
-- `docs/ARCHITECTURE.md`: system design, the Document Service, index, editor pipeline, AI architecture, security model, collaboration extension points and the risk register (R1–R16)
-- `docs/DATA_MODEL.md`: normative on-disk formats (layout, filenames, frontmatter, Markdown dialect, collections, `.forma/` files, the index schema and the API surface)
-- `docs/DECISIONS.md`: ADR-001 to ADR-028. ADR-026 (license) is **Proposed**
-- `docs/IMPLEMENTATION_PLAN.md`: toolchain prerequisites, verified dependency versions, and Phases 1–7 with tasks, tests and acceptance criteria
-- `docs/ROADMAP.md`
-- `README.md`, `.gitignore`, and the git repository with its initial commit
+### Phase 0
+
+The architecture documents and CLAUDE.md. See the git history.
 
 ## Tests
 
-No code exists, so no automated tests apply in Phase 0. Verification done in this phase:
+Run on 2026-11-02 after the final change:
 
-- Dependency versions and peer compatibility were checked against the npm registry and crates.io on 2026-11-02 (IMPLEMENTATION_PLAN §2). This found two compatibility limits that shaped decisions:
-  - `typescript-eslint` doesn't support TypeScript 7, which led to TypeScript 6.0 with Biome (ADR-016).
-  - `@tiptap/extension-mathematics` accepts KaTeX ≤ 0.18, so KaTeX is pinned to 0.18.x (ADR-015).
-- Confirmed that the bundled build of `libsqlite3-sys` enables `SQLITE_ENABLE_FTS5` (from its `build.rs`). This will be confirmed again with a test in Phase 3.
-- Inventoried the toolchain on the development machine.
+| Command | Result |
+|---|---|
+| `npm run typecheck` (app and Vite config) | Pass |
+| `npx biome check .` | Pass, 0 diagnostics |
+| `npx vitest run` | 8 files, **40 tests passed** |
+| `cargo fmt --all --check` | Pass |
+| `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
+| `cargo test --workspace` | **26 passed**: 24 in `forma-core`, 2 in the shell |
+| `npm audit` | 0 vulnerabilities |
+| `npx tauri build --bundles app` | Pass. `Forma.app` is 5.2 MiB: arm64, ad-hoc signed, `LSMinimumSystemVersion` 13.0 |
+
+Manual and runtime checks:
+
+- **Release app launch, measured with a CoreGraphics window-list probe:** the window became visible 0.6–1.0 s after launch over three runs. That is well before the 3 s fallback, so the production JavaScript runs under the CSP and the `get_settings` and `app_ready` IPC calls are permitted.
+  - The first build revealed a bug: `requestAnimationFrame` never fires in a hidden WKWebView window, so the window only appeared through the fallback, after 3.6 s. It's fixed by signalling from a post-commit effect.
+- **Visual check in the browser preview:** light and dark themes, the AI panel docked, the Settings dialog with a working theme switch, ⌘K search, Esc closing dialogs, and overlay mode at 700 px wide.
+- **Not verified by Claude:** the look and feel of the native window (traffic-light placement, menu bar, accelerators, and native appearance switching in the real app). This session has no Screen Recording or Accessibility permission, so it can't take screenshots of the app or send it keystrokes. See the manual steps below.
+
+## Manual Verification Steps (for the user)
+
+1. `open target/release/bundle/macos/Forma.app` (or run `npm run tauri:dev`).
+2. Check that the traffic lights sit in the sidebar's top-left corner and the window has no visible title text.
+3. Press ⌘⇧L and ⌘⇧A: the panels slide closed and open. Look for the matching items in the View menu.
+4. Drag the sidebar's right edge to resize it, double-click the edge to reset it, then quit and relaunch: the width and visibility should be kept.
+5. ⌘, → Appearance → Dark: the title bar and content switch together. Choose System, then change macOS appearance: Forma follows it live.
+6. ⌘K and ⌘P open their dialogs, and Esc closes them.
+7. Make the window narrow: the AI panel, then the sidebar, float over the editor instead of squeezing it.
 
 ## Known Issues and Open Decisions
 
-1. **The toolchain is missing.** Node.js and Rust aren't installed, so Phase 1 is blocked until they are (IMPLEMENTATION_PLAN §1). Xcode Command Line Tools are present.
-2. **License (ADR-026) needs approval.** Recommended: Apache-2.0 plus a trademark policy. The alternative is AGPL-3.0 with a CLA. No `LICENSE` file has been created.
-3. **The bundle identifier needs confirmation before Phase 1.** Proposed: `app.forma.desktop`. It is hard to change later because it determines the Keychain service name and the app-data path.
-4. **Apple Developer ID.** Needed for signing and notarization in Phase 7. Without it, builds are ad-hoc signed and Gatekeeper warns users.
-5. **The name "Forma"** may collide with existing products (for example Autodesk Forma). A trademark search is recommended before public release (risk R15).
-6. Phase 2 opens with a decision gate on Markdown round-trip fidelity (ADR-015, risk R1).
+1. **License (ADR-026)** still needs approval.
+2. **Bundle identifier** `app.forma.desktop` is used provisionally. It can be changed cheaply until Phase 4 stores Keychain items.
+3. **The app icon is provisional**, a simple "F" mark. The final icon is a Phase 7 task.
+4. **Build targets:** arm64 only so far. The universal (Intel) build and the DMG are Phase 7.
+5. **Accelerator labels:** the labels in `SHORTCUTS` (TypeScript) mirror the accelerators in `menu.rs` by hand. A test checks the command IDs but not the key labels.
+6. **The dev browser preview** can't show ⌘, inside the Claude desktop app's browser pane, because the host app captures that key. This doesn't affect the real app, where ⌘, is a native menu item.
+7. **Uncommitted outside edit:** CLAUDE.md gained an "Execution Transparency & Explainability" section during Phase 1 that didn't come from Claude. It is left uncommitted pending the user's confirmation.
 
 ## Next Phase
 
-**Phase 1: macOS Application Foundation.** Scaffold Tauri 2, React and Vite. Add design tokens, the three-panel resizable layout, light, dark and system themes, the macOS window, menus and shortcuts, and the settings foundation. No persistence of documents and no AI. See IMPLEMENTATION_PLAN §4.
+**Phase 2: Document System and Editor.** It opens with the Markdown round-trip spike (ADR-015). Then: workspace initialization and opening, the Document Service (atomic writes, revisions, history, trash, recovery), the page tree, the Tiptap editor, autosave and external-change handling. See IMPLEMENTATION_PLAN §5.
