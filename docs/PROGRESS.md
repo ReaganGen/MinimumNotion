@@ -2,11 +2,17 @@
 
 ## Current Phase
 
-None. **All phases of the v0.1.0 plan are complete**; Phase 7 was approved on 2026-11-03 (commit `538d170`). Releasing still needs the user's decisions on the name (R15), signing and pushing (Known Issues 1–3).
+None. **All phases of the v0.1.0 plan are complete**; Phase 7 was approved on 2026-11-03 (commit `538d170`). Releasing still needs the user's decisions on the name (R15) and signing, and a passing CI run (Known Issues 1–3).
 
 ## Status
 
-Phase 7 is complete and approved, as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The GitHub workflows were written and their steps run locally, but have not run on GitHub.
+Phase 7 is complete and approved, as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The code is backed up to a private GitHub repository. CI has run there once: the dependency audit passed, but the checks and the bundle build didn't run (Known Issue 3).
+
+### After Phase 7 (2026-11-03)
+
+- **Backed up to GitHub** at the user's request: the private repository `ReaganGen/MinimumNotion`, with `main` at `16089c2`.
+- **First CI run** (41687433709). The dependency audit passed. The check job waited 15 minutes for a macOS arm64 runner, got none, and was cancelled ("The job was not acquired by Runner of type hosted"). The bundle job was skipped. No check or test ran on GitHub. The label is valid (the audit got a `macos-26` runner in the same run), and GitHub's status page shows no incident at that time.
+- **The dependency audit now runs on `ubuntu-24.04`.** `npm audit` and `cargo audit` read only the lockfiles, so they need no Mac; a run now needs two macOS runners instead of three. rust-cache keys include the OS, so the macOS cache isn't restored on Linux. ADR-045 is amended.
 
 ### Phase 7 journal
 
@@ -359,7 +365,7 @@ Not separately reviewed, and kept as documented: favorites and order in `.forma/
 
 1. **The name "Forma" has conflicts** in software (R15): "Forma – Notes & Tasks" for Mac, Autodesk's "AUTODESK FORMA" application in class 42, an iOS PDF app. A professional trademark search, or a new name, before any public release. The bundle ID `app.forma.desktop` follows the name and can't change later without moving settings and Keychain items.
 2. **Signing:** the release is ad-hoc signed and not notarized, so macOS blocks the first open and every update asks again (also for Keychain and folder access). Notarization needs an Apple Developer ID; CONTRIBUTING.md lists what Tauri reads.
-3. **The workflows haven't run on GitHub:** pushing wasn't authorized. Their steps ran locally.
+3. **CI hasn't passed on GitHub yet.** In the only run, the check job got no macOS runner and was cancelled, so the checks, tests and bundle build have only run locally; the dependency audit passed. Its move to Linux takes effect from the next push (re-running the old run uses that commit's workflow) and hasn't run on GitHub yet. The release workflow hasn't run (no tag).
 
 **Known issues:**
 
@@ -385,4 +391,4 @@ Not separately reviewed, and kept as documented: favorites and order in `.forma/
 
 ## Next Phase
 
-None: Phase 7 was the last phase of the v0.1.0 plan. Next are the release decisions above (name, signing, pushing and tagging), each the user's call. Candidates after v0.1.0 are in ROADMAP.md.
+None: Phase 7 was the last phase of the v0.1.0 plan. Next are the release steps above (the name, signing, a passing CI run and tagging), each the user's call. Candidates after v0.1.0 are in ROADMAP.md.

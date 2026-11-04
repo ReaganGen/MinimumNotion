@@ -72,7 +72,7 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 | `zip` | 9.3.0, `default-features = false`, feature `deflate-flate2-zlib-rs` | Phase 7 backup and restore (ADR-044). MIT. Pulls in `flate2` with `zlib-rs` 0.6.8 (pure Rust, Zlib license); no other compression formats. Checked 2026-11-03 |
 | `axe-core` (npm, dev) | 4.14.0 | Phase 7 accessibility tests (`src/a11y.test.tsx`). MPL-2.0, released 2026-10-05; used only in tests, never bundled |
 | `cargo-audit` (tool) | 0.22.2 | Installed by CI with `cargo install --locked`, not a dependency. Released 2026-06-05 |
-| GitHub Actions | `actions/checkout` 7.0.1, `actions/setup-node` 7.1.0, `actions/upload-artifact` 7.0.2, `Swatinem/rust-cache` 2.9.3, `softprops/action-gh-release` 3.0.3 | Pinned to commit SHAs in `.github/workflows/`. Runner `macos-26` (arm64). Checked 2026-11-03 |
+| GitHub Actions | `actions/checkout` 7.0.1, `actions/setup-node` 7.1.0, `actions/upload-artifact` 7.0.2, `Swatinem/rust-cache` 2.9.3, `softprops/action-gh-release` 3.0.3 | Pinned to commit SHAs in `.github/workflows/`. Runners `macos-26` (arm64), and `ubuntu-24.04` for the dependency audit. Checked 2026-11-03 |
 
 ---
 
