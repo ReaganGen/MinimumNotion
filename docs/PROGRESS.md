@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-None. **All phases of the v0.1.0 plan are complete**; Phase 7 was approved on 2026-11-03 (commit `538d170`). The product was renamed from Forma to Diaspar (ADR-046). **Phases 8–10 (v0.2.0) are planned** (IMPLEMENTATION_PLAN §11–13) and wait for approval ("Proceed to Phase 8"). Releasing still needs the user's decisions on signing and tagging (Known Issues 1–3).
+None. **All phases of the v0.1.0 plan are complete**; Phase 7 was approved on 2026-11-03 (commit `538d170`). The product was renamed from Forma to Diaspar (ADR-046). **v0.1.0 is published as a pre-release** (2026-11-03). **Phases 8–10 (v0.2.0) are planned** (IMPLEMENTATION_PLAN §11–13) and wait for approval ("Proceed to Phase 8"). Notarization still needs an Apple Developer ID (Known Issue 2).
 
 ## Status
 
@@ -37,6 +37,11 @@ Phase 7 is complete and approved, as far as automated, preview and release-app c
   - board and gallery views are planned (CLAUDE.md and ROADMAP updated). Because v0.1.0 is being released now, Phases 8–10 make up v0.2.0.
 
   Table and math blocks already exist. Collections merge into databases in the UI only; the on-disk format stays.
+- **Public repository and v0.1.0 pre-release.**
+  - **Audit before publishing:** 15 commits, no keys or credentials (only the intentional fake test keys), and no private files ever committed. Every commit carries the author's university email; the user chose to keep it.
+  - **Release:** the repository was made public. Tag `v0.1.0` on `2e2af4f` ran `release.yml` (run 41770327267, 18m25s: checks, universal build, verification, draft).
+  - **Checked before publishing:** the downloaded DMG matched `SHA256SUMS.txt` (`2198f795…c957`), `hdiutil verify` passed, the app inside is validly ad-hoc signed with x86_64 and arm64 and identifier `app.diaspar.desktop`, and the user-guide link in the notes opens.
+  - **Published** as the pre-release "Diaspar 0.1.0": https://github.com/ReaganGen/MinimumNotion/releases/tag/v0.1.0. The assets download without signing in.
 
 ### Phase 7 journal
 
@@ -389,7 +394,7 @@ Not separately reviewed, and kept as documented: favorites and order in `.diaspa
 
 1. **The name Diaspar overlaps another product** (R15, ADR-046): Lavren Labs' "Diaspar" is persistent memory for AI coding agents on macOS, and DIASPARK is a live US class 42 mark. The user chose the name anyway. China's trademark register (CNIPA) and the EU's weren't searched; a professional search is still advisable before a public release.
 2. **Signing:** the release is ad-hoc signed and not notarized, so macOS blocks the first open and every update asks again (also for Keychain and folder access). Notarization needs an Apple Developer ID; CONTRIBUTING.md lists what Tauri reads.
-3. **The release workflow hasn't run.** CI passes on GitHub (run 41757388084). `release.yml` runs only on a `v*` tag, and no tag has been pushed. macOS arm64 runners can still queue: GitHub posts capacity notices, and the first run's check job got no runner.
+3. **v0.1.0 is a pre-release.** It hasn't had the user's own native checks (Known Issue 4) or a professional name search (Known Issue 1). macOS arm64 runners can still queue: GitHub posts capacity notices, and the first CI run's check job got no runner.
 
 **Known issues:**
 
