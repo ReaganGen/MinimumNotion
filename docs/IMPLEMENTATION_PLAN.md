@@ -469,6 +469,13 @@ Each of these is verified by a test or a documented manual check:
 - No file the user didn't change is written (architecture rule 14).
 - Folders never turn into pages unless the user asks.
 
+> **Status (2026-11-04):** implemented and approved; see PROGRESS.md. Decisions: ADR-047 (plain folders, IDs in `tree.json`) and ADR-048 (the grouped menu, Page, callouts).
+> - **Additions:**
+>   - search hits carry the page kind, so `[[` never offers a folder, and linking to one is refused in Rust too;
+>   - backups, restores and exports keep empty folders;
+>   - callouts get their own faint fills, because the tag fills left links below 4.5:1.
+> - **Not done:** the folder view has no rename; folders are renamed in the sidebar.
+
 ---
 
 ## 12. Phase 9: Media and Embeds

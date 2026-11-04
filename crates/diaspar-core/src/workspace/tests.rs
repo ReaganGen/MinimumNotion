@@ -537,8 +537,17 @@ fn order_and_favorites_persist() {
     let _ = a;
 }
 
+/// The folder map in `tree.json`, as the file on disk says.
+fn folder_map(dir: &Path) -> serde_json::Value {
+    let tree: serde_json::Value =
+        serde_json::from_slice(&fs::read(dir.join(".diaspar/tree.json")).unwrap()).unwrap();
+    tree.get("folders")
+        .cloned()
+        .unwrap_or(serde_json::json!({}))
+}
+
 #[test]
-fn folder_pages_become_bundles_on_first_write() {
+fn folders_never_turn_into_pages_on_their_own() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("Projects")).unwrap();
     fs::write(dir.path().join("Projects/Plan.md"), "plan\n").unwrap();
@@ -546,14 +555,198 @@ fn folder_pages_become_bundles_on_first_write() {
     let folder = ws.list_children(None).unwrap().remove(0);
     assert_eq!(folder.kind, PageKind::Folder);
     assert!(ws.get_page(&folder.id).unwrap().rev.is_none());
-    saved_rev(ws.save_page(&folder.id, None, "Overview\n").unwrap());
+
+    // Nothing a folder can't do writes into it.
+    assert!(ws.save_page(&folder.id, None, "Overview\n").is_err());
+    assert!(ws.set_icon(&folder.id, Some("📁")).is_err());
+    assert!(ws.set_favorite(&folder.id, true).is_err());
+    assert!(ws.convert_to_collection(&folder.id).is_err());
+    assert!(ws.ensure_link_target(&folder.id).is_err());
+    // What needs a durable ID records it in tree.json instead.
+    let other = ws.create_page(None, "Alpha").unwrap();
+    ws.reorder(&folder.id, 0).unwrap();
+    ws.move_page(&other.id, Some(&folder.id), None).unwrap();
+    assert_eq!(
+        user_files(dir.path()),
+        ["Projects/Alpha.md", "Projects/Plan.md"]
+    );
+    assert_eq!(
+        folder_map(dir.path()),
+        serde_json::json!({ "Projects": folder.id })
+    );
+
+    // The ID comes back from tree.json, with no index cache to remember it.
+    drop(ws);
+    let ws = Workspace::open(dir.path()).unwrap();
+    let reopened = ws.list_children(None).unwrap().remove(0);
+    assert_eq!(
+        (reopened.id.as_str(), reopened.kind),
+        (folder.id.as_str(), PageKind::Folder)
+    );
+}
+
+#[test]
+fn a_new_folder_is_an_empty_directory() {
+    let (dir, mut ws) = temp_workspace();
+    let folder = ws.create_folder(None, "Reading/notes").unwrap();
+    assert_eq!(folder.kind, PageKind::Folder);
+    assert_eq!(folder.title, "Reading-notes");
+    let path = dir.path().join("Reading-notes");
+    assert!(path.is_dir());
+    assert_eq!(fs::read_dir(&path).unwrap().count(), 0);
+    assert_eq!(
+        folder_map(dir.path()),
+        serde_json::json!({ "Reading-notes": folder.id })
+    );
+    // A page and a folder inside it.
+    let page = ws.create_page(Some(&folder.id), "Kafka").unwrap();
+    let inner = ws.create_folder(Some(&folder.id), "Later").unwrap();
+    assert_eq!(user_files(dir.path()), ["Reading-notes/Kafka.md"]);
+    assert!(path.join("Later").is_dir());
+    let children: Vec<_> = ws
+        .list_children(Some(&folder.id))
+        .unwrap()
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(children, [page.id, inner.id]);
+}
+
+#[test]
+fn renaming_and_moving_a_folder_keeps_its_id() {
+    let (dir, mut ws) = temp_workspace();
+    let a = ws.create_folder(None, "A").unwrap();
+    let inner = ws.create_folder(Some(&a.id), "Inner").unwrap();
+    let page = ws.create_page(Some(&a.id), "Plan").unwrap();
+    let b = ws.create_folder(None, "B").unwrap();
+
+    ws.set_title(&a.id, "Archive").unwrap();
+    assert!(dir.path().join("Archive/Inner").is_dir());
+    assert_eq!(
+        folder_map(dir.path()),
+        serde_json::json!({ "Archive": a.id, "Archive/Inner": inner.id, "B": b.id })
+    );
+    ws.move_page(&a.id, Some(&b.id), None).unwrap();
+    assert_eq!(user_files(dir.path()), ["B/Archive/Plan.md"]);
+    assert_eq!(
+        folder_map(dir.path()),
+        serde_json::json!({ "B": b.id, "B/Archive": a.id, "B/Archive/Inner": inner.id })
+    );
+
+    drop(ws);
+    let ws = Workspace::open(dir.path()).unwrap();
+    let moved = ws.list_children(Some(&b.id)).unwrap().remove(0);
+    assert_eq!(
+        (moved.id.as_str(), moved.title.as_str()),
+        (a.id.as_str(), "Archive")
+    );
+    let inside: Vec<_> = ws
+        .list_children(Some(&a.id))
+        .unwrap()
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(inside, [inner.id, page.id]);
+}
+
+#[test]
+fn an_outside_rename_gives_a_folder_a_new_id() {
+    let (dir, mut ws) = temp_workspace();
+    let folder = ws.create_folder(None, "Old").unwrap();
+    fs::rename(dir.path().join("Old"), dir.path().join("New")).unwrap();
+    ws.reconcile();
+    let renamed = ws.list_children(None).unwrap().remove(0);
+    assert_eq!(
+        (renamed.title.as_str(), renamed.kind),
+        ("New", PageKind::Folder)
+    );
+    assert_ne!(renamed.id, folder.id);
+}
+
+#[test]
+fn turning_a_folder_into_a_page_writes_one_index() {
+    let (dir, mut ws) = temp_workspace();
+    let folder = ws.create_folder(None, "Projects").unwrap();
+    ws.create_page(Some(&folder.id), "Plan").unwrap();
+    ws.turn_folder_into_page(&folder.id).unwrap();
     assert_eq!(
         user_files(dir.path()),
         ["Projects/Plan.md", "Projects/index.md"]
     );
-    let reopened = ws.list_children(None).unwrap().remove(0);
-    assert_eq!(reopened.kind, PageKind::Bundle);
-    assert_eq!(reopened.id, folder.id);
+    let page = ws.get_page(&folder.id).unwrap();
+    assert_eq!(
+        (page.kind, page.title.as_str()),
+        (PageKind::Bundle, "Projects")
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("Projects/index.md"))
+            .unwrap()
+            .contains(&format!("id: {}", folder.id))
+    );
+    assert_eq!(folder_map(dir.path()), serde_json::json!({}));
+    assert!(ws.turn_folder_into_page(&folder.id).is_err());
+}
+
+#[test]
+fn a_trashed_folder_comes_back_with_its_id() {
+    let (dir, mut ws) = temp_workspace();
+    let folder = ws.create_folder(None, "Projects").unwrap();
+    let inner = ws.create_folder(Some(&folder.id), "Later").unwrap();
+    let page = ws.create_page(Some(&folder.id), "Plan").unwrap();
+    let trashed = ws.trash_page(&folder.id).unwrap();
+    assert!(ws.list_children(None).unwrap().is_empty());
+    assert_eq!(trashed.page_count, 3);
+
+    let restored = ws.restore_trash(&trashed.entry_id).unwrap();
+    assert_eq!(restored.as_deref(), Some(folder.id.as_str()));
+    let back = ws.list_children(None).unwrap().remove(0);
+    assert_eq!(
+        (back.id.as_str(), back.kind),
+        (folder.id.as_str(), PageKind::Folder)
+    );
+    let inside: Vec<_> = ws
+        .list_children(Some(&folder.id))
+        .unwrap()
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!(inside, [inner.id, page.id]);
+    assert_eq!(user_files(dir.path()), ["Projects/Plan.md"]);
+}
+
+#[test]
+fn a_folder_in_a_collection_is_a_read_only_entry() {
+    let (_dir, mut ws) = temp_workspace();
+    let collection = ws.create_collection(None, "Reading").unwrap();
+    let page = ws.create_page(Some(&collection.id), "Kafka").unwrap();
+    let folder = ws.create_folder(Some(&collection.id), "Later").unwrap();
+    let rows = ws.get_collection(&collection.id).unwrap().rows;
+    let editable = |id: &str| rows.iter().find(|r| r.id == id).unwrap().editable;
+    assert!(editable(&page.id));
+    assert!(!editable(&folder.id));
+}
+
+#[test]
+fn duplicating_a_folder_copies_it_with_new_ids() {
+    let (dir, mut ws) = temp_workspace();
+    let folder = ws.create_folder(None, "Projects").unwrap();
+    let page = ws.create_page(Some(&folder.id), "Plan").unwrap();
+    let copy = ws.duplicate_page(&folder.id).unwrap();
+    assert_eq!(
+        (copy.title.as_str(), copy.kind),
+        ("Projects (copy)", PageKind::Folder)
+    );
+    assert_ne!(copy.id, folder.id);
+    assert_eq!(
+        user_files(dir.path()),
+        ["Projects (copy)/Plan.md", "Projects/Plan.md"]
+    );
+    let copied_page = ws.list_children(Some(&copy.id)).unwrap().remove(0);
+    assert_ne!(copied_page.id, page.id);
+    assert_eq!(
+        folder_map(dir.path())["Projects (copy)"],
+        serde_json::json!(copy.id)
+    );
 }
 
 #[test]

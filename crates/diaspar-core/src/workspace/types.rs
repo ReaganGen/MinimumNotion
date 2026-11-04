@@ -11,7 +11,8 @@ pub enum PageKind {
     Leaf,
     /// `Name/index.md`, with children and/or attachments
     Bundle,
-    /// A folder without `index.md`, created outside Diaspar
+    /// A plain folder: a directory without `index.md`. It groups pages and
+    /// has no body (ADR-047).
     Folder,
 }
 
@@ -152,6 +153,8 @@ pub struct PageHit {
     /// Ancestor titles, root first.
     pub path: Vec<String>,
     pub snippet: Option<String>,
+    /// Lets link pickers leave out folders, which can't be linked to (ADR-047).
+    pub kind: PageKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]

@@ -34,6 +34,8 @@ interface WorkspaceState {
   changeCount: number;
   /** A page just created by the user, whose title should take the focus. */
   focusTitleOf: string | null;
+  /** A folder just created by the user, whose name is edited in the sidebar. */
+  renamingId: string | null;
   /** Ancestors of the active page plus the page itself, for the top bar. */
   breadcrumbs: PageRef[];
   /** Pages opened this session, most recent first (⌘P with no query). */
@@ -53,6 +55,8 @@ interface WorkspaceState {
   expand: (id: string) => Promise<void>;
   openPage: (id: string | null) => void;
   createPage: (parentId: string | null) => Promise<string | null>;
+  /** A plain folder, which only groups pages (ADR-047). */
+  createFolder: (parentId: string | null) => Promise<string | null>;
   /** The optional first page, made only when the user asks for it. */
   addGettingStarted: () => Promise<void>;
   dismissNotice: (message: string) => void;
@@ -120,6 +124,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
     activeRemoved: 0,
     changeCount: 0,
     focusTitleOf: null,
+    renamingId: null,
     breadcrumbs: [],
     recent: [],
     saveStatus: null,
@@ -221,6 +226,19 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
       }
     },
 
+    createFolder: async (parentId) => {
+      try {
+        const folder = await ipc.createFolder(parentId, "New folder");
+        if (parentId) await get().expand(parentId);
+        await get().refresh();
+        set({ renamingId: folder.id });
+        return folder.id;
+      } catch (error) {
+        get().reportError(error);
+        return null;
+      }
+    },
+
     addGettingStarted: async () => {
       try {
         const page = await ipc.createPage(null, GETTING_STARTED_TITLE);
@@ -266,6 +284,7 @@ export function resetWorkspaceStoreForTests() {
     activeRemoved: 0,
     changeCount: 0,
     focusTitleOf: null,
+    renamingId: null,
     breadcrumbs: [],
     recent: [],
     saveStatus: null,

@@ -197,7 +197,8 @@ impl Workspace {
             // Forces every file to be read again.
             entry.signature = None;
         }
-        let Scanned { index, fresh, .. } = scan(&self.root, &previous, None);
+        let Scanned { index, fresh, .. } =
+            scan(&self.root, &previous, None, &self.folder_id_paths());
         let changes = diff(&self.index, &index);
         let failed = |err: rusqlite::Error| {
             CoreError::Invalid(format!("The search index couldn't be rebuilt: {err}"))

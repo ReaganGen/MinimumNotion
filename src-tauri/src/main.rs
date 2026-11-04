@@ -164,6 +164,8 @@ fn main() {
             workspace_commands::list_favorites,
             workspace_commands::get_page,
             workspace_commands::create_page,
+            workspace_commands::create_folder,
+            workspace_commands::turn_folder_into_page,
             workspace_commands::save_page,
             workspace_commands::save_page_over_conflict,
             workspace_commands::set_title,

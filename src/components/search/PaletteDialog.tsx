@@ -73,7 +73,14 @@ function Palette({ mode, onDone }: { mode: PaletteMode; onDone: () => void }) {
 
   const showingRecent = mode === "quick-open" && !query.trim();
   const items: PageHit[] = showingRecent
-    ? recent.map((r) => ({ id: r.id, title: r.title, icon: r.icon, path: [], snippet: null }))
+    ? recent.map((r) => ({
+        id: r.id,
+        title: r.title,
+        icon: r.icon,
+        path: [],
+        snippet: null,
+        kind: "leaf" as const,
+      }))
     : (hits ?? []);
 
   function choose(index: number) {

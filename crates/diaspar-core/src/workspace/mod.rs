@@ -23,7 +23,7 @@ pub mod watcher;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -89,6 +89,10 @@ struct TrashRecord {
     original_parent_id: Option<String>,
     original_rel_path: String,
     page_ids: Vec<String>,
+    /// Durable folder IDs in the trashed item, by path inside it (`""` is
+    /// the item itself), so a restore gives them back (ADR-047).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    folders: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -456,11 +460,13 @@ impl Workspace {
     }
 
     fn rescan(&mut self, remap: Option<(PathBuf, PathBuf)>) {
+        let moved = remap.is_some();
+        let folder_ids = self.folder_id_paths();
         let Scanned {
             index,
             notices,
             fresh,
-        } = scan(&self.root, &self.index, remap);
+        } = scan(&self.root, &self.index, remap, &folder_ids);
         let changes = diff(&self.index, &index);
         let old = std::mem::replace(&mut self.index, index);
         self.sync_index(&old, fresh, &changes.removed);
@@ -472,6 +478,49 @@ impl Workspace {
         self.pending.content_changed.extend(changes.content_changed);
         self.pending.removed.extend(changes.removed);
         self.pending.tree_changed |= changes.tree_changed;
+        self.sync_folder_ids(moved);
+    }
+
+    /// A path relative to the root with `/` separators, as `tree.json` keeps it.
+    fn rel_key(&self, path: &Path) -> String {
+        path.strip_prefix(&self.root)
+            .unwrap_or(path)
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+
+    /// The durable folder IDs by absolute path, for the scan.
+    pub(super) fn folder_id_paths(&self) -> HashMap<PathBuf, String> {
+        self.tree
+            .folders
+            .iter()
+            .map(|(rel, id)| (self.root.join(rel), id.clone()))
+            .collect()
+    }
+
+    /// Rewrites `tree.json`'s folder map from the index: moved folders get
+    /// their new paths, and gone ones are dropped (ADR-047). It's saved now
+    /// only after Diaspar moved something; otherwise with the next write.
+    fn sync_folder_ids(&mut self, save: bool) {
+        let folders: BTreeMap<String, String> = self
+            .index
+            .entries
+            .values()
+            .filter(|e| e.kind == PageKind::Folder && e.id_persisted)
+            .filter_map(|e| e.dir.as_deref().map(|d| (self.rel_key(d), e.id.clone())))
+            .collect();
+        if folders == self.tree.folders {
+            return;
+        }
+        self.tree.folders = folders;
+        if save
+            && self.read_only_reason.is_none()
+            && let Err(err) = self.save_tree()
+        {
+            log::warn!("couldn't save the moved folders' IDs: {err}");
+        }
     }
 
     /// Re-reads the workspace after changes made outside Diaspar.
@@ -610,35 +659,45 @@ impl Workspace {
     }
 
     /// Writes the page's `id` into its file if it only exists in memory
-    /// (ADR-005). Called before anything durable refers to the page.
+    /// (ADR-005). Called before anything durable refers to the page. A
+    /// folder's ID goes into `tree.json`; nothing is written inside it (ADR-047).
     pub fn ensure_persisted_id(&mut self, id: &str) -> CoreResult<()> {
         self.writable()?;
         let entry = self.entry(id)?.clone();
         if entry.id_persisted {
             return Ok(());
         }
-        match &entry.file {
-            None => {
-                // A folder page gets an index.md, becoming a bundle.
-                let dir = entry.dir.clone().expect("folder pages have a directory");
-                let file = dir.join("index.md");
-                self.write_page_file(
-                    id,
-                    &file,
-                    &Self::new_page_text(id, &entry.title, ""),
-                    None,
-                    None,
-                )?;
+        let Some(file) = &entry.file else {
+            let dir = entry.dir.clone().expect("folder pages have a directory");
+            self.tree.folders.insert(self.rel_key(&dir), id.to_string());
+            self.save_tree()?;
+            if let Some(e) = self.index.entries.get_mut(id) {
+                e.id_persisted = true;
             }
-            Some(file) => {
-                let bytes = fs::read(file).map_err(io_at(file))?;
-                let text = String::from_utf8_lossy(&bytes).into_owned();
-                let new_text =
-                    Self::rewrite(&text, &[("id", Value::Plain(id.into()))], None, true)?;
-                self.write_page_file(id, file, &new_text, Some((&text, &hash_rev(&bytes))), None)?;
-            }
-        }
+            return Ok(());
+        };
+        let bytes = fs::read(file).map_err(io_at(file))?;
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let new_text = Self::rewrite(&text, &[("id", Value::Plain(id.into()))], None, true)?;
+        self.write_page_file(id, file, &new_text, Some((&text, &hash_rev(&bytes))), None)?;
         self.rescan(None);
+        Ok(())
+    }
+
+    /// Persists the ID of a page about to be linked to. Folders can't be
+    /// linked to (ADR-047).
+    pub fn ensure_link_target(&mut self, id: &str) -> CoreResult<()> {
+        self.not_for_folders(id, "can't be linked to")?;
+        self.ensure_persisted_id(id)
+    }
+
+    /// The error for page operations a folder can't do (ADR-047).
+    fn not_for_folders(&self, id: &str, what: &str) -> CoreResult<()> {
+        if self.entry(id)?.kind == PageKind::Folder {
+            return Err(CoreError::Invalid(format!(
+                "A folder {what}. Turn it into a page first."
+            )));
+        }
         Ok(())
     }
 
@@ -677,26 +736,11 @@ impl Workspace {
                 "This page's frontmatter can't be read ({message}). Fix it in a text editor to edit the page in Diaspar."
             )));
         }
-        let Some(file) = entry.file.clone() else {
-            // A folder page has no file yet; its body is empty.
-            let empty = hash_rev(b"");
-            if base_body_rev.is_some_and(|base| base != empty) {
-                return Ok(SaveOutcome::Conflict {
-                    current_body_rev: Some(empty),
-                    current_body: Some(String::new()),
-                });
-            }
-            let dir = entry.dir.clone().expect("folder pages have a directory");
-            let file = dir.join("index.md");
-            let text = Self::new_page_text(id, &entry.title, body);
-            let rev = self.write_page_file(id, &file, &text, None, None)?;
-            self.rescan(None);
-            return Ok(SaveOutcome::Saved {
-                rev,
-                body_rev: hash_rev(body.as_bytes()),
-                updated_at: now_rfc3339(),
-            });
-        };
+        self.not_for_folders(id, "has no text")?;
+        let file = entry
+            .file
+            .clone()
+            .expect("pages that aren't folders have a file");
 
         let bytes = match fs::read(&file) {
             Ok(bytes) => bytes,
@@ -749,11 +793,10 @@ impl Workspace {
     pub fn set_title(&mut self, id: &str, title: &str) -> CoreResult<()> {
         self.writable()?;
         let title = clean_title(title);
-        if self.entry(id)?.file.is_none() {
-            self.ensure_persisted_id(id)?;
-        }
         let entry = self.entry(id)?.clone();
-        let file = entry.file.clone().expect("ensured above");
+        let Some(file) = entry.file.clone() else {
+            return self.rename_folder(&entry, &title);
+        };
         let bytes = fs::read(&file).map_err(io_at(&file))?;
         let current_rev = hash_rev(&bytes);
         let text = String::from_utf8_lossy(&bytes).into_owned();
@@ -791,9 +834,36 @@ impl Workspace {
         Ok(())
     }
 
+    /// A folder's title is its directory name, so renaming it renames the
+    /// directory. Its ID survives the move through the rescan (ADR-047).
+    fn rename_folder(&mut self, entry: &Entry, title: &str) -> CoreResult<()> {
+        let dir = entry.dir.clone().expect("folder pages have a directory");
+        let parent_dir = dir
+            .parent()
+            .expect("folders live inside the workspace")
+            .to_path_buf();
+        let old_name = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let new_name = unique_stem(
+            &sanitize_stem(title),
+            &taken_stems(&parent_dir),
+            Some(&old_name),
+        );
+        if new_name == old_name {
+            return Ok(());
+        }
+        let new_dir = parent_dir.join(&new_name);
+        self.rename_path(&dir, &new_dir)?;
+        self.rescan(Some((dir, new_dir)));
+        Ok(())
+    }
+
     /// Sets or clears a page's emoji icon.
     pub fn set_icon(&mut self, id: &str, icon: Option<&str>) -> CoreResult<()> {
         self.writable()?;
+        self.not_for_folders(id, "has no icon")?;
         self.ensure_persisted_id(id)?;
         let entry = self.entry(id)?.clone();
         let file = entry.file.clone().expect("persisted pages have a file");
@@ -902,6 +972,51 @@ impl Workspace {
         }
         self.rescan(None);
         Ok(self.summary(self.entry(&id)?))
+    }
+
+    /// Creates an empty folder under `parent` (or at the root). Nothing is
+    /// written inside it; its ID goes into `tree.json` (ADR-047).
+    pub fn create_folder(&mut self, parent: Option<&str>, title: &str) -> CoreResult<PageSummary> {
+        self.writable()?;
+        let title = clean_title(title);
+        let dir = match parent {
+            Some(parent) => self.dir_for_children(parent)?,
+            None => self.root.clone(),
+        };
+        let name = unique_stem(&sanitize_stem(&title), &taken_stems(&dir), None);
+        let path = dir.join(&name);
+        self.make_dir(&path)?;
+        let id = new_id();
+        self.tree.folders.insert(self.rel_key(&path), id.clone());
+        if let Some(order) = self.tree.order.get_mut(&order_key(parent)) {
+            order.push(id.clone());
+        }
+        self.save_tree()?;
+        self.rescan(None);
+        Ok(self.summary(self.entry(&id)?))
+    }
+
+    /// Writes a folder's `index.md`, which makes it a page with the same ID.
+    /// Only the user starts this (ADR-047).
+    pub fn turn_folder_into_page(&mut self, id: &str) -> CoreResult<()> {
+        self.writable()?;
+        let entry = self.entry(id)?.clone();
+        if entry.kind != PageKind::Folder {
+            return Err(CoreError::Invalid("This is already a page.".into()));
+        }
+        let dir = entry.dir.clone().expect("folder pages have a directory");
+        let file = dir.join("index.md");
+        self.write_page_file(
+            id,
+            &file,
+            &Self::new_page_text(id, &entry.title, ""),
+            None,
+            None,
+        )?;
+        self.tree.folders.remove(&self.rel_key(&dir));
+        self.save_tree()?;
+        self.rescan(None);
+        Ok(())
     }
 
     /// Moves a page (with its sub-pages) under `new_parent`, or to the root.
@@ -1050,6 +1165,13 @@ impl Workspace {
         let destination = parent_dir.join(&name);
         fs::rename(&staged, &destination).map_err(io_at(&staged))?;
         let _ = fs::remove_dir_all(&staging);
+        if entry.kind == PageKind::Folder {
+            // A copied folder has no file to carry its new ID.
+            self.tree
+                .folders
+                .insert(self.rel_key(&destination), new_root_id.clone());
+            self.save_tree()?;
+        }
         self.rescan(None);
         Ok(self.summary(self.entry(&new_root_id)?))
     }
@@ -1060,12 +1182,26 @@ impl Workspace {
         let entry = self.entry(id)?.clone();
         let location = entry.location().to_path_buf();
         let mut page_ids = Vec::new();
+        let mut folders = BTreeMap::new();
         let mut stack = vec![entry.id.clone()];
         while let Some(current) = stack.pop() {
             if let Some(e) = self.index.get(&current)
                 && e.id_persisted
             {
                 page_ids.push(current.clone());
+                if e.kind == PageKind::Folder
+                    && let Some(inside) = e
+                        .dir
+                        .as_deref()
+                        .and_then(|d| d.strip_prefix(&location).ok())
+                {
+                    let inside = inside
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy())
+                        .collect::<Vec<_>>()
+                        .join("/");
+                    folders.insert(inside, current.clone());
+                }
             }
             stack.extend(self.index.children_of(Some(&current)).iter().cloned());
         }
@@ -1083,6 +1219,7 @@ impl Workspace {
                 .display()
                 .to_string(),
             page_ids,
+            folders,
         };
         let trash_dir = self.diaspar().join("trash").join(&record.entry_id);
         self.make_dir(&trash_dir)?;
@@ -1166,6 +1303,16 @@ impl Workspace {
         let destination = target_dir.join(format!("{stem}{extension}"));
         self.rename_path(&item, &destination)?;
         self.discard_dir(&trash_dir)?;
+        if !record.folders.is_empty() {
+            for (inside, id) in &record.folders {
+                let path = match inside.as_str() {
+                    "" => destination.clone(),
+                    inside => destination.join(inside),
+                };
+                self.tree.folders.insert(self.rel_key(&path), id.clone());
+            }
+            self.save_tree()?;
+        }
         self.rescan(None);
         let restored = record
             .root_page_id
@@ -1191,6 +1338,7 @@ impl Workspace {
     pub fn set_favorite(&mut self, id: &str, favorite: bool) -> CoreResult<()> {
         self.writable()?;
         if favorite {
+            self.not_for_folders(id, "can't be a favorite")?;
             self.ensure_persisted_id(id)?;
             if !self.tree.favorites.iter().any(|f| f == id) {
                 self.tree.favorites.push(id.to_string());

@@ -2,8 +2,12 @@ import {
   BookOpen,
   ChevronRight,
   Copy,
+  FilePlus2,
   FileText,
+  Folder,
   FolderInput,
+  FolderOpen,
+  FolderPlus,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -12,7 +16,7 @@ import {
   Table2,
   Trash2,
 } from "lucide-react";
-import { type DragEvent, type KeyboardEvent, useState } from "react";
+import { type DragEvent, type KeyboardEvent, useEffect, useState } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -90,12 +94,14 @@ export function PageTree({
 }
 
 function usePageActions(page: PageSummary) {
-  const { createPage, reportError } = useWorkspaceStore.getState();
+  const { createPage, createFolder, reportError } = useWorkspaceStore.getState();
   const run = (action: () => Promise<unknown>) => () => {
     action().catch(reportError);
   };
   return {
     addChild: run(() => createPage(page.id)),
+    addFolder: run(() => createFolder(page.id)),
+    turnIntoPage: run(() => turnFolderIntoPage(page.id)),
     duplicate: run(() => ipc.duplicatePage(page.id)),
     toggleFavorite: run(() => ipc.setFavorite(page.id, !page.favorite)),
     makeCollection: run(async () => {
@@ -107,6 +113,18 @@ function usePageActions(page: PageSummary) {
       await ipc.trashPage(page.id);
     }),
   };
+}
+
+/** Writes the folder's index.md (ADR-047) and shows it again as a page. */
+export async function turnFolderIntoPage(id: string) {
+  await ipc.turnFolderIntoPage(id);
+  const { activePageId, openPage, refresh } = useWorkspaceStore.getState();
+  await refresh();
+  if (activePageId === id) {
+    // Remount the view, which showed the folder.
+    useWorkspaceStore.setState({ activePageId: null });
+    openPage(id);
+  }
 }
 
 interface RowProps {
@@ -121,7 +139,16 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
   const active = useWorkspaceStore((s) => s.activePageId === page.id);
   const { openPage, toggleExpanded, expand, reportError } = useWorkspaceStore.getState();
   const actions = usePageActions(page);
+  const isFolder = page.kind === "folder";
   const [renaming, setRenaming] = useState(false);
+  // A folder just made by "New folder" starts with its name selected. The
+  // row may already be showing when the request comes, so it listens for it.
+  const renameRequested = useWorkspaceStore((s) => s.renamingId === page.id);
+  useEffect(() => {
+    if (!renameRequested) return;
+    setRenaming(true);
+    useWorkspaceStore.setState({ renamingId: null });
+  }, [renameRequested]);
   const aiEnabled = useSettingsStore((s) => s.settings.ai.enabled);
   const [moving, setMoving] = useState(false);
   const [zone, setZone] = useState<DropZone | null>(null);
@@ -165,6 +192,9 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
       <Item onSelect={actions.addChild}>
         <Plus aria-hidden /> Add a page inside
       </Item>
+      <Item onSelect={actions.addFolder}>
+        <FolderPlus aria-hidden /> Add a folder inside
+      </Item>
       <Item onSelect={() => setRenaming(true)}>
         <Pencil aria-hidden /> Rename
       </Item>
@@ -174,15 +204,23 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
       <Item onSelect={() => setMoving(true)}>
         <FolderInput aria-hidden /> Move to…
       </Item>
-      {!page.is_collection && (
-        <Item onSelect={actions.makeCollection}>
-          <Table2 aria-hidden /> Turn into a collection
+      {isFolder ? (
+        <Item onSelect={actions.turnIntoPage}>
+          <FilePlus2 aria-hidden /> Turn into page
         </Item>
+      ) : (
+        <>
+          {!page.is_collection && (
+            <Item onSelect={actions.makeCollection}>
+              <Table2 aria-hidden /> Turn into a collection
+            </Item>
+          )}
+          <Item onSelect={actions.toggleFavorite}>
+            <Star aria-hidden /> {page.favorite ? "Remove from Favorites" : "Add to Favorites"}
+          </Item>
+        </>
       )}
-      <Item onSelect={actions.toggleFavorite}>
-        <Star aria-hidden /> {page.favorite ? "Remove from Favorites" : "Add to Favorites"}
-      </Item>
-      {aiEnabled && (
+      {aiEnabled && !isFolder && (
         <>
           <Separator />
           <Item onSelect={() => askAboutPage({ id: page.id, title: page.title })}>
@@ -243,7 +281,13 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
               />
             </button>
             <span className="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-              {page.icon ? (
+              {isFolder ? (
+                expanded ? (
+                  <FolderOpen className="size-4" aria-label="Folder" />
+                ) : (
+                  <Folder className="size-4" aria-label="Folder" />
+                )
+              ) : page.icon ? (
                 <span className="text-[15px] leading-none">{page.icon}</span>
               ) : page.is_collection ? (
                 <Table2 className="size-4" aria-label="Collection" />
@@ -256,9 +300,11 @@ function PageRow({ page, parentId, depth, siblings }: RowProps) {
             ) : (
               <button
                 type="button"
-                onClick={() => openPage(page.id)}
+                // A folder has no page of its own: its name opens and closes it.
+                onClick={() => (isFolder ? toggleExpanded(page.id) : openPage(page.id))}
                 onDoubleClick={() => setRenaming(true)}
                 aria-current={active ? "page" : undefined}
+                aria-expanded={isFolder ? expanded : undefined}
                 className={cn(
                   "min-w-0 flex-1 truncate text-left outline-none focus-visible:underline",
                   page.status.state === "invalid_frontmatter" && "text-destructive",
@@ -329,7 +375,7 @@ function RenameInput({ page, onDone }: { page: PageSummary; onDone: () => void }
     <input
       // biome-ignore lint/a11y/noAutofocus: renaming starts from an explicit user action
       autoFocus
-      aria-label="Page title"
+      aria-label={page.kind === "folder" ? "Folder name" : "Page title"}
       value={value}
       onFocus={(e) => e.currentTarget.select()}
       onChange={(e) => setValue(e.target.value)}

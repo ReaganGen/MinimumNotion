@@ -120,6 +120,7 @@ impl Workspace {
             icon: entry.icon.clone(),
             path: self.ancestors(id).into_iter().map(|a| a.title).collect(),
             snippet: snippet.filter(|s| !s.trim().is_empty()),
+            kind: entry.kind,
         })
     }
 }

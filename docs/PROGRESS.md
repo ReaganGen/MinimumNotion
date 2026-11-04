@@ -2,11 +2,31 @@
 
 ## Current Phase
 
-None. **All phases of the v0.1.0 plan are complete**; Phase 7 was approved on 2026-11-03 (commit `538d170`). The product was renamed from Forma to Diaspar (ADR-046). **v0.1.0 is published as a pre-release** (2026-11-03). **Phases 8–10 (v0.2.0) are planned** (IMPLEMENTATION_PLAN §11–13) and wait for approval ("Proceed to Phase 8"). Notarization still needs an Apple Developer ID (Known Issue 2).
+**Phase 8: Editor Blocks and Folders** (v0.2.0) is complete; the user approved it on 2026-11-04. All phases of the v0.1.0 plan are complete; Phase 7 was approved on 2026-11-03 (commit `538d170`). The product was renamed from Forma to Diaspar (ADR-046). **v0.1.0 is published as a pre-release** (2026-11-03). Phases 9 and 10 (v0.2.0, IMPLEMENTATION_PLAN §12–13) are planned and each waits for its own approval. Notarization still needs an Apple Developer ID (Known Issue 2).
 
 ## Status
 
 Phase 7 is complete and approved, as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The repository is public on GitHub (`ReaganGen/MinimumNotion`). CI passes there (latest run 41766577776): checks, tests, dependency audit and the universal bundle build.
+
+### Phase 8 journal (2026-11-04)
+
+- **Plain folders (ADR-047).**
+  - **New folder** (sidebar, and **Add a folder inside** in page and folder menus) makes a directory with nothing in it. Its name starts selected.
+  - In the sidebar a folder has a folder icon, opens and closes from its name, and offers Turn into page instead of favorites, collections and AI actions. Opening one from search shows a folder view with its contents.
+  - Folder IDs live in `tree.json` under `folders`, by path. A Diaspar rename or move keeps the ID, because the rescan follows the move, and the map is rewritten and saved at once. An outside rename gives a new ID.
+  - Trash and restore keep the IDs of folders inside the trashed item. Duplicating a folder works.
+  - Saving text into, iconing, favoriting, linking to or making a collection of a folder is refused in Rust. Before this, any of these wrote an `index.md` and silently made the folder a page.
+  - Search hits carry the page kind, so `[[` leaves folders out.
+  - Backups, restores and exports keep empty folders (directory entries in the zip).
+- **Editor blocks (ADR-048).**
+  - The "/" menu has sections with headings (Basic for now; the others come with Phases 9–10) and new items: **Page**, **Callout** and **Inline math**. Table and Math block already existed.
+  - Page creates a child page, inserts its link, saves, and opens it with the title focused.
+  - Callouts read and write GitHub/Obsidian `> [!TYPE]` syntax, with the first line kept byte for byte. They have an icon menu for the type, and Backspace at the start lifts the text out.
+  - Callout fills are new faint tokens in both themes. The tag fills put links at 4.32:1 (light, gray) and 4.46:1 (dark, blue), so they weren't used.
+- **Bugs found during the phase:**
+  1. *A new folder didn't start in rename mode in the real app.* The row appeared during the refresh, before the rename request. The unit test had created the folder before rendering, so it passed; it now renders first, and fails with the old code (checked).
+  2. *Inline math from "/" landed in a new paragraph.* Inside a command chain, the library reads the selection from before the "/" is deleted. The position is now passed.
+- **Design decisions:** ADR-047, ADR-048.
 
 ### After Phase 7 (2026-11-03)
 
@@ -216,6 +236,41 @@ The architecture documents and CLAUDE.md. See the git history.
 
 ## Tests
 
+**Phase 8** (2026-11-04, `npm run check` exits 0):
+
+| Command | Result |
+|---|---|
+| `npm run typecheck`, `npx biome check .` | Pass (132 files) |
+| `npx vitest run` | 36 files, **247 tests passed** (21 new) |
+| `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
+| `cargo test --workspace` | **296 passed, 2 ignored**: 203 in `diaspar-core` (9 new, 1 replaced), 90 in `diaspar-ai`, 3 in the shell |
+
+New in Phase 8:
+- **Folders:**
+  - they never become pages on their own (save, icon, favorite, link, collection refused; reorder and move write only `tree.json`);
+  - a new folder is an empty directory;
+  - a rename and a move keep the ID, also after reopening without an index cache;
+  - an outside rename gives a new ID;
+  - Turn into page writes one `index.md`;
+  - trash and restore keep the IDs;
+  - duplicating;
+  - empty folders survive backup, restore and export;
+  - AI proposals can't edit a folder or link to one, but can move pages into it;
+  - a folder in a collection is a read-only entry.
+- **Callouts:** a round-trip fixture (every type, lists and code inside, an Obsidian title and fold, empty, unknown type, a plain quote); attributes; lazy continuation left to the blockquote; Backspace; changing the type; text contrast on every callout fill in both themes.
+- **"/" menu:** sections; Callout and Inline math commands; Page creating, linking and opening (and a failure inserting nothing).
+- **Sidebar:** a folder toggles from its name and never opens as a page; folder menu items; Turn into page; a new folder starts renaming.
+- **Other views:** the folder view; `[[` never offers a folder, recent or searched.
+
+**Preview check (browser, Phase 8):**
+- the "/" menu shows the Basic heading;
+- Callout inserts `> [!NOTE]`, and the type menu changes it to `> [!WARNING]` with the yellow fill (dark and light themes);
+- a folder opens and closes in the sidebar while the page stays;
+- New folder starts renaming (this found bug 1);
+- Page links and opens a new child page.
+
+The preview pane was hidden, so screenshots lagged; results were read from the DOM and the editor state.
+
 Run on 2026-11-03 at the end of Phase 7 (`npm run check` exits 0):
 
 | Command | Result |
@@ -318,6 +373,12 @@ Checked in the development browser preview, not the native app: the editor's ren
 
 Use a test folder, not real notes. Open `target/universal-apple-darwin/release/bundle/dmg/Diaspar_0.1.0_universal.dmg` and drag Diaspar to Applications (or open `target/universal-apple-darwin/release/bundle/macos/Diaspar.app`).
 
+**Phase 8** (run `npm run tauri:dev`, or build the app, with a test workspace)
+1. **"/" menu:** type `/` on an empty line. The Basic heading is shown. Type "call" and press Return: a Note callout. Click its icon and choose Warning; the file shows `> [!WARNING]`. Press Backspace at the start of its text: it becomes a paragraph.
+2. **Page:** type `/page` and press Return. A new page opens with its title ready. Go back: the first page links to it, and the sidebar shows it inside.
+3. **Folders:** New folder, type a name, Return. The workspace folder gets an empty directory (check in Finder). Drag a page into it, rename it, quit and reopen: the order and contents are the same, and nothing named `index.md` appeared in it. Turn into page: one `index.md` appears.
+4. **Outside folders:** make a folder in Finder. It shows as a folder, and typing can't make it a page.
+
 **Phase 7**
 1. **Gatekeeper:** open the app from the DMG copy. macOS blocks it; follow [USER_GUIDE.md, Installing](USER_GUIDE.md#installing). It opens after "Open Anyway".
 2. **First run:** open an empty folder. "Add a getting-started page" appears; click it. The page opens and reads well. Nothing appeared before the click.
@@ -417,7 +478,12 @@ Not separately reviewed, and kept as documented: favorites and order in `.diaspa
 20. **The frontend bundle is 1.42 MB in one chunk** (loaded from disk). The window appears in about 0.5 s regardless; code splitting wasn't needed for the measured numbers.
 21. **`cargo audit` warns about 5 crates** (4 unmaintained, 1 unsound) that only Tauri's Linux backend uses; none is compiled for macOS. 0 vulnerabilities.
 22. **Open audit items:** F6 (an invalid settings field resets the whole file); F13 and F14 are informational.
+23. **Phase 8 wasn't run in the native app by Claude.** The file side is covered by Rust tests against real folders, and the UI by unit tests and the browser preview (manual steps above).
+24. **The folder view can't rename;** a folder is renamed in the sidebar. **Turn into page has no undo** other than deleting `index.md` by hand.
+25. **Folders inside a collection** show as read-only entries without properties (setting one is refused in Rust too).
+26. **`tree.json` isn't rolled back with a failed AI transaction**, as before Phase 8. From reading the code, not tested: if a change set that moves a folder fails and rolls back, the folder may get a new ID and lose its own sub-order. Only advisory data is affected; no content.
+27. **axe doesn't cover the callout or the folder view yet.** Their buttons have names, which the unit tests use.
 
 ## Next Phase
 
-**Phase 8: Editor Blocks and Folders** (IMPLEMENTATION_PLAN §11), waiting for "Proceed to Phase 8". Phases 9 (media and embeds) and 10 (databases) follow, each after its own approval. The release steps above (signing and tagging) are the user's call. Candidates after v0.1.0 are in ROADMAP.md.
+**Phase 9: Media and Embeds** (IMPLEMENTATION_PLAN §12), after the user says "Proceed to Phase 9". Phase 10 (databases) follows after its own approval. The release steps above (signing and tagging) are the user's call. Candidates after v0.1.0 are in ROADMAP.md.

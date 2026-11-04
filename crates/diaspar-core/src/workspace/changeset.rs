@@ -514,9 +514,10 @@ impl ChangeSet {
                         "This page's frontmatter can't be read, so Diaspar won't edit it.".into(),
                     );
                 }
-                if page.kind == PageKind::Folder && page.rev.is_none() {
+                if page.kind == PageKind::Folder {
                     return Err(
-                        "This page is a plain folder; Diaspar can't edit its text yet.".into(),
+                        "That's a folder; it has no text. The user can turn it into a page first."
+                            .into(),
                     );
                 }
                 self.push(Change::EditPage {
@@ -545,6 +546,12 @@ impl ChangeSet {
         let source_target = self.target(view, source)?;
         if source_target == Target::Existing(target_id.clone()) {
             return Err("A page can't link to itself.".into());
+        }
+        if view
+            .page(&target_id)
+            .is_ok_and(|p| p.kind == PageKind::Folder)
+        {
+            return Err("That's a folder; folders can't be linked to (ADR-047).".into());
         }
         let title = view.title(&target_id).unwrap_or_default();
         let edit = match text.map(str::trim).filter(|t| !t.is_empty()) {
@@ -2501,6 +2508,22 @@ mod tests {
         assert_eq!(at, MAX_SET_BYTES / big.len());
         assert!(message.contains("MB of text"), "{message}");
         assert!(set.bytes() <= MAX_SET_BYTES);
+    }
+
+    #[test]
+    fn folders_are_neither_edited_nor_linked_to() {
+        // "Archive" has no index.md, so it's a folder (ADR-047).
+        let (_dir, ws) = workspace(&[("Plan.md", "plan\n"), ("Archive/Old.md", "old\n")]);
+        let view = ws.read_view();
+        let mut set = ChangeSet::new("x", "t", "m");
+        let (plan, folder) = (id(&ws, "Plan"), id(&ws, "Archive"));
+        assert!(
+            set.propose_edit(view, &folder, &Edit::Body("x".into()))
+                .is_err()
+        );
+        assert!(set.propose_link(view, &plan, &folder, None).is_err());
+        // Pages can still go into it.
+        set.propose_move(view, &plan, Some(&folder)).unwrap();
     }
 
     #[test]

@@ -78,9 +78,15 @@ The workspace root is the page-tree root. It is not itself a page. Opening any e
 |---|---|---|---|
 | leaf | `<stem>.md` | stem | New page with no children and no attachments |
 | bundle | `<stem>/index.md` (+ `_assets/`, child pages) | directory name | A leaf gains its first child or attachment (converted by `mkdir` + `rename`, ARCHITECTURE §3.1) |
-| folder | `<stem>/` with no `index.md` | directory name | Never. These are created externally. Diaspar creates `index.md` the first time it has to write such a page |
+| folder | `<stem>/` with no `index.md` | directory name | The user chooses **New folder** (ADR-047). Folders made outside Diaspar are folders too |
 
 - A bundle stays a bundle after its last child or attachment is removed. Diaspar never converts it back automatically, which avoids churn.
+- **Folders (ADR-047).**
+  - A folder only groups pages and folders. It has no body and no frontmatter, so it has no icon and can't be a collection, a favorite or a link target.
+  - Its title is its directory name. Renaming it renames the directory, with the filename rules of §3.3.
+  - Diaspar never writes inside a folder on its own. Opening, expanding, reordering or moving one writes nothing in it, and it never gains an `index.md` implicitly.
+  - **Turn into page** is the one way to write an `index.md`, and only the user starts it.
+  - Its durable ID lives in `tree.json` (§7.2).
 - Diaspar creates the extension `.md`. When reading, `.md` and `.markdown` are accepted case-insensitively.
 - An `index.md` directly in the workspace root is an ordinary leaf page.
 - **Relative references during conversion.** A leaf's body may contain hand-written relative references, meaning anything other than `diaspar:` links, absolute URLs and `_assets/`. Moving the file one level deeper would break them, so the conversion prefixes each with `../` using the parser's source offsets. Because this variant also rewrites the body, it records a `bundle_conversion` journal intent first (§7.6).
@@ -219,6 +225,7 @@ The fixture corpus in `tests/fixtures/markdown/` is the executable definition of
 | Task item | `- [ ]`, `- [x]`, `- [X]` | `- [ ]` / `- [x]` |
 | Nested list | CommonMark indentation | Content-aligned (2 spaces under `-`, 3 under `1.`) |
 | Blockquote | `>` | `> ` |
+| Callout (ADR-048) | A blockquote whose first line is `> [!TYPE]`, optionally followed by `+` or `-` and a title (GitHub alerts, Obsidian callouts). TYPE is a word; `NOTE`, `TIP`, `IMPORTANT`, `WARNING` and `CAUTION` (any case) get their own look, and any other word is shown as a neutral callout | The first line exactly as read, then the content as `> ` lines. A callout with no content is the first line alone |
 | Code block | fenced (`` ``` `` or `~~~`), indented | `` ``` `` fence with info string. The fence is lengthened if the content contains one |
 | Horizontal rule | `---` `***` `___` | `---` |
 | Table | GFM pipe table with alignment row | GFM pipe table, alignment preserved, columns padded to equal width with the alignment row matching. Cells hold inline content only. `|` is escaped. A hard break in a cell is written as `<br>` |
@@ -398,10 +405,18 @@ If `format_version` is higher than this build supports, the workspace opens **re
 ```json
 { "format_version": 1,
   "order": { "root": ["<id>", "<id>"], "<parent-id>": ["<id>"] },
-  "favorites": ["<id>"] }
+  "favorites": ["<id>"],
+  "folders": { "Projects/Archive": "<id>" } }
 ```
 
 Unknown IDs are ignored. Pages missing from an order list are appended in natural title order. Without this file, all siblings are sorted by natural title order and there are no favorites.
+
+`folders` maps a folder's path to its ID, because a folder has no file to hold one (ADR-047).
+- **Path form:** relative to the workspace root, with `/` separators.
+- **When it's written:** the first time something durable refers to the folder, for example an order list.
+- **Moves:** when Diaspar renames or moves a folder, or a page or folder that contains it, the paths are updated in the same write. A path that no longer exists is dropped at the next write of the file.
+- **Outside renames:** a folder renamed or moved outside Diaspar gets a new ID, so only its own order resets.
+- **Optional:** the key is left out when there are no folders, and a file without it reads as an empty map.
 
 ### 7.3 Attachments
 
@@ -487,6 +502,7 @@ Settings → Data writes these where the user chooses (ADR-044). Neither is read
 - **Backup:** a zip, by default `<name> backup <YYYY-MM-DD>.zip`. Every entry is under one top folder named after the workspace: `<name>/Page.md`, `<name>/.diaspar/workspace.json`, … It holds every file of the workspace, `.diaspar/` included, except `.diaspar/tmp/` and `.diaspar/lock`. Entries are Deflate-compressed. Directory entries may be present; symbolic links are never written.
 - **Restore** accepts a zip with relative entry names and no links that holds at least one `.md` file or a `.diaspar/workspace.json`. If all entries share one top folder, its name becomes the new folder's name and its contents are unpacked into it; otherwise the zip's file name is used. An existing name gets " 2", " 3"…
 - **Export:** a folder `<name> export <YYYY-MM-DD>` with the workspace's files and attachments, without `.diaspar/`. It is a plain Markdown tree that Diaspar or any other app can open; opening it in Diaspar makes it a new workspace.
+- Backups, restores and exports keep empty folders. A backup stores them as directory entries (ADR-047).
 
 ---
 
@@ -617,6 +633,8 @@ update_schema(collection_id, op)                            → Schema   (rename
 set_property(page_id, property_id, value)                   → ()       (surgical; absent key when empty)
 save_views(collection_id, views)                            → ()
 create_page(parent_id?, title, body?, position?)            → PageMeta
+create_folder(parent_id?, title)                            → PageMeta       (a directory, nothing inside it; ADR-047)
+turn_folder_into_page(id)                                   → ()             (writes index.md; user action only)
 save_page(id, base_body_rev, body)                          → Saved{rev, body_rev} | Conflict{current_body_rev, current_body}
 save_page_over_conflict(id, body)                           → Saved{…}       ("keep mine": snapshots the disk version first)
 set_title(id, title) / set_icon(id, icon?)                  → ()             (surgical, no base: ADR-033; set_title renames the file)

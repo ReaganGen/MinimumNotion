@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetAiChatStoreForTests, useAiChatStore } from "@/features/ai/aiStore";
@@ -20,6 +20,8 @@ vi.mock("@/lib/ipc/client", () => ({
     listFavorites: vi.fn(),
     movePage: vi.fn(),
     saveSettings: vi.fn(),
+    createFolder: vi.fn(),
+    turnFolderIntoPage: vi.fn(),
   },
 }));
 
@@ -153,6 +155,58 @@ describe("PageTree", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Ask AI about this page" }));
     expect(useAiChatStore.getState().page).toEqual({ id: "b", title: "Journal" });
     expect(useSettingsStore.getState().settings.layout.ai_panel.visible).toBe(true);
+  });
+
+  it("opens and closes a folder from its name, never as a page (ADR-047)", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({
+      children: { root: [summary("f", "Archive", { kind: "folder", has_children: true })] },
+    });
+    vi.mocked(ipc.listChildren).mockResolvedValue([summary("c", "Old plan")]);
+    render(<PageTree />);
+    expect(screen.getByLabelText("Folder")).toBeInTheDocument();
+    const name = screen.getByRole("button", { name: "Archive" });
+    expect(name).toHaveAttribute("aria-expanded", "false");
+    await user.click(name);
+    expect(await screen.findByRole("button", { name: "Old plan" })).toBeInTheDocument();
+    expect(name).toHaveAttribute("aria-expanded", "true");
+    expect(useWorkspaceStore.getState().activePageId).toBeNull();
+  });
+
+  it("offers a folder what it can do, and turns it into a page", async () => {
+    const user = userEvent.setup();
+    useWorkspaceStore.setState({
+      children: { root: [summary("f", "Archive", { kind: "folder" })] },
+    });
+    vi.mocked(ipc.turnFolderIntoPage).mockResolvedValue(undefined);
+    vi.mocked(ipc.listChildren).mockResolvedValue([]);
+    vi.mocked(ipc.listFavorites).mockResolvedValue([]);
+    render(<PageTree />);
+    await user.click(screen.getByRole("button", { name: "Actions for Archive" }));
+    expect(await screen.findByRole("menuitem", { name: "Add a folder inside" })).toBeVisible();
+    expect(screen.queryByRole("menuitem", { name: /Favorites/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /collection/ })).toBeNull();
+    await user.click(screen.getByRole("menuitem", { name: "Turn into page" }));
+    expect(ipc.turnFolderIntoPage).toHaveBeenCalledWith("f");
+  });
+
+  it("starts a new folder with its name being edited", async () => {
+    const user = userEvent.setup();
+    const folder = summary("n", "New folder", { kind: "folder" });
+    vi.mocked(ipc.createFolder).mockResolvedValue(folder);
+    vi.mocked(ipc.listChildren).mockResolvedValue([folder]);
+    vi.mocked(ipc.listFavorites).mockResolvedValue([]);
+    vi.mocked(ipc.setTitle).mockResolvedValue(undefined);
+    // The tree is already showing, and the new row appears during the refresh.
+    render(<PageTree />);
+    await act(() => useWorkspaceStore.getState().createFolder(null));
+    expect(ipc.createFolder).toHaveBeenCalledWith(null, "New folder");
+    const input = await screen.findByRole("textbox", { name: "Folder name" });
+    expect(input).toHaveFocus();
+    await user.clear(input);
+    await user.type(input, "Reading{Enter}");
+    expect(ipc.setTitle).toHaveBeenCalledWith("n", "Reading");
+    expect(useWorkspaceStore.getState().renamingId).toBeNull();
   });
 
   it("shows an empty workspace honestly", () => {

@@ -44,6 +44,6 @@ describe("filterSlashItems", () => {
     ]);
     expect(filterSlashItems("todo").map((i) => i.title)).toEqual(["To-do list"]);
     expect(filterSlashItems("task").map((i) => i.title)).toEqual(["To-do list"]);
-    expect(filterSlashItems("latex").map((i) => i.title)).toEqual(["Math block"]);
+    expect(filterSlashItems("latex").map((i) => i.title)).toEqual(["Math block", "Inline math"]);
   });
 });

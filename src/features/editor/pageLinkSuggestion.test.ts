@@ -16,7 +16,14 @@ vi.mock("@/lib/ipc/client", () => ({
 }));
 
 const TARGET = "77777777-7777-4777-8777-777777777777";
-const hit = { id: TARGET, title: "Reading list", icon: null, path: [], snippet: null };
+const hit = {
+  id: TARGET,
+  title: "Reading list",
+  icon: null,
+  path: [],
+  snippet: null,
+  kind: "leaf" as const,
+};
 
 beforeEach(() => {
   resetWorkspaceStoreForTests();
@@ -39,6 +46,31 @@ describe("[[ page links", () => {
     vi.mocked(ipc.quickOpen).mockResolvedValue([hit]);
     expect(await findLinkTargets("read")).toEqual([hit]);
     expect(ipc.quickOpen).toHaveBeenCalledWith("read");
+  });
+
+  it("never offers a folder (ADR-047)", async () => {
+    const folder = { ...hit, id: "f", title: "Reading folder", kind: "folder" as const };
+    vi.mocked(ipc.quickOpen).mockResolvedValue([folder, hit]);
+    expect(await findLinkTargets("read")).toEqual([hit]);
+    // Nor a recent folder, as the sidebar knows it.
+    useWorkspaceStore.setState({
+      children: {
+        root: [
+          {
+            id: "f",
+            title: "Reading folder",
+            icon: null,
+            kind: "folder",
+            has_children: false,
+            favorite: false,
+            status: { state: "ok" },
+            is_collection: false,
+          },
+        ],
+      },
+    });
+    useWorkspaceStore.getState().setBreadcrumbs([{ id: "f", title: "Reading folder", icon: null }]);
+    expect(await findLinkTargets("")).toEqual([]);
   });
 
   it("persists the target's ID, then replaces the typed text with a link", async () => {

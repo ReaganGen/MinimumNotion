@@ -8,6 +8,7 @@ import { registerFlusher, useWorkspaceStore } from "@/features/workspace/workspa
 import type { PageDocument } from "@/lib/ipc/bindings/PageDocument";
 import { ipc } from "@/lib/ipc/client";
 import { Backlinks } from "./Backlinks";
+import { FolderView } from "./FolderView";
 import { PageEditor, type PageEditorHandle } from "./PageEditor";
 
 const TITLE_SAVE_DELAY_MS = 600;
@@ -172,6 +173,7 @@ export function PageView({ pageId }: { pageId: string }) {
     );
   }
   if (!page) return <div className="flex-1" />;
+  if (page.kind === "folder") return <FolderView page={page} editable={!workspaceReadOnly} />;
 
   const invalid = page.status.state === "invalid_frontmatter" ? page.status.message : null;
   const readOnlyReason =

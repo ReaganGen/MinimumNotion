@@ -91,6 +91,10 @@ export const ipc = {
   getPage: (id: string) => call<PageDocument>("get_page", { id }),
   createPage: (parentId: string | null, title: string) =>
     call<PageSummary>("create_page", { parentId, title }),
+  /** A plain folder, which only groups pages (ADR-047). */
+  createFolder: (parentId: string | null, title: string) =>
+    call<PageSummary>("create_folder", { parentId, title }),
+  turnFolderIntoPage: (id: string) => call<void>("turn_folder_into_page", { id }),
   /** `baseBodyRev` is the body revision the editor started from (ADR-033). */
   savePage: (id: string, baseBodyRev: string | null, body: string) =>
     call<SaveOutcome>("save_page", { id, baseBodyRev, body }),

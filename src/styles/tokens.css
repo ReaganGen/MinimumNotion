@@ -76,6 +76,14 @@
   --tag-red-bg: #f6dfdb;
   --tag-red-fg: #933a30;
 
+  /* Callout fills (ADR-048): faint tints under body text; the icon uses the tag color. */
+  --callout-gray-bg: rgb(55 53 47 / 0.045);
+  --callout-blue-bg: rgb(53 103 212 / 0.06);
+  --callout-green-bg: rgb(68 160 100 / 0.08);
+  --callout-purple-bg: rgb(120 80 190 / 0.06);
+  --callout-yellow-bg: rgb(232 190 60 / 0.14);
+  --callout-red-bg: rgb(212 76 71 / 0.06);
+
   /* Shape and motion */
   --radius: 6px;
   --duration-fast: 120ms;
@@ -143,4 +151,11 @@
   --tag-pink-fg: #ecb3cf;
   --tag-red-bg: #55302b;
   --tag-red-fg: #f0aaa0;
+
+  --callout-gray-bg: rgb(255 255 255 / 0.045);
+  --callout-blue-bg: rgb(120 162 240 / 0.08);
+  --callout-green-bg: rgb(110 190 140 / 0.08);
+  --callout-purple-bg: rgb(170 140 230 / 0.08);
+  --callout-yellow-bg: rgb(232 190 60 / 0.08);
+  --callout-red-bg: rgb(230 110 100 / 0.08);
 }

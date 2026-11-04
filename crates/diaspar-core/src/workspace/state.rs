@@ -1,7 +1,7 @@
 //! `.diaspar/workspace.json` (identity) and `.diaspar/tree.json` (sibling order
 //! and favorites, advisory). DATA_MODEL §7.1–7.2.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 
@@ -30,6 +30,10 @@ pub struct TreeState {
     pub order: HashMap<String, Vec<String>>,
     #[serde(default)]
     pub favorites: Vec<String>,
+    /// Folder IDs by path relative to the root, with `/` separators. A folder
+    /// has no file to hold its ID (ADR-047).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub folders: BTreeMap<String, String>,
 }
 
 fn format_version() -> u32 {

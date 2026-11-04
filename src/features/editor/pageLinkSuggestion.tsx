@@ -11,15 +11,32 @@ import type { PageHit } from "@/lib/ipc/bindings/PageHit";
 import { ipc } from "@/lib/ipc/client";
 import { suggestionPopup } from "./suggestionMenu";
 
-/** Pages matching what's typed after "[[", or recent pages before anything is. */
+/**
+ * Pages matching what's typed after "[[", or recent pages before anything is.
+ * Folders are left out: they can't be linked to (ADR-047).
+ */
 export async function findLinkTargets(query: string): Promise<PageHit[]> {
   if (!query.trim()) {
-    return useWorkspaceStore
-      .getState()
-      .recent.map((r) => ({ id: r.id, title: r.title, icon: r.icon, path: [], snippet: null }));
+    const { recent, children } = useWorkspaceStore.getState();
+    const folders = new Set(
+      Object.values(children)
+        .flat()
+        .filter((p) => p.kind === "folder")
+        .map((p) => p.id),
+    );
+    return recent
+      .filter((r) => !folders.has(r.id))
+      .map((r) => ({
+        id: r.id,
+        title: r.title,
+        icon: r.icon,
+        path: [],
+        snippet: null,
+        kind: "leaf" as const,
+      }));
   }
   try {
-    return await ipc.quickOpen(query);
+    return (await ipc.quickOpen(query)).filter((hit) => hit.kind !== "folder");
   } catch {
     return [];
   }

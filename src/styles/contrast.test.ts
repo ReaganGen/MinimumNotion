@@ -96,4 +96,15 @@ describe.each([
       );
     }
   });
+
+  it("callout text is readable on every callout color", () => {
+    // Callouts (ADR-048): body text and links on a faint fill, and the tag
+    // color for the icon and its label.
+    for (const tag of ["gray", "blue", "green", "purple", "yellow", "red"]) {
+      const fill = over(color(`callout-${tag}-bg`), surface("background"));
+      for (const text of ["foreground", "muted-foreground", "link", `tag-${tag}-fg`]) {
+        expect(ratio(color(text), fill), `${text} on ${tag}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
 });

@@ -20,7 +20,7 @@ use crate::frontmatter::{self, Change, Parsed, Value};
 use super::journal::BatchWrite;
 use super::scan::hash_rev;
 use super::state::{FORMAT_VERSION, load_json, save_json};
-use super::types::{PageStatus, PageSummary};
+use super::types::{PageKind, PageStatus, PageSummary};
 use super::{Workspace, now_rfc3339};
 
 /// A collection and its entries, as the table and list views show them.
@@ -191,6 +191,11 @@ struct Loaded {
 
 impl Workspace {
     fn load(&mut self, id: &str) -> CoreResult<Loaded> {
+        if self.entry(id)?.file.is_none() {
+            return Err(CoreError::Invalid(
+                "This is a folder. Turn it into a page first.".into(),
+            ));
+        }
         self.ensure_persisted_id(id)?;
         let file = self
             .entry(id)?
@@ -312,7 +317,10 @@ impl Workspace {
                 CollectionRow {
                     created_at: text("created_at"),
                     updated_at: text("updated_at"),
-                    editable: child.status == PageStatus::Ok && self.read_only_reason.is_none(),
+                    // A folder has no frontmatter to hold values (ADR-047).
+                    editable: child.status == PageStatus::Ok
+                        && child.kind != PageKind::Folder
+                        && self.read_only_reason.is_none(),
                     id: child.id,
                     title: child.title,
                     icon: child.icon,

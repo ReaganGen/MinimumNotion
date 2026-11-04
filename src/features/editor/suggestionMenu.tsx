@@ -14,6 +14,20 @@ interface MenuListProps<Item> extends SuggestionProps<Item> {
   empty: string;
   itemKey: (item: Item) => string;
   renderItem: (item: Item) => ReactNode;
+  /** Groups items under headings, in the order they come. */
+  section?: (item: Item) => string;
+}
+
+/** Consecutive items with the same section share a heading; indexes stay global. */
+export function sectionGroups<Item>(items: Item[], section: (item: Item) => string) {
+  const groups: { name: string; items: { item: Item; index: number }[] }[] = [];
+  items.forEach((item, index) => {
+    const name = section(item);
+    const last = groups.at(-1);
+    if (last?.name === name) last.items.push({ item, index });
+    else groups.push({ name, items: [{ item, index }] });
+  });
+  return groups;
 }
 
 function MenuListInner<Item>(props: MenuListProps<Item>, ref: React.Ref<MenuHandle>) {
@@ -57,31 +71,47 @@ function MenuListInner<Item>(props: MenuListProps<Item>, ref: React.Ref<MenuHand
       </div>
     );
   }
+  const option = (item: Item, index: number) => (
+    <button
+      key={props.itemKey(item)}
+      type="button"
+      role="option"
+      aria-selected={index === selected}
+      onMouseEnter={() => setSelected(index)}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        choose(index);
+      }}
+      className={cn(
+        "flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[13.5px]",
+        index === selected && "bg-accent",
+      )}
+    >
+      {props.renderItem(item)}
+    </button>
+  );
+  const { section } = props;
+  const groups = section ? sectionGroups(props.items, section) : [];
   return (
     <div
       role="listbox"
       aria-label={props.label}
       className="diaspar-popover max-h-80 w-64 overflow-y-auto p-1"
     >
-      {props.items.map((item, index) => (
-        <button
-          key={props.itemKey(item)}
-          type="button"
-          role="option"
-          aria-selected={index === selected}
-          onMouseEnter={() => setSelected(index)}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            choose(index);
-          }}
-          className={cn(
-            "flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[13.5px]",
-            index === selected && "bg-accent",
-          )}
-        >
-          {props.renderItem(item)}
-        </button>
-      ))}
+      {section
+        ? groups.map((group) => (
+            // biome-ignore lint/a11y/useSemanticElements: a listbox groups its options with role="group" (WAI-ARIA listbox pattern); a fieldset can't go inside a listbox
+            <div key={group.name} role="group" aria-label={group.name}>
+              <div
+                aria-hidden
+                className="px-2 pt-1.5 pb-1 text-[11.5px] font-medium text-faint-foreground"
+              >
+                {group.name}
+              </div>
+              {group.items.map(({ item, index }) => option(item, index))}
+            </div>
+          ))
+        : props.items.map(option)}
     </div>
   );
 }
@@ -92,7 +122,7 @@ const MenuList = forwardRef(MenuListInner) as <Item>(
 
 /** Suggestion `render` callbacks that show `MenuList` under the cursor. */
 export function suggestionPopup<Item>(
-  list: Pick<MenuListProps<Item>, "label" | "empty" | "itemKey" | "renderItem">,
+  list: Pick<MenuListProps<Item>, "label" | "empty" | "itemKey" | "renderItem" | "section">,
 ) {
   return () => {
     let renderer: ReactRenderer<MenuHandle, MenuListProps<Item>> | null = null;

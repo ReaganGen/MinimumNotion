@@ -12,13 +12,14 @@
 | 5 | AI Knowledge Retrieval | Read-only Q&A, summaries and cited answers over the user's notes | Complete |
 | 6 | AI Agent and Knowledge Management | Proposed changes with diff preview, approval, conflict checks and undo | Complete |
 | 7 | Product Polish and Release | Accessibility, performance, backup and export, CI, DMG packaging | Complete |
+
 v0.1.0 is published as a pre-release (ad-hoc signed, not notarized).
 
 ## v0.2.0: blocks, media and databases (planned)
 
 | Phase | Name | Outcome | Status |
 |---|---|---|---|
-| 8 | Editor Blocks and Folders | A grouped "/" menu, child-page blocks, callouts, inline math, plain folders in the sidebar | Planned |
+| 8 | Editor Blocks and Folders | A grouped "/" menu, child-page blocks, callouts, inline math, plain folders in the sidebar | Complete |
 | 9 | Media and Embeds | Audio, video and file attachments, offline bookmark cards, static HTML in a sandbox | Planned |
 | 10 | Databases | Collections become databases, with board and gallery views, adaptive or m×n layouts, databases inside pages | Planned |
 

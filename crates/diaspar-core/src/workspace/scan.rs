@@ -154,6 +154,8 @@ pub struct Scanned {
 
 struct Scanner<'a> {
     previous: &'a Index,
+    /// Durable folder IDs by absolute path (`tree.json`, ADR-047).
+    folder_ids: &'a HashMap<PathBuf, String>,
     /// Previous entries by location, for reusing unchanged files and memory-only IDs.
     previous_by_location: HashMap<PathBuf, &'a Entry>,
     /// A directory that just moved: (old path, new path).
@@ -164,8 +166,14 @@ struct Scanner<'a> {
 
 /// Walks `root` and builds a fresh index. Entries from `previous` are reused
 /// for unchanged files, and memory-only IDs survive as long as the path does
-/// (or moved along `remap`). Returns the index and user-facing notices.
-pub fn scan(root: &Path, previous: &Index, remap: Option<(PathBuf, PathBuf)>) -> Scanned {
+/// (or moved along `remap`). A folder takes its ID from `folder_ids` first.
+/// Returns the index and user-facing notices.
+pub fn scan(
+    root: &Path,
+    previous: &Index,
+    remap: Option<(PathBuf, PathBuf)>,
+    folder_ids: &HashMap<PathBuf, String>,
+) -> Scanned {
     let previous_by_location = previous
         .entries
         .values()
@@ -173,6 +181,7 @@ pub fn scan(root: &Path, previous: &Index, remap: Option<(PathBuf, PathBuf)>) ->
         .collect();
     let mut scanner = Scanner {
         previous,
+        folder_ids,
         previous_by_location,
         remap,
         found: Vec::new(),
@@ -323,14 +332,19 @@ impl Scanner<'_> {
     }
 
     fn add_folder_page(&mut self, dir: &Path, name: &str, parent: Option<String>) -> String {
-        let id = self
-            .previous_at(dir)
-            .filter(|p| p.kind == PageKind::Folder)
-            .map(|p| p.id.clone())
-            .unwrap_or_else(new_id);
+        let previous = self.previous_at(dir).filter(|p| p.kind == PageKind::Folder);
+        // The durable ID wins; a folder Diaspar just moved keeps its ID through
+        // `remap` until the map is rewritten with the new path.
+        let (id, id_persisted) = match self.folder_ids.get(dir) {
+            Some(id) => (id.clone(), true),
+            None => match previous {
+                Some(p) => (p.id.clone(), p.id_persisted),
+                None => (new_id(), false),
+            },
+        };
         self.found.push(Entry {
             id: id.clone(),
-            id_persisted: false,
+            id_persisted,
             kind: PageKind::Folder,
             file: None,
             dir: Some(dir.to_path_buf()),

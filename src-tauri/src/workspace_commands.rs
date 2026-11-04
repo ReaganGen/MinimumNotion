@@ -181,6 +181,26 @@ pub async fn create_page(
     session.mutate(&app, |ws| ws.create_page(parent_id.as_deref(), &title))
 }
 
+/// A plain folder: a directory with nothing in it (ADR-047).
+#[tauri::command]
+pub async fn create_folder(
+    app: AppHandle,
+    session: State<'_, Session>,
+    parent_id: Option<String>,
+    title: String,
+) -> Result<PageSummary> {
+    session.mutate(&app, |ws| ws.create_folder(parent_id.as_deref(), &title))
+}
+
+#[tauri::command]
+pub async fn turn_folder_into_page(
+    app: AppHandle,
+    session: State<'_, Session>,
+    id: String,
+) -> Result<()> {
+    session.mutate(&app, |ws| ws.turn_folder_into_page(&id))
+}
+
 #[tauri::command]
 pub async fn save_page(
     app: AppHandle,
@@ -404,13 +424,14 @@ pub async fn resolve_wikilinks(
 }
 
 /// Writes a page's ID into its file before anything links to it (ADR-005).
+/// Folders can't be linked to (ADR-047).
 #[tauri::command]
 pub async fn ensure_persisted_id(
     app: AppHandle,
     session: State<'_, Session>,
     id: String,
 ) -> Result<()> {
-    session.mutate(&app, |ws| ws.ensure_persisted_id(&id))
+    session.mutate(&app, |ws| ws.ensure_link_target(&id))
 }
 
 #[tauri::command]

@@ -21,6 +21,8 @@
     "allow-list-favorites",
     "allow-get-page",
     "allow-create-page",
+    "allow-create-folder",
+    "allow-turn-folder-into-page",
     "allow-save-page",
     "allow-save-page-over-conflict",
     "allow-set-title",

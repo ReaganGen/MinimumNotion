@@ -48,6 +48,8 @@ interface MemoryPage {
   rev: number;
   schema?: Schema;
   values: Record<string, Value>;
+  /** A plain folder (ADR-047). */
+  folder?: boolean;
 }
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -78,6 +80,8 @@ function memoryWorkspace() {
   add(id(2), null, "Research");
   add(id(3), id(2), "Paper notes", "Notes on transformers and protein design.\n");
   add(id(4), null, "Reading list", "Papers to read.\n");
+  add(id(9), null, "Archive");
+  (pages.get(id(9)) as MemoryPage).folder = true;
   (pages.get(id(4)) as MemoryPage).schema = {
     version: 1,
     properties: [
@@ -116,7 +120,7 @@ function memoryWorkspace() {
     id: p.id,
     title: p.title,
     icon: null,
-    kind: "leaf",
+    kind: p.folder ? "folder" : "leaf",
     has_children: [...pages.values()].some((c) => c.parent === p.id),
     favorite: false,
     status: { state: "ok" },
@@ -148,6 +152,7 @@ function memoryWorkspace() {
     title: p.title,
     icon: null,
     path: ancestors(p).map((a) => a.title),
+    kind: p.folder ? "folder" : "leaf",
     snippet,
   });
 
@@ -221,6 +226,17 @@ function memoryWorkspace() {
       add(id(counter), parent, title);
       changed();
       return summary(get(id(counter)));
+    },
+    createFolder: (parent: string | null, title: string) => {
+      counter += 1;
+      add(id(counter), parent, title);
+      get(id(counter)).folder = true;
+      changed();
+      return summary(get(id(counter)));
+    },
+    turnIntoPage: (pageId: string) => {
+      get(pageId).folder = false;
+      changed();
     },
     rename: (pageId: string, title: string) => {
       get(pageId).title = title;
@@ -756,6 +772,11 @@ export function installBrowserPreview() {
           return ws.save(str("id"), a.baseBodyRev as string | null, str("body"));
         case "create_page":
           return ws.create((a.parentId as string | null) ?? null, str("title"));
+        case "create_folder":
+          return ws.createFolder((a.parentId as string | null) ?? null, str("title"));
+        case "turn_folder_into_page":
+          ws.turnIntoPage(str("id"));
+          return null;
         case "set_title":
           ws.rename(str("id"), str("title"));
           return null;

@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { FileText, PanelLeftClose, Plus, Search, Settings, Trash2 } from "lucide-react";
+import { FileText, FolderPlus, PanelLeftClose, Plus, Search, Settings, Trash2 } from "lucide-react";
 import { IconButton } from "@/components/layout/IconButton";
 import { TrashDialog } from "@/components/sidebar/TrashDialog";
 import { Kbd } from "@/components/ui/kbd";
@@ -14,7 +14,7 @@ export function Sidebar() {
   const info = useWorkspaceStore((s) => s.info);
   const favorites = useWorkspaceStore((s) => s.favorites);
   const activePageId = useWorkspaceStore((s) => s.activePageId);
-  const { openPage, createPage } = useWorkspaceStore.getState();
+  const { openPage, createPage, createFolder } = useWorkspaceStore.getState();
   const dialog = useUiStore((s) => s.dialog);
   const { toggleDialog, closeDialog } = useUiStore.getState();
   const isOpen = status === "open";
@@ -91,14 +91,23 @@ export function Sidebar() {
               Pages
             </h2>
             {isOpen && (
-              <IconButton
-                label="New page"
-                shortcut={SHORTCUTS["new-page"].keys}
-                onClick={() => void createPage(null)}
-                className="size-5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [&_svg]:size-3.5"
-              >
-                <Plus />
-              </IconButton>
+              <>
+                <IconButton
+                  label="New folder"
+                  onClick={() => void createFolder(null)}
+                  className="size-5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [&_svg]:size-3.5"
+                >
+                  <FolderPlus />
+                </IconButton>
+                <IconButton
+                  label="New page"
+                  shortcut={SHORTCUTS["new-page"].keys}
+                  onClick={() => void createPage(null)}
+                  className="size-5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [&_svg]:size-3.5"
+                >
+                  <Plus />
+                </IconButton>
+              </>
             )}
           </div>
           {isOpen ? (
@@ -119,6 +128,11 @@ export function Sidebar() {
               label="New page"
               shortcut={SHORTCUTS["new-page"].keys}
               onClick={() => void createPage(null)}
+            />
+            <SidebarRow
+              icon={FolderPlus}
+              label="New folder"
+              onClick={() => void createFolder(null)}
             />
             <SidebarRow icon={Trash2} label="Trash" onClick={() => toggleDialog("trash")} />
           </>

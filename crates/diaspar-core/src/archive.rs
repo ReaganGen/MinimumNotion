@@ -66,9 +66,13 @@ fn skipped_in_backup(rel: &Path) -> bool {
         && matches!(parts.next(), Some(Component::Normal(second)) if second == "tmp" || second == "lock")
 }
 
-/// Every regular file under `root`, relative, sorted. Links are never followed.
-fn files_under(root: &Path, skip: &dyn Fn(&Path) -> bool) -> CoreResult<Vec<PathBuf>> {
-    let mut out = Vec::new();
+/// Every regular file and every folder under `root`, relative, sorted. Links
+/// are never followed. Archives keep the folders so empty ones survive (ADR-047).
+fn entries_under(
+    root: &Path,
+    skip: &dyn Fn(&Path) -> bool,
+) -> CoreResult<(Vec<PathBuf>, Vec<PathBuf>)> {
+    let (mut files, mut dirs) = (Vec::new(), Vec::new());
     let mut stack = vec![PathBuf::new()];
     while let Some(rel) = stack.pop() {
         let dir = root.join(&rel);
@@ -80,14 +84,16 @@ fn files_under(root: &Path, skip: &dyn Fn(&Path) -> bool) -> CoreResult<Vec<Path
             }
             let kind = item.file_type().map_err(io_at(&item.path()))?;
             if kind.is_dir() {
+                dirs.push(child.clone());
                 stack.push(child);
             } else if kind.is_file() {
-                out.push(child);
+                files.push(child);
             }
         }
     }
-    out.sort();
-    Ok(out)
+    files.sort();
+    dirs.sort();
+    Ok((files, dirs))
 }
 
 /// `parent/name`, or `parent/name 2`, `name 3`… if taken.
@@ -161,7 +167,10 @@ pub fn export_markdown(root: &Path, parent: &Path, name: &str) -> CoreResult<Arc
     }
     let staging = parent.join(format!(".diaspar-export-{}", uuid::Uuid::new_v4()));
     let result = (|| {
-        let files = files_under(root, &|rel| rel == Path::new(".diaspar"))?;
+        let (files, dirs) = entries_under(root, &|rel| rel == Path::new(".diaspar"))?;
+        for rel in &dirs {
+            fs::create_dir_all(staging.join(rel)).map_err(io_at(&staging.join(rel)))?;
+        }
         let mut bytes = 0;
         for rel in &files {
             let to = staging.join(rel);
@@ -195,7 +204,7 @@ pub fn backup_zip(root: &Path, zip_path: &Path, folder: &str) -> CoreResult<Arch
     let folder = clean_name(folder);
     let partial = zip_path.with_extension("zip.partial");
     let result = (|| {
-        let files = files_under(root, &skipped_in_backup)?;
+        let (files, dirs) = entries_under(root, &skipped_in_backup)?;
         let file = File::create(&partial).map_err(io_at(&partial))?;
         let mut zip = ZipWriter::new(io::BufWriter::new(file));
         let options = SimpleFileOptions::default()
@@ -206,6 +215,11 @@ pub fn backup_zip(root: &Path, zip_path: &Path, folder: &str) -> CoreResult<Arch
         let fail = |e: zip::result::ZipError| {
             CoreError::Invalid(format!("The backup couldn't be written: {e}"))
         };
+        for rel in &dirs {
+            let name = format!("{folder}/{}/", rel.to_string_lossy());
+            zip.add_directory(name, options.unix_permissions(0o755))
+                .map_err(fail)?;
+        }
         for rel in &files {
             let name = format!("{folder}/{}", rel.to_string_lossy());
             zip.start_file(name, options).map_err(fail)?;
@@ -365,8 +379,9 @@ mod tests {
     use super::*;
 
     fn tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
-        files_under(dir, &|_| false)
+        entries_under(dir, &|_| false)
             .unwrap()
+            .0
             .into_iter()
             .map(|rel| (rel.display().to_string(), fs::read(dir.join(&rel)).unwrap()))
             .collect()
@@ -450,6 +465,25 @@ mod tests {
         let second = restore_zip(&zip, &restore_to).unwrap();
         assert_eq!(second.path, restore_to.join("Notes 2"));
         assert!(backup_zip(&root, &root.join("inside.zip"), "Notes").is_err());
+    }
+
+    #[test]
+    fn empty_folders_survive_backup_restore_and_export() {
+        let dir = sample();
+        let root = dir.path().join("Notes");
+        fs::create_dir_all(root.join("Later/Someday")).unwrap();
+        let zip = dir.path().join("Notes backup.zip");
+        backup_zip(&root, &zip, "Notes").unwrap();
+        let restore_to = dir.path().join("restored");
+        fs::create_dir(&restore_to).unwrap();
+        let restored = restore_zip(&zip, &restore_to).unwrap();
+        assert!(restored.path.join("Later/Someday").is_dir());
+
+        let out = dir.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let exported = export_markdown(&root, &out, "Notes export").unwrap();
+        assert!(exported.path.join("Later/Someday").is_dir());
+        assert!(!exported.path.join(".diaspar").exists());
     }
 
     fn zip_with(entries: &[(&str, &[u8])]) -> (tempfile::TempDir, PathBuf) {

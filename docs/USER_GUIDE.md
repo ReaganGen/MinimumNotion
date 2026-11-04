@@ -46,7 +46,14 @@ In an empty workspace, **Add a getting-started page** creates a short page about
 
 ## Writing
 
-- Type `/` at the start of a line for headings, lists, to-dos, quotes, code blocks, tables, math and dividers.
+- Type `/` at the start of a line, or after a space, for the block menu. Under **Basic**:
+  - text, headings, lists, to-dos, quotes, code blocks, dividers and tables;
+  - **Page**, which makes a page inside this one, links to it and opens it;
+  - **Callout**, a highlighted box for a note, tip or warning;
+  - **Math block** and **Inline math** (LaTeX).
+
+  Keep typing to filter the menu.
+- **Callouts** are saved as `> [!NOTE]` quotes, the way GitHub and Obsidian write them. Click a callout's icon to change its type (Note, Tip, Important, Warning or Caution). Backspace at its start turns it back into plain text.
 - Markdown shortcuts work as you type: `#` and a space for a heading, `-` for a list, `1.` for a numbered list, `[]` for a to-do, `>` for a quote.
 - Type `[[` to link to another page. Links are stored as `[Title](diaspar://page/<id>)`, so they keep working when pages are renamed or moved.
 - Paste or drop an image to attach it to the page.
@@ -58,6 +65,11 @@ Images from the web (`https:`) in your notes are loaded, so their servers can se
 ## Organizing
 
 - **New page:** ⌘N, or **New page** in the sidebar.
+- **Folders:** **New folder** in the sidebar, or **Add a folder inside** in a page's or folder's menu, makes a plain folder for grouping pages.
+  - Its name is selected, so you can type a new one right away.
+  - On disk it's an ordinary folder with nothing else inside it.
+  - Clicking a folder opens and closes it. Opening it from search shows what's inside.
+  - A folder has no text, icon or favorite. **Turn into page** gives it text, as a page with the same contents.
 - **Nest pages:** drag them in the sidebar, or right-click → **Move to…**.
 - **Favorites:** right-click a page → **Add to Favorites**.
 - **Collections:** right-click a page → **Turn into a collection**. Its sub-pages become entries with properties (text, number, date, checkbox, select, multi-select), shown as a table or a list that you can sort and filter. Properties are saved in each entry's frontmatter.

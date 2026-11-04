@@ -52,6 +52,8 @@ The product was called Forma until ADR-046. Earlier records were updated for the
 | 044 | Export, backup and restore through Rust-opened dialogs; diagnostics without content | Accepted |
 | 045 | Release builds: universal, ad-hoc signed, drafted by CI | Accepted |
 | 046 | The product is named Diaspar | Accepted, user-confirmed |
+| 047 | Plain folders: directories without `index.md`, with their IDs in `tree.json` | Accepted, user-confirmed |
+| 048 | Editor blocks: a grouped "/" menu, child-page links, callouts as GitHub alerts | Accepted, user-confirmed |
 
 ---
 
@@ -622,3 +624,46 @@ The product was called Forma until ADR-046. Earlier records were updated for the
     - The USPTO has no DIASPAR mark; DIASPARK (Diaspark Inc., class 42, software development services) is live.
     - diaspar.com, .app, .dev, .ai, .net and .so are registered; diasparnotes.com, getdiaspar.com, diaspar.io and diaspar.md weren't.
     - The user accepted the overlap. China's register (CNIPA) and the EU's weren't searched.
+
+## ADR-047: Plain folders: directories without `index.md`, with their IDs in `tree.json`
+
+- **Status:** Accepted, user-confirmed (the user chose plain folders on 2026-11-03). **Date:** 2026-11-04 (Phase 8)
+- **Context:**
+  - The user wants folders in the sidebar to arrange documents. Pages already nest, and a page with children is a directory (`Name/index.md`), but there was no way to make a folder that only groups things.
+  - DATA_MODEL already read a directory without `index.md` as a `folder` page. Diaspar then wrote an `index.md` into it the first time anything needed the page's ID: a save, a rename, a move, a reorder or a favorite. So an outside folder silently became a page.
+- **Decision:**
+  - **What a folder is:** a directory without `index.md`. **New folder** creates one, and nothing is written inside it.
+  - **What it can't have:** a body, frontmatter or an icon. It can't be a collection, a favorite or a link target.
+  - **Opening it:** opens a folder view listing its contents, and writes nothing.
+  - **Renaming:** renames the directory.
+  - **Never implicitly a page:** a folder only becomes a page through **Turn into page**, which writes its `index.md` with the folder's ID.
+  - **Durable ID:** a folder's ID lives in `.diaspar/tree.json` under `folders`, keyed by its path relative to the workspace root. It's written the first time something durable refers to the folder, for example an order list. The scan takes a folder's ID from this map before the index cache.
+  - **Moves and renames:** a Diaspar move or rename keeps the ID, because the rescan follows the move, and the map is rewritten from the index with the new paths. Paths that no longer exist are dropped.
+  - **Outside renames:** a folder renamed outside Diaspar gets a new ID, so only its own order resets.
+  - **Archives:** backups, restores and exports keep empty folders.
+  - **AI:** it can create pages in folders and move pages into them, but can't edit a folder's text or link to one.
+- **Alternatives:**
+  - Only change how pages with children look. Rejected by the user.
+  - A marker file such as `.diaspar-folder` inside each folder. It would write into the user's folders and show up in other apps.
+  - Keep folder IDs only in the SQLite cache. They'd change whenever the cache is rebuilt, and with them every order list that refers to the folder.
+- **Consequences:**
+  - A folder made outside Diaspar is now a folder, not a page that turns into a bundle when typed into.
+  - `tree.json` gains an optional key, and old files read as before.
+  - Favorites, links and icons don't apply to folders.
+
+## ADR-048: Editor blocks: a grouped "/" menu, child-page links, callouts as GitHub alerts
+
+- **Status:** Accepted, user-confirmed (plan approved on 2026-11-03, "Proceed to Phase 8" on 2026-11-04). **Date:** 2026-11-04 (Phase 8)
+- **Context:** The user asked for a Notion-style "/" menu: sections, a block that makes a page inside the current one, callouts, and inline math next to the existing table and math block. Every block has to stay portable Markdown (product principle 3).
+- **Decision:**
+  - **Sections:** the "/" menu groups items into Basic, Media, Embed and Database, in that order, with a heading for each. Typing filters across sections. A section only appears once it has items that work (design rule 8), so Phase 8 shows Basic only.
+  - **Page:** creates an empty child page of the current page through the Document Service, inserts a page link (`[Untitled](diaspar://page/<id>)`, ADR-007) where "/" was typed, saves the current page, then opens the new page with its title focused. ⌘Z removes the link but not the page, which can be trashed like any other.
+  - **Callout:** a blockquote that starts with `> [!TYPE]`, the syntax of GitHub alerts and Obsidian callouts. The first line is kept exactly as read (its case, a `+`/`-` fold marker and a title), so files from those apps don't change.
+    - Note, Tip, Important, Warning and Caution get their own icon and colors; any other word gets a neutral look.
+    - The callout's menu changes the type, and Backspace at its start turns it back into plain blocks.
+  - **Inline math:** a "/" item inserts the same KaTeX inline node that typing `$…$` makes.
+- **Alternatives:**
+  - Callouts as raw HTML, or as a Diaspar-only fenced block. HTML is never rendered (rule 15), and a custom fence would be unreadable in other apps.
+  - Callouts as an emoji followed by a quote, like Notion's export. That reads ambiguously, and other apps wouldn't show a callout.
+  - A Page block that only links, without creating a page. That is what `[[` already does.
+- **Consequences:** Quotes whose first line is `[!WORD]` are now callouts, including ones written elsewhere. They still read as quotes in apps without callouts.

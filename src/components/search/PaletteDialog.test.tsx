@@ -19,6 +19,7 @@ const hit = (id: string, title: string, extra: Partial<PageHit> = {}): PageHit =
   icon: null,
   path: [],
   snippet: null,
+  kind: "leaf",
   ...extra,
 });
 

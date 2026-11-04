@@ -218,6 +218,69 @@
     color: var(--muted-foreground);
   }
 
+  /* Callouts (ADR-048): a faint fill, the icon in the tag color. */
+  .diaspar-editor .callout {
+    --callout-bg: var(--callout-gray-bg);
+    --callout-fg: var(--tag-gray-fg);
+    display: flex;
+    gap: 0.6em;
+    padding: 0.7em 0.9em 0.7em 0.7em;
+    border-radius: var(--radius);
+    background: var(--callout-bg);
+  }
+  .diaspar-editor .callout[data-tone="blue"] {
+    --callout-bg: var(--callout-blue-bg);
+    --callout-fg: var(--tag-blue-fg);
+  }
+  .diaspar-editor .callout[data-tone="green"] {
+    --callout-bg: var(--callout-green-bg);
+    --callout-fg: var(--tag-green-fg);
+  }
+  .diaspar-editor .callout[data-tone="purple"] {
+    --callout-bg: var(--callout-purple-bg);
+    --callout-fg: var(--tag-purple-fg);
+  }
+  .diaspar-editor .callout[data-tone="yellow"] {
+    --callout-bg: var(--callout-yellow-bg);
+    --callout-fg: var(--tag-yellow-fg);
+  }
+  .diaspar-editor .callout[data-tone="red"] {
+    --callout-bg: var(--callout-red-bg);
+    --callout-fg: var(--tag-red-fg);
+  }
+  .diaspar-editor .callout-icon {
+    flex: none;
+    color: var(--callout-fg);
+  }
+  .diaspar-editor .callout-icon button {
+    display: inline-flex;
+    width: 1.5em;
+    height: 1.5em;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+  }
+  .diaspar-editor .callout-icon button:hover:not(:disabled) {
+    background: var(--accent);
+  }
+  .diaspar-editor .callout-icon button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  .diaspar-editor .callout-body {
+    min-width: 0;
+    flex: 1;
+    padding-top: 0.1em;
+  }
+  .diaspar-editor .callout-title {
+    margin-bottom: 0.3em;
+    font-weight: 600;
+    color: var(--callout-fg);
+  }
+  .diaspar-editor .callout-content > * + * {
+    margin-top: 0.6em;
+  }
+
   .diaspar-editor ul,
   .diaspar-editor ol {
     padding-left: 1.6em;

@@ -32,6 +32,8 @@ vi.mock("@/lib/ipc/client", () => ({
     resolveWikilinks: vi.fn(),
     ensurePersistedId: vi.fn(),
     quickOpen: vi.fn(),
+    createFolder: vi.fn(),
+    turnFolderIntoPage: vi.fn(),
   },
   assetUrl: (pageId: string, reference: string) =>
     `diaspar-asset://localhost/${pageId}/${reference}`,
@@ -243,6 +245,7 @@ describe("PageView", () => {
         id: "66666666-6666-4666-8666-666666666666",
         title: "Source",
         icon: null,
+        kind: "leaf",
         path: ["Projects"],
         snippet: null,
       },
@@ -266,5 +269,32 @@ describe("PageView", () => {
     await waitFor(() =>
       expect(useWorkspaceStore.getState().breadcrumbs.at(-1)?.title).toBe("Ideas"),
     );
+  });
+
+  it("shows a folder's contents instead of an editor, and writes nothing (ADR-047)", async () => {
+    const user = userEvent.setup();
+    const folder = page({ title: "Archive", kind: "folder", body: "", rev: null });
+    vi.mocked(ipc.getPage).mockResolvedValueOnce(folder).mockResolvedValue(page());
+    vi.mocked(ipc.listChildren).mockResolvedValue([
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        title: "Old plan",
+        icon: null,
+        kind: "leaf",
+        has_children: false,
+        favorite: false,
+        status: { state: "ok" },
+        is_collection: false,
+      },
+    ]);
+    vi.mocked(ipc.turnFolderIntoPage).mockResolvedValue(undefined);
+    render(<PageView pageId={ID} />);
+    expect(await screen.findByRole("heading", { name: "Archive" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Old plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Page content" })).toBeNull();
+    expect(ipc.savePage).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Turn into page" }));
+    expect(ipc.turnFolderIntoPage).toHaveBeenCalledWith(ID);
   });
 });

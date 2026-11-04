@@ -17,6 +17,8 @@ fn main() {
             "list_favorites",
             "get_page",
             "create_page",
+            "create_folder",
+            "turn_folder_into_page",
             "save_page",
             "save_page_over_conflict",
             "set_title",

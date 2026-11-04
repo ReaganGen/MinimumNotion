@@ -6,6 +6,7 @@ import type { AnyExtension } from "@tiptap/core";
 import { Image } from "@tiptap/extension-image";
 import { Placeholder } from "@tiptap/extensions";
 import { assetUrl } from "@/lib/ipc/client";
+import { LiveCallout } from "./calloutView";
 import { createMarkdownExtensions } from "./extensions";
 import { LivePageLink, LiveWikiLink } from "./linkViews";
 import { PageLinkSuggestion } from "./pageLinkSuggestion";
@@ -67,6 +68,7 @@ function imageView(pageId: string) {
 export function createEditorExtensions(pageId: string): AnyExtension[] {
   const live: Record<string, AnyExtension> = {
     image: imageView(pageId).configure({ inline: true }),
+    callout: LiveCallout,
     pageLink: LivePageLink,
     wikiLink: LiveWikiLink,
   };
