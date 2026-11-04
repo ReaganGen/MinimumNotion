@@ -2,15 +2,15 @@
 
 ## Current Phase
 
-None. **All phases of the v0.1.0 plan are complete**; Phase 7 was approved on 2026-11-03 (commit `538d170`). The product was renamed from Forma to Diaspar (ADR-046). Releasing still needs the user's decisions on signing and tagging (Known Issues 1–3).
+None. **All phases of the v0.1.0 plan are complete**; Phase 7 was approved on 2026-11-03 (commit `538d170`). The product was renamed from Forma to Diaspar (ADR-046). **Phases 8–10 (v0.2.0) are planned** (IMPLEMENTATION_PLAN §11–13) and wait for approval ("Proceed to Phase 8"). Releasing still needs the user's decisions on signing and tagging (Known Issues 1–3).
 
 ## Status
 
-Phase 7 is complete and approved, as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The code is backed up to a private GitHub repository. CI passes there (run 41757388084): checks, tests, dependency audit and the universal bundle build.
+Phase 7 is complete and approved, as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The repository is public on GitHub (`ReaganGen/MinimumNotion`). CI passes there (latest run 41766577776): checks, tests, dependency audit and the universal bundle build.
 
 ### After Phase 7 (2026-11-03)
 
-- **Backed up to GitHub** at the user's request: the private repository `ReaganGen/MinimumNotion`, with `main` at `16089c2`.
+- **Backed up to GitHub** at the user's request: the repository `ReaganGen/MinimumNotion`, private at first, with `main` at `16089c2`. The user made it public for the v0.1.0 release.
 - **First CI run** (41687433709). The dependency audit passed. The check job waited 15 minutes for a macOS arm64 runner, got none, and was cancelled ("The job was not acquired by Runner of type hosted"). The bundle job was skipped. No check or test ran on GitHub. The label is valid (the audit got a `macos-26` runner in the same run), and GitHub's status page shows no incident at that time.
 - **The dependency audit now runs on `ubuntu-24.04`.** `npm audit` and `cargo audit` read only the lockfiles, so they need no Mac; a run now needs two macOS runners instead of three. rust-cache keys include the OS, so the macOS cache isn't restored on Linux. ADR-045 is amended.
 - **Second CI run** (41757388084, `cfe0403`): all three jobs passed, and each got a runner at once. On GitHub:
@@ -29,6 +29,14 @@ Phase 7 is complete and approved, as far as automated, preview and release-app c
   - The release app launched and quit cleanly. It created `~/Library/Application Support/app.diaspar.desktop` and `~/Library/Logs/app.diaspar.desktop/diaspar.log`, and the old `app.forma.desktop` files were byte-identical afterwards.
   - A grep finds the old name only in the history notes.
   - Not checked: opening a workspace in the native app after the rename. Opening a workspace and writing `.diaspar/` is covered by the core tests. A leftover `.forma/` is skipped by the page scan, which skips hidden entries (`scan.rs`), but export copies it.
+- **CI after the rename** (run 41766577776, `5148262`): all three jobs passed. 226 frontend and 287 Rust tests (2 ignored); both audits found 0 vulnerabilities; the universal `Diaspar_0.1.0_universal.dmg` (13.24 MiB) built and verified.
+- **Phases 8–10 planned** (IMPLEMENTATION_PLAN §11–13), from the user's request for Notion-style blocks, media, embeds, databases and folders. The user decided:
+  - HTML embeds render static HTML in a sandbox (changes architecture rule 15 in Phase 9, with an ADR);
+  - link embeds are offline bookmark cards;
+  - the sidebar gets plain folders;
+  - board and gallery views are planned (CLAUDE.md and ROADMAP updated). Because v0.1.0 is being released now, Phases 8–10 make up v0.2.0.
+
+  Table and math blocks already exist. Collections merge into databases in the UI only; the on-disk format stays.
 
 ### Phase 7 journal
 
@@ -407,4 +415,4 @@ Not separately reviewed, and kept as documented: favorites and order in `.diaspa
 
 ## Next Phase
 
-None: Phase 7 was the last phase of the v0.1.0 plan. Next are the release steps above (the name, signing and tagging), each the user's call. Candidates after v0.1.0 are in ROADMAP.md.
+**Phase 8: Editor Blocks and Folders** (IMPLEMENTATION_PLAN §11), waiting for "Proceed to Phase 8". Phases 9 (media and embeds) and 10 (databases) follow, each after its own approval. The release steps above (signing and tagging) are the user's call. Candidates after v0.1.0 are in ROADMAP.md.

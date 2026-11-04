@@ -237,7 +237,7 @@ If the documentation and the repository disagree, inspect the code and tests bef
 - Mobile apps
 - Browser app
 - Teamspaces
-- Complex Notion databases (formulas, rollups, relations, kanban, calendar, timeline, charts, automations)
+- Complex Notion databases (formulas, rollups, relations, kanban, calendar, timeline, charts, automations). Board and gallery views are planned for v0.2.0 (Phase 10); formulas, rollups, relations, calendar, timeline, charts and automations stay out of scope there too.
 - Graph view
 - Plugin marketplace
 - Billing

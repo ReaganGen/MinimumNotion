@@ -418,3 +418,149 @@ Each of these is verified by a test or a documented manual check:
 - The signing and notarization status is reported accurately.
 
 > **Status (2026-11-03):** implemented; see PROGRESS.md. Decisions: ADR-044 (export, backup and restore through dialogs Rust opens; diagnostics without content) and ADR-045 (universal, ad-hoc signed, CI drafts releases). Deviations: the workflows were written and their steps run locally, but they haven't run on GitHub (pushing wasn't authorized); the release workflow has no Developer ID path, because there's no certificate to test one with (CONTRIBUTING.md lists the variables); no trademark policy, because the name search found conflicts (R15, a user decision); typing latency was measured in the browser preview, not the native app.
+
+---
+
+## 11. Phase 8: Editor Blocks and Folders
+
+**Goal:** a grouped "/" menu with Notion-style basic blocks, and plain folders in the sidebar. Planned on 2026-11-03 at the user's request. The user decided the open questions on the same day (folders: plain folders without `index.md`).
+
+### 11.1 Tasks
+
+1. **Grouped "/" menu.**
+   - Sections **Basic**, **Media**, **Embed** and **Database**, in that order, with headings.
+   - Typing filters across all sections. The keyboard behavior stays the same.
+   - A section appears only once its items work (design rule 8). Phase 8 ships Basic; Media and Embed arrive in Phase 9, Database in Phase 10.
+   - Existing items move to Basic: text, headings, lists, to-do, quote, code, divider, table, math block.
+2. **Page.** Creates an empty child page of the current page through the Document Service (the current page becomes a bundle, as today). It calls `ensure_persisted_id`, inserts `[Untitled](diaspar://page/<id>)` at the cursor and opens the new page.
+   - Text being typed is saved first.
+   - ⌘Z undoes the inserted link, not the new page. The page goes to the Trash like any other.
+3. **Callout.** Stored as GitHub alert syntax: `> [!NOTE]`, then the content as quoted lines.
+   - Five types: Note, Tip, Important, Warning, Caution, each with its own icon and token colors. A menu on the callout changes the type.
+   - A quote without a marker stays a quote. An unknown marker is kept as written and shown as a quote.
+   - GitHub and Obsidian show these as callouts; other apps show a quote.
+4. **Inline math.** A "/" item inserts an inline `$…$` formula. It uses the same KaTeX node as typing `$…$` does today.
+5. **Folders** (plain directories with no `index.md`; DATA_MODEL §3.1 already reads them as the `folder` kind).
+   - **New folder** in the sidebar and in a page's or folder's menu. It creates the directory through the Document Service, with the naming rules of §3.3.
+   - A folder shows a folder icon and has no body. Clicking it expands or collapses it.
+   - Pages and folders can be moved into and out of folders by dragging or with **Move to…**. A folder can be renamed and trashed with its contents.
+   - **Turn into page** writes `index.md` as an explicit user action.
+   - **Never implicitly:** a folder never gains an `index.md` by accident.
+   - **Identity:** a folder's identity for order and expansion is its path, kept in `.diaspar/tree.json` (advisory). Diaspar updates it when it renames or moves the folder. An outside rename only resets that folder's order.
+   - Folders can't be favorited or linked to.
+   - The decision and the DATA_MODEL change are recorded in a new ADR.
+6. Docs: DATA_MODEL §3.1 (folders), §5 (callouts), ADR(s), USER_GUIDE, PROGRESS.
+
+### 11.2 Tests
+
+- Round-trip fixtures: every callout type, callouts with lists and code inside, a quote without a marker, an unknown marker.
+- Page: the child is created under the current page with a persisted ID, the link resolves, and the parent's own text is unchanged.
+- Folders:
+  - creating one writes no file inside it;
+  - opening, expanding or rescanning it writes nothing;
+  - rename, move, trash and restore keep the contents;
+  - an outside rename is picked up;
+  - **Turn into page** creates exactly one `index.md`.
+- The "/" menu: section order, filtering across sections, no empty sections, axe checks.
+
+### 11.3 Acceptance criteria
+
+- Every new block survives a save and reopen byte for byte when it isn't edited.
+- No file the user didn't change is written (architecture rule 14).
+- Folders never turn into pages unless the user asks.
+
+---
+
+## 12. Phase 9: Media and Embeds
+
+**Goal:** audio, video and file attachments next to images, an offline bookmark card, and static HTML in a sandbox. User decisions (2026-11-03):
+- **HTML:** render static HTML in a sandbox. This changes architecture rule 15 through a new ADR.
+- **Link embeds:** offline bookmark cards. Nothing is fetched.
+
+### 12.1 Tasks
+
+1. **Asset protocol.**
+   - `diaspar-asset:` streams files and answers `Range` requests (206, `Accept-Ranges`, 416 for bad ranges). Today it reads the whole file into memory, which stops video from seeking and uses memory for large files.
+   - Content types for common audio and video formats (mp3, m4a, wav, ogg, mp4, mov, webm).
+2. **Insert media.**
+   - "/" items **Image**, **Audio**, **Video** and **File** open a file dialog that Rust shows (no paths over IPC, as in ADR-044). The file is copied into the page's `_assets/` through the Document Service.
+   - Paste and drop accept the same kinds.
+3. **Markdown form** (DATA_MODEL §5).
+   - Image, audio and video use `![caption](_assets/name.ext)`; the kind follows the extension.
+   - A file is a link `[name](_assets/name.ext)` alone in a paragraph.
+   - Other apps show these as images or links.
+4. **Rendering.**
+   - Players are React node views (`<audio controls>`, `<video controls>`); no HTML from the document is used.
+   - The CSP gains `media-src 'self' diaspar-asset:`. Remote (`https:`) audio and video are shown as links and never loaded (rule 9; ADR-031 covers images only).
+   - A file card shows the name, size and type, with **Open** (default app, through Rust) and **Show in Finder**.
+5. **Bookmark** (Embed section): a card with the URL, a title and an optional description that the user types.
+   - Clicking opens the URL in the browser (http and https only). Nothing is fetched.
+   - The Markdown form is fixed in the phase's ADR and must read as an ordinary link in other apps.
+6. **HTML embed** (Embed section): a fenced code block marked as an embed, for example ```` ```html embed ````. Other apps show it as HTML code.
+   - **Sandbox:** it renders in `<iframe sandbox="" srcdoc>`, with a CSP that allows no scripts and no network. The empty sandbox means no scripts, forms, popups or top navigation, and an opaque origin.
+   - **Height:** set by the user and stored with the block.
+   - **Code view:** a toggle switches between the rendered view and the code.
+   - **AI changes:** chat output and AI change previews never render embeds; they show the code.
+7. Update CLAUDE.md rule 15 and ARCHITECTURE's security table with the exception, in the same change as the ADR.
+
+### 12.2 Tests
+
+- Range: full, partial, open-ended and suffix ranges, out-of-range requests (416), files outside the workspace refused.
+- Media and file round-trips; the CSP test includes `media-src`; remote audio and video are never requested.
+- HTML embed:
+  - the iframe carries `sandbox=""` with no `allow-*`;
+  - the CSP inside `srcdoc` forbids scripts and connections;
+  - a script in an embed doesn't run;
+  - an embed can't reach the IPC bridge;
+  - AI previews show the code.
+- Manual steps (native app): play and seek a video, open a file card, a bookmark opens the browser.
+
+### 12.3 Acceptance criteria
+
+- Video and audio play and seek from `_assets/` without loading the whole file.
+- No network request is made by media, bookmarks or embeds.
+- Embedded HTML can't run scripts or reach the app.
+
+---
+
+## 13. Phase 10: Databases
+
+**Goal:** collections become **databases**, with board and gallery views next to table and list, adaptive or fixed m×n layouts, and databases inside pages. The user brought board and gallery views into the plan on 2026-11-03; Phases 8–10 make up v0.2.0, after v0.1.0 was released. Formulas, rollups, relations, calendar, timeline and charts stay out of scope.
+
+### 13.1 Tasks
+
+1. **Collections are called databases** in the UI, the docs and the user guide (for example **Turn into a database**). The on-disk names (`collection` in frontmatter, `collections` in `views.json`) and the AI tool names stay, so no data changes.
+2. **Board view.**
+   - Entries are grouped into columns by a single-select property the user picks. Columns follow the option order, plus a "No value" column.
+   - Dragging a card to another column sets that value through the normal surgical frontmatter edit, with the usual conflict check. Order within a column is kept per view in `views.json`.
+   - Keyboard: a card can be moved with the keyboard too.
+   - **New** in a column creates an entry with that value.
+3. **Gallery view.** Cards show a cover (the first image in the entry's body, if any), the title and the properties the user picks. Clicking a card opens the entry.
+4. **Layout** (per view, stored in `views.json`).
+   - **Adaptive:** cards wrap to the window width, with a card size of small, medium or large.
+   - **Fixed m × n:** m columns and n rows per page, with paging when there are more entries.
+   - For boards, m is the number of visible columns and n the cards per column before **Show more**.
+   - The exact behavior is confirmed with the user at the start of the phase.
+5. **Sort and filter** work in every view, using the existing view logic.
+6. **Databases in pages** ("/" → Database section: Table view, Board view, Gallery view).
+   - Each creates a child database page of the current page with that view active, and inserts a live view of it into the current page.
+   - It's stored as a link on its own line, `[Name](diaspar://page/<uuid>?view=board)`, which other apps show as a normal link. This extends DATA_MODEL's page-link URL.
+7. `views.json` stays backward compatible: a file without the new views or layout keys loads as today.
+8. Docs: DATA_MODEL §6.5 and §5 (the view query), ADR(s), USER_GUIDE, PROGRESS.
+
+### 13.2 Tests
+
+- **Grouping:** option order, the "No value" column, a removed option.
+- **Board edits:**
+  - dragging writes only the moved entry's property, and a concurrent outside edit is reported as a conflict;
+  - the keyboard move works.
+- **Layout:** adaptive and m×n settings persist; paging boundaries; an old `views.json` still loads.
+- **Databases in pages:** the inline view link round-trips and renders; the database page itself is unchanged by viewing.
+- **Performance:** a board and a gallery with 1,000 entries stay responsive (measured, as in Phase 7).
+- axe checks on board and gallery.
+
+### 13.3 Acceptance criteria
+
+- Changing a card's column is one surgical frontmatter edit, undoable with the page history.
+- Viewing a database never writes a file.
+- Every view works with the keyboard.
