@@ -52,15 +52,18 @@ In an empty workspace, **Add a getting-started page** creates a short page about
   - **Callout**, a highlighted box for a note, tip or warning;
   - **Math block** and **Inline math** (LaTeX).
 
-  Keep typing to filter the menu.
+  Under **Media**, **Image**, **Audio**, **Video** and **File** let you choose a file, which is copied into the page's `_assets/` folder. Under **Embed** are **Bookmark** and **HTML**. Keep typing to filter the menu.
 - **Callouts** are saved as `> [!NOTE]` quotes, the way GitHub and Obsidian write them. Click a callout's icon to change its type (Note, Tip, Important, Warning or Caution). Backspace at its start turns it back into plain text.
 - Markdown shortcuts work as you type: `#` and a space for a heading, `-` for a list, `1.` for a numbered list, `[]` for a to-do, `>` for a quote.
 - Type `[[` to link to another page. Links are stored as `[Title](diaspar://page/<id>)`, so they keep working when pages are renamed or moved.
-- Paste or drop an image to attach it to the page.
+- Paste or drop files to attach them to the page. Images, audio and video are shown in place, with a player for audio and video. Other files become a **file card** with its name, type and size: **Open** opens it in its usual app, and the folder button shows it in Finder. Diaspar never opens programs or scripts from a card; use Show in Finder for those.
+- **Bookmarks** are a card for a web page: you type the address, a title and, if you like, a description. Diaspar never visits the page. Click the card to open it in your browser, or the pencil to edit it. It's saved as an ordinary link, `[Title](https://… "Description")`.
+- **HTML embeds** show a piece of static HTML. Switch between **Preview** and **Code** in its bar, and set its height there. The HTML can't run scripts, load anything from the web, or be clicked; it's saved as an ```` ```html embed ```` code block, which other apps show as code.
+- A card or player is alone in its paragraph. Press Return after it to keep writing; text typed right next to a file card or bookmark turns it back into a plain link the next time the page opens.
 - ⌘-click a link to open it. Web links open in your browser.
 - Changes save on their own. Leaving the page, or the app, saves at once.
 
-Images from the web (`https:`) in your notes are loaded, so their servers can see when you open the page. Images that AI writes or proposes are never loaded while you review them.
+Images from the web (`https:`) in your notes are loaded, so their servers can see when you open the page. Audio and video from the web are never loaded; they show as a link you can open in your browser. Images that AI writes or proposes are never loaded while you review them, and the AI panel shows HTML embeds as their code.
 
 ## Organizing
 

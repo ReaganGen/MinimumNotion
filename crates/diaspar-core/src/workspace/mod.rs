@@ -31,7 +31,7 @@ use std::time::{Duration, SystemTime};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::atomic::write_atomic_staged;
+use crate::atomic::{copy_atomic_staged, write_atomic_staged};
 use crate::error::{CoreError, CoreResult, io_at};
 use crate::frontmatter::{self, Change, Parsed, Value};
 use crate::index::IndexDb;
@@ -40,8 +40,8 @@ use naming::{name_key, sanitize_stem, taken_stems, unique_stem};
 use scan::{Entry, Index, Scanned, hash_rev, natural_key, new_id, scan, signature};
 use state::{FORMAT_VERSION, TreeState, WorkspaceMeta, load_json, order_key, save_json};
 use types::{
-    PageDocument, PageKind, PageRef, PageStatus, PageSummary, RecoveryBuffer, SaveOutcome,
-    TrashEntryInfo, WorkspaceChanges, WorkspaceInfo,
+    AttachmentInfo, PageDocument, PageKind, PageRef, PageStatus, PageSummary, RecoveryBuffer,
+    SaveOutcome, TrashEntryInfo, WorkspaceChanges, WorkspaceInfo,
 };
 
 /// An autosave snapshot is taken at most this often per page (ARCHITECTURE §4.6).
@@ -1369,10 +1369,36 @@ impl Workspace {
         file_name: &str,
         bytes: &[u8],
     ) -> CoreResult<String> {
+        let (path, reference) = self.attachment_target(page_id, file_name)?;
+        write_atomic_staged(&path, bytes, Some(&self.staging())).map_err(io_at(&path))?;
+        Ok(reference)
+    }
+
+    /// Copies a file the user picked into the page's `_assets/` folder, like
+    /// `import_attachment`. The copy is streamed, so large videos never sit in
+    /// memory. `source` comes from a file dialog Rust showed, never from IPC.
+    pub fn import_attachment_file(&mut self, page_id: &str, source: &Path) -> CoreResult<String> {
+        if !source.is_file() {
+            return Err(CoreError::Invalid("Only files can be attached.".into()));
+        }
+        let file_name = source
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let (path, reference) = self.attachment_target(page_id, &file_name)?;
+        copy_atomic_staged(&path, source, Some(&self.staging())).map_err(io_at(&path))?;
+        Ok(reference)
+    }
+
+    /// Where a new attachment named `file_name` goes, with a free name, and
+    /// the reference to it. Creates `_assets/` (turning a leaf into a bundle).
+    fn attachment_target(
+        &mut self,
+        page_id: &str,
+        file_name: &str,
+    ) -> CoreResult<(PathBuf, String)> {
         self.writable()?;
-        let dir = self.dir_for_children(page_id)?;
-        let assets = dir.join("_assets");
-        fs::create_dir_all(&assets).map_err(io_at(&assets))?;
+        self.not_for_folders(page_id, "can't hold attachments")?;
         let (stem, extension) = match file_name.rsplit_once('.') {
             Some((stem, ext))
                 if !ext.is_empty()
@@ -1388,6 +1414,9 @@ impl Workspace {
                 "Markdown files can't be attached.".into(),
             ));
         }
+        let dir = self.dir_for_children(page_id)?;
+        let assets = dir.join("_assets");
+        fs::create_dir_all(&assets).map_err(io_at(&assets))?;
         let taken: HashSet<String> = fs::read_dir(&assets)
             .map_err(io_at(&assets))?
             .flatten()
@@ -1404,9 +1433,19 @@ impl Workspace {
             })
             .find(|candidate| !taken.contains(&name_key(candidate)))
             .expect("an unbounded range always yields a free name");
-        let path = assets.join(&name);
-        write_atomic_staged(&path, bytes, Some(&self.staging())).map_err(io_at(&path))?;
-        Ok(format!("_assets/{}", percent_encode_path(&name)))
+        let reference = format!("_assets/{}", percent_encode_path(&name));
+        Ok((assets.join(name), reference))
+    }
+
+    /// The name and size a file card shows (ADR-049).
+    pub fn attachment_info(&self, page_id: &str, reference: &str) -> CoreResult<AttachmentInfo> {
+        let path = self.resolve_asset(page_id, reference)?;
+        let size = fs::metadata(&path).map_err(io_at(&path))?.len();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Ok(AttachmentInfo { name, size })
     }
 
     /// Resolves an image or attachment reference from a page to a file inside

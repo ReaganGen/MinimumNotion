@@ -20,7 +20,7 @@ v0.1.0 is published as a pre-release (ad-hoc signed, not notarized).
 | Phase | Name | Outcome | Status |
 |---|---|---|---|
 | 8 | Editor Blocks and Folders | A grouped "/" menu, child-page blocks, callouts, inline math, plain folders in the sidebar | Complete |
-| 9 | Media and Embeds | Audio, video and file attachments, offline bookmark cards, static HTML in a sandbox | Planned |
+| 9 | Media and Embeds | Audio, video and file attachments, offline bookmark cards, static HTML in a sandbox | Complete |
 | 10 | Databases | Collections become databases, with board and gallery views, adaptive or m×n layouts, databases inside pages | Planned |
 
 Details: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md). Live status: [PROGRESS.md](PROGRESS.md).

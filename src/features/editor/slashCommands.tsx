@@ -1,11 +1,13 @@
-// The "/" menu: blocks in sections, filtered as you type (spec §7, ADR-048).
-// A section appears only once it has items that work (design rule 8), so the
-// Media, Embed and Database sections come with their phases.
+// The "/" menu: blocks in sections, filtered as you type (spec §7, ADR-048,
+// ADR-049). A section appears only once it has items that work (design
+// rule 8), so the Database section comes with Phase 10.
 import { type Editor, Extension, type Range } from "@tiptap/core";
 import Suggestion from "@tiptap/suggestion";
 import { useLinkStore } from "@/features/links/linkStore";
 import { flushAllEdits, useWorkspaceStore } from "@/features/workspace/workspaceStore";
 import { ipc } from "@/lib/ipc/client";
+import { bookmarkAttrs, editBookmark } from "./bookmarkDialog";
+import { type AttachmentKind, pickAttachment } from "./media";
 import { suggestionPopup } from "./suggestionMenu";
 
 /** The menu's sections, in order. */
@@ -129,7 +131,71 @@ export const SLASH_ITEMS: SlashItem[] = [
     // deleted, so the position is passed.
     run: (e, r) => chain(e, r).insertInlineMath({ latex: "x", pos: r.from }).run(),
   },
+  {
+    section: "Media",
+    title: "Image",
+    hint: "![…](…)",
+    keywords: "picture photo png jpg gif",
+    run: (e, r) => void insertPicked(e, r, "image"),
+  },
+  {
+    section: "Media",
+    title: "Audio",
+    hint: ".mp3 .m4a",
+    keywords: "sound music recording voice",
+    run: (e, r) => void insertPicked(e, r, "audio"),
+  },
+  {
+    section: "Media",
+    title: "Video",
+    hint: ".mp4 .mov",
+    keywords: "movie clip recording",
+    run: (e, r) => void insertPicked(e, r, "video"),
+  },
+  {
+    section: "Media",
+    title: "File",
+    hint: "Any file",
+    keywords: "attachment pdf document upload",
+    run: (e, r) => void insertPicked(e, r, "file"),
+  },
+  {
+    section: "Embed",
+    title: "Bookmark",
+    hint: "Link card",
+    keywords: "link url web website card",
+    run: (e, r) => void insertBookmark(e, r),
+  },
+  {
+    section: "Embed",
+    title: "HTML",
+    hint: "Sandboxed",
+    keywords: "embed iframe static code",
+    run: (e, r) =>
+      chain(e, r)
+        .insertContent({ type: "htmlEmbed", attrs: { info: "html embed", code: "" } })
+        .run(),
+  },
 ];
+
+/** Removes the typed "/" text, then lets the user pick a file to insert. */
+async function insertPicked(editor: Editor, range: Range, kind: AttachmentKind) {
+  chain(editor, range).run();
+  await pickAttachment(editor, kind);
+}
+
+/** Asks for the bookmark's address, title and description, then inserts it. */
+export async function insertBookmark(editor: Editor, range: Range) {
+  chain(editor, range).run();
+  const fields = await editBookmark({ url: "", title: "", description: "" });
+  const attrs = fields && bookmarkAttrs(fields);
+  if (!attrs || editor.isDestroyed) return;
+  editor
+    .chain()
+    .focus()
+    .insertContent({ type: "paragraph", content: [{ type: "bookmark", attrs }] })
+    .run();
+}
 
 /**
  * Makes an empty child page of the open page, links it where "/" was typed,

@@ -9,8 +9,8 @@ use diaspar_core::collection::{CellInput, Schema};
 use diaspar_core::error::{ErrorCode, ErrorPayload};
 use diaspar_core::workspace::collections::{CollectionData, CollectionViews, EntryData, SchemaOp};
 use diaspar_core::workspace::types::{
-    PageDocument, PageHit, PageLinkInfo, PageSummary, RecoveryBuffer, SaveOutcome, TrashEntryInfo,
-    WikiResolution, WorkspaceInfo,
+    AttachmentInfo, PageDocument, PageHit, PageLinkInfo, PageSummary, RecoveryBuffer, SaveOutcome,
+    TrashEntryInfo, WikiResolution, WorkspaceInfo,
 };
 use diaspar_core::workspace::{count_entries, is_workspace, percent_decode};
 use tauri::ipc::{InvokeBody, Request};
@@ -18,6 +18,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use crate::AppState;
+use crate::assets;
 use crate::session::Session;
 
 type Result<T> = std::result::Result<T, ErrorPayload>;
@@ -331,6 +332,87 @@ pub async fn import_attachment(
     let file_name = percent_decode(&header("x-file-name")?);
 
     session.mutate(&app, |ws| ws.import_attachment(&page_id, &file_name, bytes))
+}
+
+/// Shows a file dialog and copies the chosen file into the page's
+/// `_assets/`. `kind` is what the "/" menu's Media item asks for: `image`,
+/// `audio`, `video` or `file` (ADR-049). Returns the reference for the
+/// Markdown, or nothing if the dialog was cancelled. The path never crosses IPC.
+#[tauri::command]
+pub async fn pick_attachment(
+    app: AppHandle,
+    session: State<'_, Session>,
+    page_id: String,
+    kind: String,
+) -> Result<Option<String>> {
+    let dialog = app.dialog().file();
+    let dialog = match kind.as_str() {
+        "image" => dialog
+            .set_title("Choose an image")
+            .add_filter("Images", assets::IMAGE_EXTENSIONS),
+        "audio" => dialog
+            .set_title("Choose an audio file")
+            .add_filter("Audio", assets::AUDIO_EXTENSIONS),
+        "video" => dialog
+            .set_title("Choose a video")
+            .add_filter("Video", assets::VIDEO_EXTENSIONS),
+        "file" => dialog.set_title("Choose a file to attach"),
+        _ => return Err(invalid("Unknown kind of attachment.")),
+    };
+    let Some(picked) = dialog.blocking_pick_file() else {
+        return Ok(None);
+    };
+    let source = picked
+        .into_path()
+        .map_err(|e| invalid(format!("That file can't be used: {e}")))?;
+    session
+        .mutate(&app, |ws| ws.import_attachment_file(&page_id, &source))
+        .map(Some)
+}
+
+/// The name and size of an attachment, for its file card.
+#[tauri::command]
+pub async fn attachment_info(
+    session: State<'_, Session>,
+    page_id: String,
+    reference: String,
+) -> Result<AttachmentInfo> {
+    session.read(|ws| ws.attachment_info(&page_id, &reference))
+}
+
+/// Opens an attachment in its default app. Programs, scripts and executable
+/// files are refused; Show in Finder still works for them.
+#[tauri::command]
+pub async fn open_attachment(
+    session: State<'_, Session>,
+    page_id: String,
+    reference: String,
+) -> Result<()> {
+    let path = session.read(|ws| ws.resolve_asset(&page_id, &reference))?;
+    if !assets::may_open(&path) {
+        return Err(invalid(
+            "Diaspar doesn't open programs or scripts. Use Show in Finder instead.",
+        ));
+    }
+    run_open(Command::new("open").arg(&path))
+}
+
+/// Shows an attachment in Finder.
+#[tauri::command]
+pub async fn reveal_attachment(
+    session: State<'_, Session>,
+    page_id: String,
+    reference: String,
+) -> Result<()> {
+    let path = session.read(|ws| ws.resolve_asset(&page_id, &reference))?;
+    run_open(Command::new("open").arg("-R").arg(&path))
+}
+
+fn run_open(command: &mut Command) -> Result<()> {
+    command
+        .spawn()
+        .map_err(|e| ErrorPayload::new(ErrorCode::Io, format!("Couldn't open it: {e}")))?;
+    Ok(())
 }
 
 #[tauri::command]

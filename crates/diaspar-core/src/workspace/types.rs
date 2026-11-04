@@ -188,3 +188,14 @@ pub struct WikiResolution {
     /// How many pages matched (0, 1, or more).
     pub matches: u32,
 }
+
+/// What a file card shows about an attachment (ADR-049).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(export)]
+pub struct AttachmentInfo {
+    /// The file's name on disk.
+    pub name: String,
+    /// In bytes.
+    #[ts(type = "number")]
+    pub size: u64,
+}

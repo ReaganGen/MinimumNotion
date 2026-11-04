@@ -17,6 +17,7 @@ import { Link as BaseLink } from "@tiptap/extension-link";
 import { Paragraph as BaseParagraph } from "@tiptap/extension-paragraph";
 import { Table as BaseTable } from "@tiptap/extension-table";
 import { MarkdownManager } from "@tiptap/markdown";
+import { loneLinkCard } from "./cards";
 import { INLINE_MATH } from "./math";
 
 const PUNCTUATION = /[!-/:-@[-`{-~]/;
@@ -111,6 +112,20 @@ managerPrototype.encodeTextForMarkdown = function (this: EncoderHost, text, node
 export const textEncoderIsPatched = hadEncoder;
 
 export const Paragraph = BaseParagraph.extend({
+  parseMarkdown(token, helpers) {
+    // A link alone in a paragraph can be a file card or a bookmark (cards.ts).
+    const card = loneLinkCard(token);
+    if (card) return helpers.createNode("paragraph", undefined, [card]);
+    // The stock rule lifts a lone image out of its paragraph, which suits
+    // block images. Diaspar's images (and audio and video) are inline, so
+    // they stay in it: lifted, neighbouring images were merged into one
+    // paragraph whenever the content was replaced, and saved on one line.
+    const inline = token.tokens ?? [];
+    if (inline.length === 1 && inline[0]?.type === "image") {
+      return helpers.createNode("paragraph", undefined, helpers.parseInline(inline));
+    }
+    return this.parent?.(token, helpers) ?? [];
+  },
   renderMarkdown(node, helpers, ctx) {
     const rendered = this.parent?.(node, helpers, ctx) ?? "";
     return rendered.split("\n").map(escapeLineStart).join("\n");
@@ -121,16 +136,32 @@ export const HardBreak = BaseHardBreak.extend({
   renderMarkdown: () => "\\\n",
 });
 
+/** Info strings that mark an HTML embed: `html embed`, maybe with more words (ADR-049). */
+export const EMBED_INFO = /^html\s+embed(?:\s|$)/i;
+
+/** A fenced block with `info`, its fence longer than any fence in `code`. */
+export function fencedCode(code: string, info: string): string {
+  const longestFence = Math.max(0, ...(code.match(/^`{3,}/gm) ?? []).map((fence) => fence.length));
+  const fence = "`".repeat(Math.max(3, longestFence + 1));
+  return `${fence}${info}\n${code}\n${fence}`;
+}
+
 export const CodeBlock = BaseCodeBlock.extend({
-  renderMarkdown: (node) => {
-    const code = (node.content ?? []).map((child: JSONContent) => child.text ?? "").join("");
-    const longestFence = Math.max(
-      0,
-      ...(code.match(/^`{3,}/gm) ?? []).map((fence) => fence.length),
-    );
-    const fence = "`".repeat(Math.max(3, longestFence + 1));
-    return `${fence}${node.attrs?.language ?? ""}\n${code}\n${fence}`;
+  // A block marked `html embed` is an HTML embed (htmlEmbed.ts, ADR-049).
+  parseMarkdown(token, helpers) {
+    if (token.codeBlockStyle !== "indented" && EMBED_INFO.test(token.lang ?? "")) {
+      return helpers.createNode("htmlEmbed", {
+        info: (token.lang ?? "").trim(),
+        code: token.text ?? "",
+      });
+    }
+    return this.parent?.(token, helpers) ?? [];
   },
+  renderMarkdown: (node) =>
+    fencedCode(
+      (node.content ?? []).map((child: JSONContent) => child.text ?? "").join(""),
+      node.attrs?.language ?? "",
+    ),
 });
 
 export const Link = BaseLink.extend({

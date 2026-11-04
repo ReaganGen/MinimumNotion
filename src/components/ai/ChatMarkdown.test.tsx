@@ -39,6 +39,15 @@ describe("ChatMarkdown", () => {
     expect(container.textContent).toContain("<script>alert(1)</script>");
   });
 
+  it("shows an HTML embed as code, never as a frame (ADR-049)", () => {
+    const { container } = render(
+      <ChatMarkdown text={"```html embed height=200\n<b>Hi</b><script>x()</script>\n```"} />,
+    );
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("b")).toBeNull();
+    expect(container.querySelector("pre")).toHaveTextContent("<b>Hi</b><script>x()</script>");
+  });
+
   it("shows images as their address without loading them", () => {
     const { container } = render(
       <ChatMarkdown text="![secret chart](https://tracker.example.com/p.png?data=notes)" />,

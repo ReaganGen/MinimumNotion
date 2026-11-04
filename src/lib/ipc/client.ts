@@ -3,6 +3,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { ArchiveResult } from "./bindings/ArchiveResult";
+import type { AttachmentInfo } from "./bindings/AttachmentInfo";
 import type { CellInput } from "./bindings/CellInput";
 import type { ChangeOutcome } from "./bindings/ChangeOutcome";
 import type { ChatInput } from "./bindings/ChatInput";
@@ -174,6 +175,18 @@ export const ipc = {
   rejectChangeset: (changesetId: string) => call<void>("reject_changeset", { changesetId }),
   listOperations: () => call<OperationInfo[]>("list_operations"),
   undoOperation: (opId: string) => call<ChangeOutcome>("undo_operation", { opId }),
+
+  // Attachments (ADR-049). Rust shows the file dialog, so no path crosses IPC.
+  /** Returns the Markdown reference, or `null` if the dialog was cancelled. */
+  pickAttachment: (pageId: string, kind: "image" | "audio" | "video" | "file") =>
+    call<string | null>("pick_attachment", { pageId, kind }),
+  attachmentInfo: (pageId: string, reference: string) =>
+    call<AttachmentInfo>("attachment_info", { pageId, reference }),
+  /** Opens it in its default app; programs and scripts are refused. */
+  openAttachment: (pageId: string, reference: string) =>
+    call<void>("open_attachment", { pageId, reference }),
+  revealAttachment: (pageId: string, reference: string) =>
+    call<void>("reveal_attachment", { pageId, reference }),
 
   /** Sends the file's bytes raw (no JSON encoding) and returns the Markdown reference. */
   importAttachment: async (pageId: string, file: File): Promise<string> => {

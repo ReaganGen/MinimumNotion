@@ -2,11 +2,36 @@
 
 ## Current Phase
 
-**Phase 8: Editor Blocks and Folders** (v0.2.0) is complete; the user approved it on 2026-11-04. All phases of the v0.1.0 plan are complete; Phase 7 was approved on 2026-11-03 (commit `538d170`). The product was renamed from Forma to Diaspar (ADR-046). **v0.1.0 is published as a pre-release** (2026-11-03). Phases 9 and 10 (v0.2.0, IMPLEMENTATION_PLAN §12–13) are planned and each waits for its own approval. Notarization still needs an Apple Developer ID (Known Issue 2).
+**Phase 9: Media and Embeds** (v0.2.0) is complete; the user approved it on 2026-11-04. Phase 8 was approved on 2026-11-04 (commit `8726417`). All phases of the v0.1.0 plan are complete; Phase 7 was approved on 2026-11-03 (commit `538d170`). The product was renamed from Forma to Diaspar (ADR-046). **v0.1.0 is published as a pre-release** (2026-11-03). Phase 10 (databases, IMPLEMENTATION_PLAN §13) is planned and waits for its own approval ("Proceed to Phase 10"). Notarization still needs an Apple Developer ID (Known Issue 2).
 
 ## Status
 
-Phase 7 is complete and approved, as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The repository is public on GitHub (`ReaganGen/MinimumNotion`). CI passes there (latest run 41766577776): checks, tests, dependency audit and the universal bundle build.
+Phase 7 is complete and approved, as far as automated, preview and release-app checks can show. The universal app and DMG build and verify locally; they are **ad-hoc signed and not notarized**. The repository is public on GitHub (`ReaganGen/MinimumNotion`). CI passes there (latest run 41766577776): checks, tests, dependency audit and the universal bundle build. The run for the Phase 8 push (41852034442) didn't check anything: GitHub found no macOS runner ("not acquired by Runner of type hosted even after multiple attempts", with a notice about macOS arm64 capacity), so the check job was cancelled after 15 minutes without starting, and the bundle job was skipped. Only the dependency audit ran, and it passed. `npm run check` had passed locally on that commit. It needs a re-run. Phase 9 isn't pushed.
+
+### Phase 9 journal (2026-11-04)
+
+- **Media (ADR-049).**
+  - The "/" menu has **Media** (Image, Audio, Video, File) and **Embed** (Bookmark, HTML) sections. Media items open a file dialog Rust shows; Rust copies the file into the page's `_assets/` with a streaming copy that keeps its quarantine attribute.
+  - Paste and drop accept any file. Each attachment gets its own paragraph.
+  - Audio and video are `![caption](src)` with native players. Remote audio and video show as text with "Open in browser" and are never loaded. The CSP gains `media-src 'self' diaspar-asset:`.
+  - The asset protocol answers `Range` requests (206, 416, at most 4 MB per answer) and runs off the main thread.
+- **File cards and bookmarks.**
+  - A lone `[name](_assets/…)` link is a file card: name, type and size from Rust, **Open** and **Show in Finder**. Open refuses programs, scripts, installers, link files and executables.
+  - A lone `[Title](https://… "Description")` link is a bookmark. The user types the address, title and description in a dialog; nothing is fetched; a click opens the browser.
+  - Both are inline nodes alone in a paragraph, kept byte for byte.
+- **HTML embeds.**
+  - ```` ```html embed height=N ```` blocks render in `<iframe sandbox="" srcdoc>`. The frame's CSP allows no requests, links default to a forbidden popup, and the frame takes no clicks or focus. A Preview/Code toggle and a height field are in its bar.
+  - AI chat and AI change previews show the code. Pasted HTML becomes a card or embed only if Markdown would read it back as one.
+  - Architecture rule 15 (CLAUDE.md), ARCHITECTURE §2 and the threat table record the exception.
+- **Bugs found during the phase:**
+  1. *Neighbouring images merged onto one line* (older than Phase 9). The stock rule lifted a lone image out of its paragraph. When the content was replaced (after an outside change, or after adding an attachment), ProseMirror wrapped neighbouring images into one paragraph, and the next save wrote `![a](x)![b](y)`. Lone images now stay in their paragraph. The regression test fails with the old rule (checked).
+  2. *The fidelity check requested remote images and videos* (older than Phase 9). The round trip built DOM, so opening a page fetched every `https:` image, and `<img>` requests went to video URLs too. It now runs without DOM. The test fails with a mounted editor (checked), and in the browser the requests stopped.
+  3. *A file card followed by a video in one paragraph.* Pasting two files put the second next to the first, which turns the card back into a link on reload. Every attachment now gets its own paragraph. A test reproduced it.
+  4. *A copied embed pasted as a code block.* The code block's `pre` rule came first; the embed rule now has priority.
+  5. *A link with `target="_self"` in an embed navigated the frame* in the browser preview, which has no app CSP. The frame now takes no clicks or focus (preview checked).
+  6. *Players and cards had blank lines around them* (the separators ProseMirror puts around inline nodes). They are now inline-flex at full width.
+  7. *The text bubble menu appeared for a selected image, card or embed.* It now shows for text selections only.
+- **Design decisions:** ADR-049.
 
 ### Phase 8 journal (2026-11-04)
 
@@ -236,6 +261,52 @@ The architecture documents and CLAUDE.md. See the git history.
 
 ## Tests
 
+**Phase 9** (2026-11-04, `npm run check` exits 0):
+
+| Command | Result |
+|---|---|
+| `npm run typecheck`, `npx biome check .` | Pass (143 files) |
+| `npx vitest run` | 40 files, **294 tests passed** (47 new) |
+| `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` | Pass |
+| `cargo test --workspace` | **304 passed, 2 ignored**: 206 in `diaspar-core` (3 new), 90 in `diaspar-ai`, 8 in the shell (5 new) |
+
+New in Phase 9:
+- **Asset protocol:**
+  - ranges: full, partial, open-ended, suffix, clamped, past the end (416), malformed (ignored), several (the first);
+  - long ranges answered in 4 MB chunks;
+  - HEAD;
+  - a media type for every extension the dialog offers;
+  - Open refuses programs, installers, link files, executables and folders.
+  Files outside the workspace are refused by `resolve_asset` (existing test).
+- **Core:** a picked file is copied with a free name, stays where it was, is described (name, size), and is refused for folders, Markdown and directories. A refused file doesn't turn a page into a bundle. The streaming copy keeps bytes and the quarantine attribute.
+- **Markdown:**
+  - a round-trip fixture (media, file cards, bookmarks, links that stay links, tight lists, quotes, embeds with height and extra words, a fence inside an embed);
+  - cards parse only from lone links; labels kept as written; what the dialog writes reads back the same; only http(s) bookmarks;
+  - lone images stay apart after replacing the content;
+  - pasted HTML becomes a card or embed only if valid.
+- **Views:**
+  - players load from `diaspar-asset:` with `preload="metadata"`; remote media never loads;
+  - the file card shows the type and size, and Open and Show in Finder go to Rust; a missing file is shown;
+  - a bookmark opens the browser and is edited through the dialog (not in a read-only page);
+  - the embed frame has `sandbox=""`, no `src`, no pointer events and no Tab stop; the CSP comes before the content and allows no scripts, connections, frames, media, objects or forms; links default to `_blank`; Code edits and the height save as Markdown.
+- **"/" menu:** three sections; HTML inserts an embed; Media items ask for a file; Bookmark inserts after the dialog, or nothing if cancelled.
+- **Page:** a picked file becomes a card in its own paragraph and autosaves; a cancelled dialog changes nothing; pasted files are stored and shown by kind.
+- **AI and security:** chat and the change diff show an embed as code; the app CSP (`media-src`, `img-src`, `frame-src 'none'`, no inline scripts in the build); the round trip builds no DOM; the media lists match the Rust ones.
+
+**Preview check (browser, Phase 9):**
+- **The "/" menu** shows Basic, Media and Embed.
+- **Bookmark** opens the dialog and inserts `[Getting started](https://example.com/guide "A short \"guide\" to the app")`.
+- **Content set through the editor** (a video, a remote video, a file card, a bookmark, an embed): saving it gave the same Markdown.
+- **The embed:**
+  - its `<script>` (`postMessage`, a call into the IPC mock) did nothing, and the parent can't read the frame;
+  - its `https:` image wasn't requested;
+  - default and `_top` links, and the form, went nowhere;
+  - after the fix, no click reaches it.
+- **Requests:** none went to an outside host.
+- **Themes:** dark and light screenshots; the Code view; typing in it saves.
+
+The pane was hidden, so typing was driven through editor commands where keys didn't arrive.
+
 **Phase 8** (2026-11-04, `npm run check` exits 0):
 
 | Command | Result |
@@ -373,6 +444,15 @@ Checked in the development browser preview, not the native app: the editor's ren
 
 Use a test folder, not real notes. Open `target/universal-apple-darwin/release/bundle/dmg/Diaspar_0.1.0_universal.dmg` and drag Diaspar to Applications (or open `target/universal-apple-darwin/release/bundle/macos/Diaspar.app`).
 
+**Phase 9** (run `npm run tauri:dev`, or build the app, with a test workspace)
+1. **Video:** `/video`, choose a long `.mp4` or `.mov`. It plays, and dragging the progress bar seeks at once. Activity Monitor shows Diaspar's memory staying flat. The file is in the page's `_assets/` folder.
+2. **Audio:** `/audio` with an `.m4a` or `.mp3`: it plays and seeks.
+3. **File card:** `/file`, choose a PDF. The card shows the name, PDF and the size. Open opens Preview; the folder button shows it in Finder. Put a `.command` file (or a script with an executable bit) in `_assets/`, link it as `[x](_assets/x.command)` alone in a paragraph: Open is refused, Show in Finder works.
+4. **Drop:** drag a PDF and an image from Finder into a page: a card and an image, each in its own paragraph.
+5. **Bookmark:** `/bookmark`, type an address, title and description, Add. Click the card: the browser opens the page. Edit it with the pencil. The file shows `[Title](https://… "Description")`.
+6. **HTML embed:** `/html`, type `<h2 style="color:teal">Hi</h2><script>document.title="x"</script><img src="https://example.com/a.png"><a href="https://example.com">link</a>`, switch to Preview. **The heading shows in teal** (if the frame stays empty, the native CSP blocks `srcdoc` frames; tell Claude). The window title doesn't change, the image doesn't load, and clicking the link does nothing. Set the height to 400. The file shows ```` ```html embed height=400 ````.
+7. **AI:** ask the AI panel about the page with the embed. Its answer shows code, never the rendered HTML.
+
 **Phase 8** (run `npm run tauri:dev`, or build the app, with a test workspace)
 1. **"/" menu:** type `/` on an empty line. The Basic heading is shown. Type "call" and press Return: a Note callout. Click its icon and choose Warning; the file shows `> [!WARNING]`. Press Backspace at the start of its text: it becomes a paragraph.
 2. **Page:** type `/page` and press Return. A new page opens with its title ready. Go back: the first page links to it, and the sidebar shows it inside.
@@ -484,6 +564,18 @@ Not separately reviewed, and kept as documented: favorites and order in `.diaspa
 26. **`tree.json` isn't rolled back with a failed AI transaction**, as before Phase 8. From reading the code, not tested: if a change set that moves a folder fails and rolls back, the folder may get a new ID and lose its own sub-order. Only advisory data is affected; no content.
 27. **axe doesn't cover the callout or the folder view yet.** Their buttons have names, which the unit tests use.
 
+28. **Phase 9 wasn't run in the native app by Claude.**
+    - **WebKit:** the embed sandbox and the CSP inside the frame were checked in the browser preview (Chromium), not in WKWebView.
+    - **The app CSP:** it isn't applied in the preview. That includes whether `frame-src 'none'` leaves `srcdoc` frames alone (manual step 6).
+    - **Media in the native app:** video playback and seeking through `diaspar-asset:`.
+29. **A request without a `Range` header still reads the whole file.** Media players send ranges; images are read whole as before.
+30. **Text typed right after a file card or bookmark, in the same paragraph, makes it an ordinary link** the next time the page opens. The card isn't lost; it reads as a link.
+31. **Embeds are static:** their links, forms and hover effects don't work, and long content is cut at the frame's height until the height is raised.
+32. **Pasting or dropping files reads them into memory** in the webview before Rust stores them. Large videos are better added with `/video`, which copies without loading the file.
+33. **Ogg and WebM** files can be attached, but whether WebKit plays them depends on the macOS version.
+34. **Pasting an image into the middle of a sentence now splits the paragraph** (every attachment gets its own). Images already inside text still show and save as before.
+35. **axe doesn't cover the file card, bookmark, embed or bookmark dialog yet.** Their controls have names, which the unit tests use.
+
 ## Next Phase
 
-**Phase 9: Media and Embeds** (IMPLEMENTATION_PLAN §12), after the user says "Proceed to Phase 9". Phase 10 (databases) follows after its own approval. The release steps above (signing and tagging) are the user's call. Candidates after v0.1.0 are in ROADMAP.md.
+**Phase 10: Databases** (IMPLEMENTATION_PLAN §13), after the user says "Proceed to Phase 10". The release steps above (signing and tagging) are the user's call. Candidates after v0.1.0 are in ROADMAP.md.

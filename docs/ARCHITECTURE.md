@@ -64,10 +64,11 @@ Non-goals for v0.1.0 are listed in [ROADMAP.md](ROADMAP.md#explicitly-out-of-sco
 
 Consequences:
 
-- The webview has no network access of its own. The Content Security Policy sets `connect-src` to IPC only and allows no remote `script-src`, `style-src`, `font-src` or `frame-src`. The one exception is `img-src https:`: `https:` images embedded in notes are loaded (ADR-031, from Phase 2). All AI traffic goes through Rust, so API keys never enter JavaScript memory.
+- The webview has no network access of its own. The Content Security Policy sets `connect-src` to IPC only and allows no remote `script-src`, `style-src`, `font-src`, `media-src` or `frame-src`. The one exception is `img-src https:`: `https:` images embedded in notes are loaded (ADR-031, from Phase 2). Audio and video load only from the workspace through `diaspar-asset:` (ADR-049). All AI traffic goes through Rust, so API keys never enter JavaScript memory.
 - The webview has no generic filesystem plugin. Every file operation is a typed command whose arguments are **page IDs, not paths**. Rust computes paths from the index and checks that each one stays inside the workspace. This removes path traversal from the IPC surface.
 - Paths from outside the workspace come only from native user actions handled in Rust: the folder picker (Rust opens the dialog itself) and files dropped onto the window. A dropped file reaches the webview as an opaque, single-use **drop token** issued by Rust, never as a path. Compromised webview code therefore can't ask Rust to copy arbitrary files, such as `~/.ssh/*`, into the workspace.
 - Raw HTML in documents and in AI output is shown as escaped text, never rendered. This matters for integrity as well as privacy: script running in the webview could call `apply_changeset`, so an XSS bug would defeat the AI approval boundary. A strict CSP (no `unsafe-inline` or `unsafe-eval` for scripts) adds a second layer of defense.
+- **The one exception is the HTML embed (ADR-049).** A block the user marks ```` ```html embed ```` is shown in an `<iframe sandbox="" srcdoc>`. The empty sandbox stops scripts, forms, popups and navigation of the app, and gives the frame an opaque origin, so it can't reach the IPC bridge. A CSP inside the frame allows no requests, and the frame takes no clicks or focus. AI chat output and AI change previews show an embed's code, never the embed.
 
 ### 2.2 Repository layout
 
@@ -555,7 +556,8 @@ As built in Phase 5 (ADR-041, ADR-042).
 | Threat | Mitigation |
 |---|---|
 | Path traversal through IPC or tools | IDs instead of paths. Paths computed in Rust, canonicalized, with a prefix check against the workspace root. No symlink following. Dropped files are referenced by single-use tokens, and folders come from a dialog Rust opens itself |
-| Malicious Markdown, HTML or XSS in documents | No raw HTML rendering, strict CSP, `javascript:` and `data:` URLs filtered from links, KaTeX in `trust: false` mode |
+| Malicious Markdown, HTML or XSS in documents | No raw HTML rendering, except HTML embeds in a frame with an empty sandbox, a no-request CSP and no clicks (ADR-049). Strict CSP, `javascript:` and `data:` URLs filtered from links, KaTeX in `trust: false` mode |
+| Opening a malicious attachment | File cards open attachments through Rust, which refuses programs, scripts, installers, link files and executables (ADR-049). A copied file keeps its quarantine attribute |
 | Data exfiltration through remote resources | The webview has no network access except `https:` images in notes (ADR-031). AI chat output and AI change previews never load remote images, and previews flag newly added external images. AI calls go only through Rust |
 | Credential leakage | Keychain only. Keys never cross IPC to the webview and are redacted from logs and errors. `.gitignore` covers env and secret files |
 | Prompt injection driving writes | Capability separation, proposals only, user-only apply, diff preview, per-op revision checks |
@@ -596,7 +598,7 @@ Expected future work, intentionally deferred: identity and authorship metadata, 
 | R8 | Provider API drift (OpenAI Chat Completions vs Responses, Anthropic versions, Ollama endpoints) | Medium / Medium | **Checked in Phase 4** (ADR-038). Protocols isolated in modules with stream-fixture tests; an ignored live test checks the cloud APIs' auth and TLS | 4 |
 | R9 | Local models silently truncate context (Ollama's `num_ctx` default) | High / Medium | **Phase 4:** native Ollama API with an explicit `num_ctx`. **Phase 5:** every request is packed to fit that window, and tool rounds stop before it fills | 4–5 |
 | R10 | Prompt injection through retrieved notes | High / Medium | §10.4. The structural guarantee doesn't depend on model behavior. **Phase 5:** sources are delimited data blocks that can't close themselves, the system prompt says to ignore instructions in them, and the assistant has only a read-only view. **Phase 6:** proposals are data; only the review dialog applies them; tests run a model that obeys an injected note and check that nothing changes | 5–6 |
-| R11 | XSS in the webview defeats the approval boundary | Low / High | No raw HTML, strict CSP, sanitized link schemes, security tests | 2, 6 |
+| R11 | XSS in the webview defeats the approval boundary | Low / High | No raw HTML outside sandboxed embeds (ADR-049), strict CSP, sanitized link schemes, security tests | 2, 6, 9 |
 | R12 | Lazy ID persistence leaves links pointing at index-only IDs | Low / Medium | Invariant: `ensure_persisted_id` runs before any durable reference is created, covered by tests | 2–3 |
 | R13 | Distribution: unsigned or un-notarized DMG is blocked by Gatekeeper | High / Medium | **Phase 7:** ad-hoc signed, not notarized; `spctl` rejects it, as expected. The user guide explains how to allow it once, and every release states the signing status (ADR-045). Notarization needs an Apple Developer ID (user decision) | 7 |
 | R14 | Intel support: `x86_64-apple-darwin` is a Tier 2 Rust target, and Intel CI runners are scarce | Medium / Low | **Phase 7:** the release is a universal binary cross-compiled on Apple silicon. Its x86_64 slice was launched under Rosetta 2 (window shown, idle, clean quit); it hasn't run on an Intel Mac | 7 |

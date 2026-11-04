@@ -148,13 +148,13 @@ Verified versions: `docs/IMPLEMENTATION_PLAN.md` §2. Re-verify before adding an
 6. Pages use stable UUIDs in frontmatter, persisted lazily. Run `ensure_persisted_id` before creating any durable reference to a page.
 7. Revisions are content hashes. Every body write carries the base body revision. Metadata edits are surgical, applied to the current file, and snapshot outside content first (ADR-033).
 8. Conflicting changes are never silently overwritten. When in doubt, snapshot to history first.
-9. Core functionality works offline. The webview has no network access except loading `https:` images embedded in notes (ADR-031). AI chat output and AI change previews never load remote images. All AI traffic goes through Rust.
+9. Core functionality works offline. The webview has no network access except loading `https:` images embedded in notes (ADR-031). Audio and video load only from the workspace (ADR-049). AI chat output and AI change previews never load remote images. All AI traffic goes through Rust.
 10. No unnecessary cloud dependencies, telemetry, accounts or license checks.
 11. The directory tree mirrors the page tree: `Name.md` for a leaf, `Name/index.md` for a bundle, attachments in `_assets/`.
 12. Page links are `[Title](diaspar://page/<uuid>)`. Never rewrite other files on rename or move.
 13. Frontmatter is edited surgically. Preserve unknown keys, comments and order.
 14. Never write a file the user didn't change. Opening a page must not write it.
-15. Never render raw HTML from documents or AI output. Keep the CSP strict.
+15. Never render raw HTML from documents or AI output. Keep the CSP strict. The one exception is an HTML embed block, shown only in a sandboxed frame with no scripts, no requests and no clicks, and never in AI chat or AI previews (ADR-049).
 
 The normative formats are in `docs/DATA_MODEL.md`. Code that disagrees with it is a bug, unless DATA_MODEL and DECISIONS are updated in the same change.
 

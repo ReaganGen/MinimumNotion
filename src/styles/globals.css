@@ -403,6 +403,209 @@
     font-size: 0.85em;
   }
 
+  /* Audio and video (ADR-049): native players for files in _assets/. Players
+     and cards are inline nodes alone in a paragraph, so they are inline-flex
+     at full width: as blocks, the separators ProseMirror puts around an
+     inline node would each take a blank line. */
+  .diaspar-editor .diaspar-media {
+    display: inline-flex;
+    width: 100%;
+    flex-direction: column;
+    gap: 0.3em;
+    vertical-align: top;
+  }
+  .diaspar-editor .diaspar-media video {
+    max-width: 100%;
+    max-height: 70vh;
+    border-radius: 4px;
+    background: var(--muted);
+  }
+  .diaspar-editor .diaspar-media audio {
+    width: min(100%, 480px);
+  }
+  .diaspar-editor .diaspar-media-caption {
+    color: var(--muted-foreground);
+    font-size: 0.85em;
+  }
+  .diaspar-editor .diaspar-media.is-broken video,
+  .diaspar-editor .diaspar-media.is-broken audio {
+    opacity: 0.5;
+  }
+  .diaspar-editor .diaspar-media-link {
+    color: var(--muted-foreground);
+    font-size: 0.85em;
+    overflow-wrap: anywhere;
+  }
+  .diaspar-editor .diaspar-media > button {
+    align-self: flex-start;
+    padding: 0.15em 0.6em;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--foreground);
+    box-shadow: var(--shadow-popover);
+  }
+
+  /* File cards and bookmarks (ADR-049): a quiet bordered row. */
+  .diaspar-editor .file-card,
+  .diaspar-editor .bookmark-card {
+    display: inline-flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.6em;
+    vertical-align: top;
+    padding: 0.55em 0.6em 0.55em 0.75em;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 0.94em;
+    line-height: 1.4;
+  }
+  .diaspar-editor .file-card[data-selected],
+  .diaspar-editor .bookmark-card[data-selected] {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  .diaspar-editor .file-card-icon {
+    flex: none;
+    width: 1.1em;
+    height: 1.1em;
+    color: var(--muted-foreground);
+  }
+  .diaspar-editor .file-card-text {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+  }
+  .diaspar-editor .file-card-name {
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .diaspar-editor .file-card-meta,
+  .diaspar-editor .bookmark-description,
+  .diaspar-editor .bookmark-url {
+    color: var(--muted-foreground);
+    font-size: 0.86em;
+  }
+  .diaspar-editor .file-card[data-missing] .file-card-meta {
+    color: var(--destructive);
+  }
+  .diaspar-editor .file-card-button,
+  .diaspar-editor .bookmark-edit {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 0.3em;
+    height: 1.9em;
+    padding: 0 0.55em;
+    border-radius: 4px;
+    font-size: 0.88em;
+    color: var(--muted-foreground);
+  }
+  .diaspar-editor .file-card-button:hover:not(:disabled),
+  .diaspar-editor .bookmark-edit:hover {
+    background: var(--accent);
+    color: var(--foreground);
+  }
+  .diaspar-editor .file-card-button:disabled {
+    opacity: 0.5;
+  }
+  .diaspar-editor .bookmark-main {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.1em;
+    text-align: left;
+  }
+  .diaspar-editor .bookmark-title {
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  .diaspar-editor .bookmark-description {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .diaspar-editor .bookmark-url {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    overflow-wrap: anywhere;
+  }
+  .diaspar-editor .bookmark-main:hover .bookmark-title {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .diaspar-editor .file-card button:focus-visible,
+  .diaspar-editor .bookmark-card button:focus-visible,
+  .diaspar-editor .diaspar-media button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+
+  /* HTML embeds (ADR-049): a bar, then the sandboxed frame or the code. */
+  .diaspar-editor .html-embed {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .diaspar-editor .html-embed[data-selected] {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  .diaspar-editor .html-embed-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6em;
+    padding: 0.3em 0.5em 0.3em 0.75em;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted-foreground);
+    font-size: 0.85em;
+  }
+  .diaspar-editor .html-embed-label {
+    font-family: var(--font-code);
+    font-size: 0.92em;
+  }
+  .diaspar-editor .html-embed-height {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+  }
+  .diaspar-editor .html-embed-height input {
+    width: 4.5em;
+    height: 1.8em;
+    padding: 0 0.4em;
+    border-radius: 4px;
+    background: var(--muted);
+    color: var(--foreground);
+    outline: none;
+  }
+  .diaspar-editor .html-embed-height input:focus-visible {
+    box-shadow: 0 0 0 1px var(--ring);
+  }
+  .diaspar-editor .html-embed-frame {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: transparent;
+  }
+  .diaspar-editor .html-embed-code {
+    display: block;
+    width: 100%;
+    padding: 0.8em 1em;
+    resize: vertical;
+    border: 0;
+    background: var(--muted);
+    color: var(--foreground);
+    font-family: var(--font-code);
+    font-size: 0.85em;
+    line-height: 1.55;
+    outline: none;
+  }
+
   .diaspar-editor .is-empty::before {
     content: attr(data-placeholder);
     float: left;

@@ -17,6 +17,7 @@ import type { ProviderConfig } from "@/lib/ipc/bindings/ProviderConfig";
 import type { Source } from "@/lib/ipc/bindings/Source";
 import { ipc } from "@/lib/ipc/client";
 import { AiPanel, describeContext } from "./AiPanel";
+import { DiffView } from "./ChangeReview";
 
 vi.mock("@/lib/ipc/client", () => ({
   ipc: {
@@ -655,3 +656,15 @@ const OPERATION: OperationInfo = {
   undone: false,
   pages: [{ id: PAGE, title: "Glaciers" }],
 };
+
+describe("DiffView", () => {
+  it("shows a proposed HTML embed as its code (ADR-049)", () => {
+    const { container } = render(
+      <DiffView
+        spans={[{ kind: "insert", text: "```html embed\n<b>Hi</b><iframe src=x></iframe>\n```" }]}
+      />,
+    );
+    expect(container.querySelector("iframe, b")).toBeNull();
+    expect(container.querySelector("ins")).toHaveTextContent("<b>Hi</b><iframe src=x></iframe>");
+  });
+});

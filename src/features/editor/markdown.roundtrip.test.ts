@@ -2,7 +2,7 @@
 // Each fixture in tests/fixtures/markdown/ must survive parse → serialize.
 // A `name.expected.md` file gives the canonical output when it differs from
 // the input; otherwise the output must equal the input byte for byte.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { normalizeMarkdown, roundTripMarkdown } from "./markdown";
 import {
   escapeInlineText,
@@ -30,6 +30,20 @@ describe("Markdown round trip", () => {
     expect(output).toBe(expected);
     // Saving again must not change anything (the canonical form is a fixed point).
     expect(roundTripMarkdown(output)).toBe(output);
+  });
+});
+
+describe("the round trip", () => {
+  it("builds no DOM, so nothing in the page is requested", () => {
+    const create = vi.spyOn(document, "createElement");
+    try {
+      roundTripMarkdown("![a](https://example.com/a.png)\n\n![v](https://example.com/v.mp4)\n");
+      const tags = create.mock.calls.map(([tag]) => String(tag).toLowerCase());
+      expect(tags).not.toContain("img");
+      expect(tags).not.toContain("video");
+    } finally {
+      create.mockRestore();
+    }
   });
 });
 

@@ -219,7 +219,9 @@ The fixture corpus in `tests/fixtures/markdown/` is the executable definition of
 | Bold / italic / strike | `**` `__` / `*` `_` / `~~` `~` | `**x**` / `*x*` / `~~x~~` |
 | Inline code | any backtick fence | The shortest backtick fence that doesn't clash with the content |
 | Link | inline, reference-style, `<autolink>`, GFM bare URLs | Inline `[text](url "title")`. Bare and angle-bracket autolinks keep their original form when text equals URL |
-| Image | inline, reference-style | `![alt](src "title")` |
+| Image, audio, video (ADR-049) | inline, reference-style. The extension decides: `mp3 m4a aac wav flac ogg oga opus` are audio, `mp4 m4v mov webm ogv` are video, anything else is an image | `![alt](src "title")` |
+| File card (ADR-049) | A paragraph holding only an inline link into `_assets/` (or `./_assets/`) without a title | **Kept exactly as written** |
+| Bookmark (ADR-049) | A paragraph holding only an inline `http:`/`https:` link with a `"…"` title: `[Title](url "Description")` | **Kept exactly as written** |
 | Bullet list | `-` `*` `+` | `-` |
 | Ordered list | `1.` `1)` | `1.` style, start number preserved, then sequential numbering |
 | Task item | `- [ ]`, `- [x]`, `- [X]` | `- [ ]` / `- [x]` |
@@ -227,6 +229,7 @@ The fixture corpus in `tests/fixtures/markdown/` is the executable definition of
 | Blockquote | `>` | `> ` |
 | Callout (ADR-048) | A blockquote whose first line is `> [!TYPE]`, optionally followed by `+` or `-` and a title (GitHub alerts, Obsidian callouts). TYPE is a word; `NOTE`, `TIP`, `IMPORTANT`, `WARNING` and `CAUTION` (any case) get their own look, and any other word is shown as a neutral callout | The first line exactly as read, then the content as `> ` lines. A callout with no content is the first line alone |
 | Code block | fenced (`` ``` `` or `~~~`), indented | `` ``` `` fence with info string. The fence is lengthened if the content contains one |
+| HTML embed (ADR-049) | A fenced block whose info string starts with `html embed`, optionally with `height=N` (60–2000) | `` ``` `` fence with the info string as read, `height=N` updated or added. Shown only in a sandboxed frame (§5.4) |
 | Horizontal rule | `---` `***` `___` | `---` |
 | Table | GFM pipe table with alignment row | GFM pipe table, alignment preserved, columns padded to equal width with the alignment row matching. Cells hold inline content only. `|` is escaped. A hard break in a cell is written as `<br>` |
 | Hard line break | two trailing spaces, `\` | `\` at end of line |
@@ -255,6 +258,9 @@ These rules apply only when Diaspar writes a body after an actual edit (ARCHITEC
   - A path that resolves outside the workspace isn't loaded.
   - `https:` image URLs are loaded automatically. `http:` image URLs are kept but not loaded (ADR-031, ARCHITECTURE §6.6).
   - `data:` image URLs are kept and not rendered in v0.1.
+  - Audio and video load only from inside the workspace. Remote audio and video are shown as text and never loaded (ADR-049).
+  - Cards and players stand alone in their paragraph: a file card or bookmark followed by other text in the same paragraph is read back as an ordinary link.
+- **HTML embeds** are rendered only in the live editor, in `<iframe sandbox="" srcdoc>` with a CSP that allows no requests, and the frame takes no clicks or focus. Everywhere else, AI chat and AI change previews included, an embed is its code. No other HTML in a document is ever rendered.
 - **Allowed link schemes when activated:** `diaspar:`, `http:`, `https:`, `mailto:`. Any other scheme is shown but not opened.
 
 ---
@@ -647,6 +653,9 @@ restore_trash(entry_id)                                     → PageMeta
 delete_trash_entry(entry_id)                                → ()             (permanent; user-confirmed)
 set_favorite(id, bool)                                      → ()
 import_attachment(page_id, source: Bytes | DropToken, name) → AttachmentRef     (DropToken: ARCHITECTURE §2.1)
+pick_attachment(page_id, kind)                              → AttachmentRef?    (Rust's file dialog; kind: image|audio|video|file; ADR-049)
+attachment_info(page_id, reference)                         → {name, size}
+open_attachment(page_id, reference) / reveal_attachment(…)  → ()             (default app / Finder; programs are never opened)
 restore_snapshot(id, snapshot_id, base_rev)                 → Saved{rev} | Conflict{current}
 resolve_conflict(id, choice, buffer?)                       → …
 create_collection(parent_id?, title, schema) / convert_to_collection(id, base_rev, schema)

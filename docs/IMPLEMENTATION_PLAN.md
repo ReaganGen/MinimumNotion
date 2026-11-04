@@ -528,6 +528,18 @@ Each of these is verified by a test or a documented manual check:
 - No network request is made by media, bookmarks or embeds.
 - Embedded HTML can't run scripts or reach the app.
 
+> **Status (2026-11-04):** implemented and approved; see PROGRESS.md. Decision: ADR-049. Additions to the plan, each recorded there:
+> - Open refuses programs, scripts and executables.
+> - A picked file keeps its quarantine attribute.
+> - Embed links default to a forbidden popup, and the frame takes no clicks or focus.
+> - Pasted HTML becomes a card or embed only if Markdown would read it back as one.
+>
+> Two older bugs that media made visible were fixed:
+> - Lone images were lifted out of their paragraphs, and replacing the content merged neighbouring images onto one line.
+> - The open-time fidelity check built DOM and so requested `https:` image and video URLs.
+>
+> The manual checks (§12.2) are for the user.
+
 ---
 
 ## 13. Phase 10: Databases

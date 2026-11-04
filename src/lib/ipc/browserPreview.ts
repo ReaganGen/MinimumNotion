@@ -809,6 +809,22 @@ export function installBrowserPreview() {
         case "list_recovery":
         case "take_notices":
           return [];
+        // Attachments: no file dialog or files here, so a sample reference
+        // stands in. Its player or card shows, but nothing loads.
+        case "pick_attachment": {
+          const ext =
+            { image: "png", audio: "mp3", video: "mp4", file: "pdf" }[str("kind")] ?? "bin";
+          return `_assets/Sample.${ext}`;
+        }
+        case "attachment_info":
+          return {
+            name: decodeURIComponent(str("reference").split("/").pop() ?? ""),
+            size: 123_456,
+          };
+        case "open_attachment":
+        case "reveal_attachment":
+        case "open_external":
+          return null;
         case "apply_window_theme":
         case "app_ready":
         case "write_recovery":

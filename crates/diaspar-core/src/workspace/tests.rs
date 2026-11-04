@@ -468,6 +468,48 @@ fn attachments_live_in_the_page_bundle_and_stay_inside_the_workspace() {
 }
 
 #[test]
+fn a_picked_file_is_copied_into_the_page_and_described() {
+    let (dir, mut ws) = temp_workspace();
+    let outside = tempfile::tempdir().unwrap();
+    let source = outside.path().join("Talk.MOV");
+    fs::write(&source, vec![1u8; 70_000]).unwrap();
+    let page = ws.create_page(None, "Trip").unwrap();
+
+    // A refused file doesn't turn the page into a bundle.
+    assert!(ws.import_attachment(&page.id, "notes.md", b"x").is_err());
+    assert_eq!(user_files(dir.path()), ["Trip.md"]);
+
+    let reference = ws.import_attachment_file(&page.id, &source).unwrap();
+    assert_eq!(reference, "_assets/Talk.mov");
+    let again = ws.import_attachment_file(&page.id, &source).unwrap();
+    assert_eq!(again, "_assets/Talk%202.mov");
+    assert_eq!(
+        user_files(dir.path()),
+        [
+            "Trip/_assets/Talk 2.mov",
+            "Trip/_assets/Talk.mov",
+            "Trip/index.md"
+        ]
+    );
+    assert!(source.exists(), "the picked file stays where it was");
+
+    let info = ws.attachment_info(&page.id, &again).unwrap();
+    assert_eq!(info.name, "Talk 2.mov");
+    assert_eq!(info.size, 70_000);
+    assert!(ws.attachment_info(&page.id, "_assets/missing.pdf").is_err());
+    assert!(ws.attachment_info(&page.id, "../../etc/hosts").is_err());
+
+    assert!(
+        ws.import_attachment_file(&page.id, outside.path()).is_err(),
+        "not a folder"
+    );
+    let folder = ws.create_folder(None, "Archive").unwrap();
+    assert!(ws.import_attachment_file(&folder.id, &source).is_err());
+    assert!(ws.import_attachment(&folder.id, "a.png", b"png").is_err());
+    assert!(!dir.path().join("Archive/_assets").exists());
+}
+
+#[test]
 fn a_second_open_is_read_only() {
     let (dir, mut ws) = temp_workspace();
     let page = ws.create_page(None, "P").unwrap();

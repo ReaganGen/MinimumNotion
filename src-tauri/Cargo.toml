@@ -20,5 +20,8 @@ tauri-plugin-log = "2.10.1"
 tauri-plugin-single-instance = "2.5.5"
 tauri-plugin-window-state = "2.5.0"
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [lints]
 workspace = true

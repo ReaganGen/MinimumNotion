@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { BookmarkDialog } from "@/components/editor/BookmarkDialog";
 import { RecoveryDialog } from "@/components/editor/RecoveryDialog";
 import { AppShell } from "@/components/layout/AppShell";
 import { PaletteDialog } from "@/components/search/PaletteDialog";
@@ -66,6 +67,7 @@ export function App({ onReady }: AppProps) {
       <PaletteDialog open={dialog === "search"} onOpenChange={onOpenChange} mode="search" />
       <PaletteDialog open={dialog === "quick-open"} onOpenChange={onOpenChange} mode="quick-open" />
       <RecoveryDialog />
+      <BookmarkDialog />
     </TooltipProvider>
   );
 }

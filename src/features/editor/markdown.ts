@@ -17,6 +17,9 @@ export function normalizeMarkdown(markdown: string): string {
  */
 export function roundTripMarkdown(markdown: string): string {
   const editor = new Editor({
+    // Not mounted: no DOM is built, so no image or media URL in the page is
+    // requested while checking it (ADR-031, ADR-049).
+    element: null,
     extensions: createMarkdownExtensions(),
     content: markdown.replace(/\r\n?/g, "\n"),
     contentType: "markdown",

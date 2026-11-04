@@ -8,6 +8,8 @@ import { TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import { Markdown } from "@tiptap/markdown";
 import { StarterKit } from "@tiptap/starter-kit";
 import { Callout } from "./callout";
+import { Attachment, Bookmark } from "./cards";
+import { HtmlEmbed } from "./htmlEmbed";
 import { CodeBlock, HardBreak, Link, Paragraph, Table } from "./markdownRules";
 import { BlockMath, InlineMath } from "./math";
 import { PageLink, WikiLink } from "./pageLink";
@@ -40,6 +42,9 @@ export function createMarkdownExtensions(): AnyExtension[] {
     InlineMath.configure({ katexOptions: { throwOnError: false, trust: false } }),
     BlockMath.configure({ katexOptions: { throwOnError: false, trust: false } }),
     Callout,
+    Attachment,
+    Bookmark,
+    HtmlEmbed,
     RawBlock,
     RawInline,
     FootnoteDefinition,

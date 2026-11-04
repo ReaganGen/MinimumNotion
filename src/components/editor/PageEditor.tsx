@@ -1,4 +1,5 @@
-import type { Editor } from "@tiptap/core";
+import type { Editor, JSONContent } from "@tiptap/core";
+import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { Bold, Code, Italic, Link as LinkIcon, Sparkles, Strikethrough } from "lucide-react";
@@ -15,6 +16,14 @@ import { askAboutSelection, explainSelection } from "@/features/ai/actions";
 import { selectedText, setActiveEditor } from "@/features/editor/activeEditor";
 import { createEditorExtensions } from "@/features/editor/liveExtensions";
 import { docToMarkdown } from "@/features/editor/markdown";
+import { escapeInlineText } from "@/features/editor/markdownRules";
+import {
+  type AttachmentKind,
+  fileKind,
+  referenceName,
+  setAttachmentHost,
+  stemOf,
+} from "@/features/editor/media";
 import { findTextRange, flashKey, useRevealStore } from "@/features/editor/reveal";
 import { type Conflict, SaveController } from "@/features/editor/saveController";
 import { useSettingsStore } from "@/features/settings/settingsStore";
@@ -46,8 +55,26 @@ interface PageEditorProps {
 
 const PAGE_LINK = /^diaspar:\/\/page\/([0-9a-f-]{36})/i;
 
-function imageFiles(list: FileList | null | undefined): File[] {
-  return Array.from(list ?? []).filter((file) => file.type.startsWith("image/"));
+/** A file to store as an attachment and insert (ADR-049). */
+interface PendingAttachment {
+  kind: AttachmentKind;
+  /** The original name, for the caption or card; the stored name otherwise. */
+  name?: string;
+  /** Stores the file and returns its reference, or `null` if nothing was chosen. */
+  store: () => Promise<string | null>;
+}
+
+/**
+ * An attachment in its own paragraph: images, audio and video as
+ * `![caption](src)`, other files as a card. A card only stays a card while
+ * its link is alone in the paragraph, so nothing is put next to it.
+ */
+function attachmentContent(src: string, name: string, kind: AttachmentKind): JSONContent {
+  const node =
+    kind === "file"
+      ? { type: "attachment", attrs: { label: escapeInlineText(name), src } }
+      : { type: "image", attrs: { src, alt: stemOf(name) } };
+  return { type: "paragraph", content: [node] };
 }
 
 export const PageEditor = forwardRef<PageEditorHandle, PageEditorProps>(function PageEditor(
@@ -71,28 +98,40 @@ export const PageEditor = forwardRef<PageEditorHandle, PageEditorProps>(function
     controllerRef.current?.reset(bodyRev);
   }
 
-  async function insertImages(files: File[], at?: number) {
+  async function insertAttachments(items: PendingAttachment[], at?: number) {
     const editor = editorRef.current;
     const controller = controllerRef.current;
-    if (!editor || !controller || files.length === 0) return;
+    if (!editor || !controller || items.length === 0) return;
+    let position = at;
     try {
       // Adding the first attachment can turn the page file into a folder,
       // so save first and pick up any change Diaspar made to the body.
       await controller.flush();
-      for (const file of files) {
-        const src = await ipc.importAttachment(page.id, file);
+      for (const item of items) {
+        const src = await item.store();
+        if (!src) continue;
         const fresh = await ipc.getPage(page.id);
         if (fresh.body_rev !== controller.revision && !controller.isDirty) {
           editor.commands.setContent(fresh.body, { contentType: "markdown", emitUpdate: false });
           adopt(fresh.body_rev);
         }
-        const content = { type: "image", attrs: { src, alt: file.name.replace(/\.[^.]+$/, "") } };
-        if (at === undefined) editor.chain().focus().insertContent(content).run();
-        else editor.chain().focus().insertContentAt(at, content).run();
+        const content = attachmentContent(src, item.name ?? referenceName(src), item.kind);
+        if (position === undefined) editor.chain().focus().insertContent(content).run();
+        else editor.chain().focus().insertContentAt(position, content).run();
+        // Later files follow the first, at the cursor it leaves behind.
+        position = undefined;
       }
     } catch (error) {
       useWorkspaceStore.getState().reportError(error);
     }
+  }
+
+  function droppedFiles(files: File[]): PendingAttachment[] {
+    return files.map((file) => ({
+      kind: fileKind(file),
+      name: file.name,
+      store: () => ipc.importAttachment(page.id, file),
+    }));
   }
 
   const extensions = useMemo(() => createEditorExtensions(page.id), [page.id]);
@@ -114,18 +153,18 @@ export const PageEditor = forwardRef<PageEditorHandle, PageEditorProps>(function
       editorProps: {
         attributes: { class: "diaspar-editor", "aria-label": "Page content" },
         handlePaste: (_view, event) => {
-          const files = imageFiles(event.clipboardData?.files);
+          const files = Array.from(event.clipboardData?.files ?? []);
           if (files.length === 0) return false;
           event.preventDefault();
-          void insertImages(files);
+          void insertAttachments(droppedFiles(files));
           return true;
         },
         handleDrop: (view, event, _slice, moved) => {
-          const files = imageFiles(event.dataTransfer?.files);
+          const files = Array.from(event.dataTransfer?.files ?? []);
           if (moved || files.length === 0) return false;
           event.preventDefault();
           const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
-          void insertImages(files, at);
+          void insertAttachments(droppedFiles(files), at);
           return true;
         },
         handleClick: (view, pos, event) => {
@@ -148,6 +187,18 @@ export const PageEditor = forwardRef<PageEditorHandle, PageEditorProps>(function
   editorRef.current = editor;
 
   useEffect(() => (editor ? setActiveEditor(page.id, editor) : undefined), [editor, page.id]);
+
+  // The "/" menu's Media items: Rust shows the file dialog and stores the file.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: insertAttachments reads refs
+  useEffect(
+    () =>
+      editor
+        ? setAttachmentHost(editor, (kind) =>
+            insertAttachments([{ kind, store: () => ipc.pickAttachment(page.id, kind) }]),
+          )
+        : undefined,
+    [editor, page.id],
+  );
 
   // A citation asked to show text in this page: scroll to it and highlight it.
   const reveal = useRevealStore((s) => s.target);
@@ -260,7 +311,19 @@ function FormattingMenu({ editor, page }: { editor: Editor; page: PageDocument }
   }
 
   return (
-    <BubbleMenu editor={editor} className="diaspar-popover flex items-center gap-0.5 p-1">
+    <BubbleMenu
+      editor={editor}
+      // Only for selected text: a selected image, card or embed has nothing to format.
+      shouldShow={({ editor, element, view, state, from, to }) => {
+        const { selection } = state;
+        if (selection.empty || selection instanceof NodeSelection || !editor.isEditable) {
+          return false;
+        }
+        if (state.doc.textBetween(from, to).length === 0) return false;
+        return view.hasFocus() || element.contains(document.activeElement);
+      }}
+      className="diaspar-popover flex items-center gap-0.5 p-1"
+    >
       {linking ? (
         <input
           // biome-ignore lint/a11y/noAutofocus: opened by an explicit click on "Link"

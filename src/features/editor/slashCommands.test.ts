@@ -6,9 +6,11 @@ import {
   useWorkspaceStore,
 } from "@/features/workspace/workspaceStore";
 import { ipc } from "@/lib/ipc/client";
+import { answerBookmarkDialog, useBookmarkDialog } from "./bookmarkDialog";
 import { createMarkdownExtensions } from "./extensions";
 import { docToMarkdown } from "./markdown";
-import { insertChildPage, SLASH_ITEMS, SLASH_SECTIONS } from "./slashCommands";
+import { setAttachmentHost } from "./media";
+import { insertBookmark, insertChildPage, SLASH_ITEMS, SLASH_SECTIONS } from "./slashCommands";
 import { sectionGroups } from "./suggestionMenu";
 
 vi.mock("@/lib/ipc/client", () => ({
@@ -54,15 +56,58 @@ const item = (title: string) => {
   return found;
 };
 
-describe("the / menu (ADR-048)", () => {
+describe("the / menu (ADR-048, ADR-049)", () => {
   it("keeps its items in section order, and shows only sections that work", () => {
     const groups = sectionGroups(SLASH_ITEMS, (i) => i.section);
-    expect(groups.map((g) => g.name)).toEqual(["Basic"]);
+    // Database arrives with Phase 10.
+    expect(groups.map((g) => g.name)).toEqual(["Basic", "Media", "Embed"]);
     expect(SLASH_SECTIONS).toEqual(["Basic", "Media", "Embed", "Database"]);
-    expect(groups[0]?.items.map((i) => i.index)).toEqual(SLASH_ITEMS.map((_, i) => i));
+    expect(groups.flatMap((g) => g.items.map((i) => i.index))).toEqual(
+      SLASH_ITEMS.map((_, i) => i),
+    );
     expect(SLASH_ITEMS.map((i) => i.title)).toEqual(
       expect.arrayContaining(["Page", "Callout", "Table", "Math block", "Inline math"]),
     );
+    expect(groups[1]?.items.map((i) => i.item.title)).toEqual(["Image", "Audio", "Video", "File"]);
+    expect(groups[2]?.items.map((i) => i.item.title)).toEqual(["Bookmark", "HTML"]);
+  });
+
+  it("HTML inserts an empty embed", () => {
+    const { editor, range } = typedSlash("");
+    item("HTML").run(editor, range);
+    expect(editor.getJSON().content?.[0]?.type).toBe("htmlEmbed");
+    expect(docToMarkdown(editor)).toBe("```html embed\n\n```\n");
+  });
+
+  it("Media items remove the / and ask the page editor for a file", async () => {
+    const { editor, range } = typedSlash("Here ");
+    const host = vi.fn(async () => undefined);
+    const stop = setAttachmentHost(editor, host);
+    item("Video").run(editor, range);
+    await vi.waitFor(() => expect(host).toHaveBeenCalledWith("video"));
+    expect(docToMarkdown(editor)).toBe("Here\n");
+    stop();
+  });
+
+  it("Bookmark asks for the details, then inserts the card", async () => {
+    const { editor, range } = typedSlash("");
+    const inserted = insertBookmark(editor, range);
+    await vi.waitFor(() => expect(useBookmarkDialog.getState().request).not.toBeNull());
+    answerBookmarkDialog({ url: "example.com/notes", title: "", description: 'Say "hi"' });
+    await inserted;
+    expect(docToMarkdown(editor)).toBe(
+      '[example.com/notes](https://example.com/notes "Say \\"hi\\"")\n',
+    );
+    expect(editor.getJSON().content?.[0]?.content?.[0]?.type).toBe("bookmark");
+  });
+
+  it("Bookmark inserts nothing when cancelled", async () => {
+    const { editor, range } = typedSlash("Text ");
+    const inserted = insertBookmark(editor, range);
+    await vi.waitFor(() => expect(useBookmarkDialog.getState().request).not.toBeNull());
+    answerBookmarkDialog(null);
+    await inserted;
+    expect(docToMarkdown(editor)).toBe("Text\n");
   });
 
   it("groups consecutive items under one heading, keeping global indexes", () => {

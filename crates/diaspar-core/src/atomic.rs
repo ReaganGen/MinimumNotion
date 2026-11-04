@@ -31,23 +31,45 @@ pub fn write_atomic_staged(
     bytes: &[u8],
     staging_dir: Option<&Path>,
 ) -> io::Result<()> {
+    staged(target, staging_dir, &|_, file| file.write_all(bytes))
+}
+
+/// Atomically writes a copy of `source` to `target`, staged like
+/// `write_atomic_staged`. The bytes are streamed rather than held in memory,
+/// and the source's extended attributes (Finder tags, quarantine) come along.
+pub fn copy_atomic_staged(
+    target: &Path,
+    source: &Path,
+    staging_dir: Option<&Path>,
+) -> io::Result<()> {
+    staged(target, staging_dir, &|temp, file| {
+        io::copy(&mut File::open(source)?, file)?;
+        copy_xattrs(source, temp);
+        Ok(())
+    })
+}
+
+/// Fills a temp file (given its path and the open file), then renames it over `target`.
+type Fill<'a> = dyn Fn(&Path, &mut File) -> io::Result<()> + 'a;
+
+fn staged(target: &Path, staging_dir: Option<&Path>, fill: &Fill<'_>) -> io::Result<()> {
     let temp = match staging_dir {
         Some(dir) => temp_path_in(dir, target)?,
         None => temp_path_for(target)?,
     };
-    match replace_with(target, bytes, &temp) {
+    match replace_with(target, &temp, fill) {
         Err(err) if staging_dir.is_some() && err.raw_os_error() == Some(libc_exdev()) => {
             log::warn!("staging dir is on another volume; staging next to {target:?}");
-            replace_with(target, bytes, &temp_path_for(target)?)
+            replace_with(target, &temp_path_for(target)?, fill)
         }
         result => result,
     }
 }
 
-fn replace_with(target: &Path, bytes: &[u8], temp: &Path) -> io::Result<()> {
+fn replace_with(target: &Path, temp: &Path, fill: &Fill<'_>) -> io::Result<()> {
     let result = (|| {
         let mut file = OpenOptions::new().write(true).create_new(true).open(temp)?;
-        file.write_all(bytes)?;
+        fill(temp, &mut file)?;
         // On Apple platforms, std implements sync_all with F_FULLFSYNC.
         file.sync_all()?;
         drop(file);
@@ -275,6 +297,34 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(in_notes, vec![std::ffi::OsString::from("page.md")]);
+        assert_eq!(fs::read_dir(&staging).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_staged_copy_brings_the_bytes_and_attributes_along() {
+        let dir = tempfile::tempdir().unwrap();
+        let staging = dir.path().join(".diaspar/tmp");
+        fs::create_dir_all(&staging).unwrap();
+        let source = dir.path().join("Downloads/clip.mov");
+        fs::create_dir(source.parent().unwrap()).unwrap();
+        fs::write(&source, vec![7u8; 300_000]).unwrap();
+        xattr::set(&source, "com.apple.quarantine", b"0081;diaspar-test").unwrap();
+        let target = dir.path().join("Page/_assets/clip.mov");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+
+        copy_atomic_staged(&target, &source, Some(&staging)).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), vec![7u8; 300_000]);
+        assert_eq!(
+            xattr::get(&target, "com.apple.quarantine")
+                .unwrap()
+                .unwrap(),
+            b"0081;diaspar-test",
+            "a downloaded file stays quarantined"
+        );
+        assert_eq!(fs::read_dir(&staging).unwrap().count(), 0);
+        assert!(source.exists(), "the original is left alone");
+        assert!(copy_atomic_staged(&target, &dir.path().join("missing"), Some(&staging)).is_err());
         assert_eq!(fs::read_dir(&staging).unwrap().count(), 0);
     }
 }

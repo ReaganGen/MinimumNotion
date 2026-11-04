@@ -54,6 +54,7 @@ The product was called Forma until ADR-046. Earlier records were updated for the
 | 046 | The product is named Diaspar | Accepted, user-confirmed |
 | 047 | Plain folders: directories without `index.md`, with their IDs in `tree.json` | Accepted, user-confirmed |
 | 048 | Editor blocks: a grouped "/" menu, child-page links, callouts as GitHub alerts | Accepted, user-confirmed |
+| 049 | Media and embeds: players from `_assets/`, file cards and bookmarks as lone links, static HTML in a sandboxed frame | Accepted, user-confirmed |
 
 ---
 
@@ -667,3 +668,51 @@ The product was called Forma until ADR-046. Earlier records were updated for the
   - Callouts as an emoji followed by a quote, like Notion's export. That reads ambiguously, and other apps wouldn't show a callout.
   - A Page block that only links, without creating a page. That is what `[[` already does.
 - **Consequences:** Quotes whose first line is `[!WORD]` are now callouts, including ones written elsewhere. They still read as quotes in apps without callouts.
+
+## ADR-049: Media and embeds: players from `_assets/`, file cards and bookmarks as lone links, static HTML in a sandboxed frame
+
+- **Status:** Accepted, user-confirmed (the user chose sandboxed static HTML and offline bookmark cards on 2026-11-03, "Proceed to Phase 9" on 2026-11-04). **Date:** 2026-11-04 (Phase 9)
+- **Context:** The user asked for a Media section (image, audio, video, file) and an Embed section (link and HTML) in the "/" menu. Every block must stay portable Markdown, nothing may reach the network on its own (rule 9), and HTML from documents was never rendered (rule 15).
+- **Decision:**
+  - **Media:**
+    - Images, audio and video are all `![caption](src)`; the extension picks the player (`media.ts`). The lists match the file dialog's filters, and a test compares them.
+    - Players are `<audio>`/`<video controls preload="metadata">` for files inside the workspace, loaded through `diaspar-asset:`. The CSP gains `media-src 'self' diaspar-asset:`.
+    - Remote audio and video are shown as text with an "Open in browser" button and never loaded. ADR-031 still covers images only.
+  - **The asset protocol answers `Range` requests:**
+    - A range is read straight from the file, at most 4 MB per answer; open-ended, suffix and past-the-end (416) ranges are handled. A malformed header is ignored, as RFC 9110 allows.
+    - It runs off the main thread (an asynchronous protocol).
+    - A request without a range still reads the whole file. Media players always send ranges.
+  - **Inserting:**
+    - The "/" menu's Image, Audio, Video and File items open a file dialog that Rust shows. Rust copies the chosen file into the page's `_assets/` with a streaming copy that keeps the source's extended attributes, so a downloaded file stays quarantined. No path crosses IPC.
+    - Paste and drop accept any file: images, audio and video by type or extension, anything else as a file card.
+    - Every inserted attachment gets its own paragraph.
+  - **File card:**
+    - A paragraph holding only a link into `_assets/` (no title), such as `[Report.pdf](_assets/Report.pdf)`. The label and destination are kept as written.
+    - The card shows the name, the type and the size (from Rust), with **Open** and **Show in Finder**, both run by Rust.
+    - Open refuses programs, scripts, installers and link files (a list of extensions), and any file with an executable bit, because opening one runs it. Show in Finder still works for them.
+  - **Bookmark:**
+    - A paragraph holding only an `http(s)` link with a title: `[Title](https://example.com "Description")`. The link text is the title, the link title is the description, and other apps show an ordinary link.
+    - The user types the address, title and description in a dialog; nothing is fetched. Without a title, the address becomes the link text, so the link is never empty.
+    - Clicking opens the browser through Rust (`open_external`).
+  - **Cards are inline nodes in a paragraph**, as images already were. List items must start with a paragraph, so a block node there would have broken the schema. A link in a tight list stays a link.
+  - **HTML embed:**
+    - A fenced block whose info string starts with `html embed`, optionally with `height=N`. Other apps show HTML code.
+    - It is one atom node whose code is an attribute, edited in a code area, so the cursor never sits in text the preview hides. Preview and Code are a toggle; the height (60–2000 px) is stored in the info string.
+    - **The sandbox, layer by layer:**
+      - `<iframe sandbox="" srcdoc>`: no scripts, forms, popups, plugins, top navigation or same-origin access.
+      - A CSP placed before the embed's own content: `default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'`.
+      - `<base target="_blank">`, so links default to a popup, which the sandbox forbids.
+      - The frame takes no pointer events and no focus, so nothing in it can be clicked or reached with Tab. A link targeting the frame itself would also be stopped by the app's `frame-src 'none'`.
+    - Only the live editor renders an embed. AI chat output, AI change previews and every other view show the code, and pasted HTML becomes an embed only with Diaspar's own marker.
+- **Alternatives:**
+  - Fetching a page's title and image for bookmarks. That is a network request per card, which the user ruled out.
+  - Bookmarks as any lone link. That would have turned many existing notes into cards.
+  - An HTML comment as the bookmark marker. That is hidden metadata in the document.
+  - HTML embeds as an editable code node with a hidden preview, which the cursor could enter unseen.
+  - Interactive embeds (`allow-scripts`). That would put a script engine next to the IPC bridge.
+  - Reading whole files for media. Video couldn't seek, and large files would sit in memory.
+- **Consequences:**
+  - Architecture rule 15 gains one exception: the HTML embed, rendered only as above.
+  - A link with a title alone in a paragraph is now shown as a bookmark, and a lone link into `_assets/` as a file card. In other apps both are ordinary links.
+  - Text typed right after a card in the same paragraph makes it an ordinary link again when the page is next opened.
+  - Embeds are static: their links and buttons do nothing.

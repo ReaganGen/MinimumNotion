@@ -102,7 +102,7 @@ fn main() {
                 .build(),
         )
         .manage(Session::default())
-        .register_uri_scheme_protocol(assets::SCHEME, assets::handle)
+        .register_asynchronous_uri_scheme_protocol(assets::SCHEME, assets::handle)
         .setup(|app| {
             // Settings problems never stop the app from opening: it falls back
             // to read-only defaults and the UI shows the notice.
@@ -178,6 +178,10 @@ fn main() {
             workspace_commands::delete_trash_entry,
             workspace_commands::set_favorite,
             workspace_commands::import_attachment,
+            workspace_commands::pick_attachment,
+            workspace_commands::attachment_info,
+            workspace_commands::open_attachment,
+            workspace_commands::reveal_attachment,
             workspace_commands::write_recovery,
             workspace_commands::list_recovery,
             workspace_commands::discard_recovery,

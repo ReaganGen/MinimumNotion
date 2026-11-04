@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { Editor } from "@tiptap/core";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { pickAttachment } from "@/features/editor/media";
 import { resetLinkStoreForTests } from "@/features/links/linkStore";
 import {
   resetWorkspaceStoreForTests,
@@ -26,6 +27,8 @@ vi.mock("@/lib/ipc/client", () => ({
     listFavorites: vi.fn(),
     takeNotices: vi.fn(),
     importAttachment: vi.fn(),
+    pickAttachment: vi.fn(),
+    attachmentInfo: vi.fn(),
     openExternal: vi.fn(),
     backlinks: vi.fn(),
     resolvePages: vi.fn(),
@@ -82,6 +85,7 @@ beforeEach(() => {
   vi.mocked(ipc.backlinks).mockResolvedValue([]);
   vi.mocked(ipc.resolvePages).mockResolvedValue([]);
   vi.mocked(ipc.resolveWikilinks).mockResolvedValue([]);
+  vi.mocked(ipc.attachmentInfo).mockResolvedValue({ name: "Report.pdf", size: 1000 });
 });
 
 async function renderPage({ strict = false } = {}) {
@@ -104,6 +108,63 @@ function type(editor: Editor, text: string) {
     editor.commands.insertContentAt(editor.state.doc.content.size - 1, text);
   });
 }
+
+describe("attachments (ADR-049)", () => {
+  it("a file picked from the / menu becomes a card in its own paragraph", async () => {
+    vi.mocked(ipc.savePage).mockResolvedValue(saved("b2"));
+    vi.mocked(ipc.pickAttachment).mockResolvedValue("_assets/Q3%20report.pdf");
+    const editor = await renderPage();
+    act(() => {
+      editor.commands.focus("end");
+    });
+    await act(() => pickAttachment(editor, "file"));
+    expect(ipc.pickAttachment).toHaveBeenCalledWith(ID, "file");
+    await waitFor(() => expect(ipc.savePage).toHaveBeenCalled(), { timeout: 2000 });
+    expect(ipc.savePage).toHaveBeenLastCalledWith(
+      ID,
+      "b1",
+      "Hello\n\n[Q3 report.pdf](_assets/Q3%20report.pdf)\n",
+    );
+  });
+
+  it("a cancelled dialog inserts nothing", async () => {
+    vi.mocked(ipc.pickAttachment).mockResolvedValue(null);
+    const editor = await renderPage();
+    await act(() => pickAttachment(editor, "video"));
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(ipc.savePage).not.toHaveBeenCalled();
+    expect(ipc.getPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("a pasted file is stored and shown by kind", async () => {
+    vi.mocked(ipc.savePage).mockResolvedValue(saved("b2"));
+    vi.mocked(ipc.importAttachment)
+      .mockResolvedValueOnce("_assets/Report.pdf")
+      .mockResolvedValueOnce("_assets/Clip.mov");
+    const editor = await renderPage();
+    act(() => {
+      editor.commands.focus("end");
+    });
+    const files = [
+      new File(["%PDF"], "Report.pdf", { type: "application/pdf" }),
+      new File(["mov"], "Clip.mov", { type: "video/quicktime" }),
+    ];
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: { files, types: ["Files"], items: [], getData: () => "" },
+    });
+    act(() => {
+      editor.view.dom.dispatchEvent(event);
+    });
+    await waitFor(() => expect(ipc.importAttachment).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(ipc.savePage).toHaveBeenCalled(), { timeout: 2000 });
+    expect(ipc.savePage).toHaveBeenLastCalledWith(
+      ID,
+      "b1",
+      "Hello\n\n[Report.pdf](_assets/Report.pdf)\n\n![Clip](_assets/Clip.mov)\n",
+    );
+  });
+});
 
 describe("PageView", () => {
   it("shows the page and doesn't write it just for opening it", async () => {
