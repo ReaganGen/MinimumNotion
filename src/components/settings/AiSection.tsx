@@ -77,7 +77,7 @@ export function AiSection() {
             Use AI
           </p>
           <p className="text-[13px] leading-5 text-muted-foreground">
-            Off by default. While it's off, Forma never sends anything anywhere.
+            Off by default. While it's off, Diaspar never sends anything anywhere.
           </p>
         </div>
         <Switch
@@ -561,7 +561,7 @@ function ApiKeyField({
       hint={
         optional
           ? "Optional. Only if this server asks for one."
-          : "Stored in your Keychain. Forma never shows it again."
+          : "Stored in your Keychain. Diaspar never shows it again."
       }
     >
       <form
@@ -615,7 +615,7 @@ function ModelDetails({ provider }: { provider: ProviderConfig }) {
   if (provider.kind === "ollama") {
     const used = provider.options.context_window_override ?? Math.min(window ?? 8192, 8192);
     parts.push(
-      `Forma asks Ollama for a ${used.toLocaleString("en-US")}-token window${
+      `Diaspar asks Ollama for a ${used.toLocaleString("en-US")}-token window${
         window ? ` (the model allows ${window.toLocaleString("en-US")})` : ""
       }.`,
     );

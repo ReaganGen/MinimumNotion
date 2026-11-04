@@ -25,24 +25,24 @@ function save(markdown: string, titles: Record<string, string> = {}) {
 
 describe("page links", () => {
   it("become nodes with the target ID, label and anchor", () => {
-    const { json } = save(`See [Old \\[draft\\]](forma://page/${ID.toUpperCase()}#intro).`);
+    const { json } = save(`See [Old \\[draft\\]](diaspar://page/${ID.toUpperCase()}#intro).`);
     const link = json.content?.[0]?.content?.find((n) => n.type === "pageLink");
     expect(link?.attrs).toEqual({ id: ID, label: "Old [draft]", anchor: "#intro" });
   });
 
   it("refresh their label to the current title when saved", () => {
-    const { markdown } = save(`See [Old](forma://page/${ID}#intro).`, { [ID]: "New *title*" });
-    expect(markdown).toBe(`See [New \\*title\\*](forma://page/${ID}#intro).\n`);
+    const { markdown } = save(`See [Old](diaspar://page/${ID}#intro).`, { [ID]: "New *title*" });
+    expect(markdown).toBe(`See [New \\*title\\*](diaspar://page/${ID}#intro).\n`);
     // …and that text reads back as the same title.
     expect(save(markdown).json.content?.[0]?.content?.[1]?.attrs?.label).toBe("New *title*");
   });
 
   it("keep their label when the title isn't known", () => {
-    expect(save(`[Kept](forma://page/${ID})`).markdown).toBe(`[Kept](forma://page/${ID})\n`);
+    expect(save(`[Kept](diaspar://page/${ID})`).markdown).toBe(`[Kept](diaspar://page/${ID})\n`);
   });
 
   it("leave other links and wikilinks alone", () => {
-    const input = `[web](https://example.com) [[Some Page|alias]] [bad](forma://page/nope)\n`;
+    const input = `[web](https://example.com) [[Some Page|alias]] [bad](diaspar://page/nope)\n`;
     expect(save(input, { [ID]: "X" }).markdown).toBe(input);
   });
 });

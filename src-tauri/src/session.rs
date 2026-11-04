@@ -4,10 +4,10 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use forma_core::error::{CoreResult, ErrorCode, ErrorPayload};
-use forma_core::workspace::Workspace;
-use forma_core::workspace::types::WorkspaceInfo;
-use forma_core::workspace::watcher::{self, Watcher};
+use diaspar_core::error::{CoreResult, ErrorCode, ErrorPayload};
+use diaspar_core::workspace::Workspace;
+use diaspar_core::workspace::types::WorkspaceInfo;
+use diaspar_core::workspace::watcher::{self, Watcher};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 /// Emitted with a `WorkspaceChanges` payload whenever pages change.
@@ -63,7 +63,7 @@ impl Session {
     }
 
     /// The workspace slot itself, for the AI assistant's read-only view of
-    /// it (`forma_ai::knowledge::Library`).
+    /// it (`diaspar_ai::knowledge::Library`).
     pub fn shared(&self) -> Arc<Mutex<Option<Workspace>>> {
         Arc::clone(&self.workspace)
     }

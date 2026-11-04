@@ -1,4 +1,4 @@
-# Forma Implementation Plan
+# Diaspar Implementation Plan
 
 Status: Phase 0 baseline (2026-11-02). Each phase follows the cycle **Plan → Implement → Test → Review → Report → Stop**. A phase starts only after the user explicitly says "Proceed to Phase N" (see [CLAUDE.md](../CLAUDE.md)). A phase is complete only when every acceptance criterion below has been verified by commands that were actually run or by documented manual checks.
 
@@ -64,11 +64,11 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 | `chrono` | 0.4.45 | RFC 3339 timestamps |
 | `ts-rs` | 12.0.1 | IPC type generation (ADR-023) |
 | `tokio` | 1.54.1 | |
-| `reqwest` | 0.13.5 | `forma-ai` only. Features `native-tls` (macOS Security framework and the system's certificates), `http2`, `json`, `stream`, `charset`, `system-proxy` |
+| `reqwest` | 0.13.5 | `diaspar-ai` only. Features `native-tls` (macOS Security framework and the system's certificates), `http2`, `json`, `stream`, `charset`, `system-proxy` |
 | `keyring-core` / `apple-native-keyring-store` | 1.0.1 / 1.0.2 | ADR-020. The store needs its `keychain` feature (the login keychain) |
 | `tokio-util` / `url` | 0.7.20 / 2.5.8 | `CancellationToken`; base-URL checks |
 | `marked` (npm) | 17.0.6 | Already installed through `@tiptap/markdown`; a direct dependency at the same version since Phase 4, to tokenize chat answers (ADR-040) |
-| `tempfile` | 3.27.0 | Tests only (production temp files go in `.forma/tmp/`) |
+| `tempfile` | 3.27.0 | Tests only (production temp files go in `.diaspar/tmp/`) |
 | `zip` | 9.3.0, `default-features = false`, feature `deflate-flate2-zlib-rs` | Phase 7 backup and restore (ADR-044). MIT. Pulls in `flate2` with `zlib-rs` 0.6.8 (pure Rust, Zlib license); no other compression formats. Checked 2026-11-03 |
 | `axe-core` (npm, dev) | 4.14.0 | Phase 7 accessibility tests (`src/a11y.test.tsx`). MPL-2.0, released 2026-10-05; used only in tests, never bundled |
 | `cargo-audit` (tool) | 0.22.2 | Installed by CI with `cargo install --locked`, not a dependency. Released 2026-06-05 |
@@ -97,7 +97,7 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 **User decisions (2026-11-02):**
 
 - **Confirmed:** the storage formats (ADR-003, 004, 006, 007, 008, 013), the Apache-2.0 license (ADR-026), and automatic loading of remote `https:` images (ADR-031, which supersedes ADR-025).
-- **Still open:** the bundle identifier (§4.1), and Apple Developer ID signing (before Phase 7).
+- **Still open:** Apple Developer ID signing. The bundle identifier was confirmed with the rename to Diaspar (ADR-046).
 
 ---
 
@@ -107,10 +107,10 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 
 ### 4.1 Tasks
 
-1. **Scaffold** a Vite 8, React 19 and TypeScript 6 app. Set up a Cargo workspace with `src-tauri/` and a `crates/forma-core` crate. In Phase 1 the core crate holds only the app-settings model and the atomic-write helper. Documents, the index and everything else arrive in Phase 2.
+1. **Scaffold** a Vite 8, React 19 and TypeScript 6 app. Set up a Cargo workspace with `src-tauri/` and a `crates/diaspar-core` crate. In Phase 1 the core crate holds only the app-settings model and the atomic-write helper. Documents, the index and everything else arrive in Phase 2.
 2. **Tauri config.**
-   - Bundle identifier: proposed `app.forma.desktop`, **to be confirmed by the user**, because it is hard to change later (it determines the Keychain service name and the app-data path).
-   - Product name `Forma`. Minimum macOS version: proposed 13.0. Phase 1 confirms it against the WKWebView features we use.
+   - Bundle identifier: `app.diaspar.desktop`, confirmed by the user in ADR-046. It's hard to change later because it determines the Keychain service name and the app-data path.
+   - Product name `Diaspar`. Minimum macOS version: proposed 13.0. Phase 1 confirms it against the WKWebView features we use.
    - Overlay title bar with inset traffic lights. Strict CSP (ADR-025).
    - Minimal capabilities: `core:default`, plus dialog, opener and window-state.
 3. **Tooling.** Biome (lint and format), `tsc --noEmit`, Vitest with jsdom and Testing Library, `cargo fmt`, `cargo clippy -D warnings`, `cargo test`. Add npm scripts: `dev`, `build`, `typecheck`, `lint`, `test`, `tauri:dev`, `tauri:build`.
@@ -168,16 +168,16 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
    - Build the fixture corpus in `tests/fixtures/markdown/`, covering every construct in DATA_MODEL §5.2. It must include tricky cases: nested lists mixing task and ordered items, tables with escaped pipes and inline code, `$` used as currency next to math, code containing fences, raw HTML, footnotes, reference links, CRLF input and CJK text.
    - Run the corpus through `@tiptap/markdown` with custom handlers.
    - Record the result as an ADR (accept, or fall back to `prosemirror-markdown`).
-2. **`forma-core` modules.**
+2. **`diaspar-core` modules.**
    - `workspace`: open and init, the lock, layout and discovery rules (DATA_MODEL §3).
    - `naming`: sanitization and uniqueness.
    - `frontmatter`: parse, validate, surgical edit, emit.
    - `atomic`: the write protocol (ARCHITECTURE §4.4).
    - `revision`, `history` (with the snapshot policy and the documented thinning rules), `trash`, `recovery`, `journal` (framework, used from Phase 3 onward).
    - `documents::DocumentService` (single-writer task), `watcher` (notify plus reconcile, with self-write suppression), and a minimal `index` (pages and tree only; FTS arrives in Phase 3).
-3. **Commands and events.** The read and mutation commands needed for pages (DATA_MODEL §10), the `workspace://changed` and `workspace://conflict` events, and the `forma-asset://` protocol.
+3. **Commands and events.** The read and mutation commands needed for pages (DATA_MODEL §10), the `workspace://changed` and `workspace://conflict` events, and the `diaspar-asset://` protocol.
 4. **Workspace UX.**
-   - First run: "Create a workspace" (default `~/Documents/Forma`) or "Open a folder".
+   - First run: "Create a workspace" (default `~/Documents/Diaspar`) or "Open a folder".
    - Settings → Workspace: change the workspace, and reveal it in Finder.
    - A warning before opening a very large or system folder.
 5. **Sidebar tree.**
@@ -243,7 +243,7 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 2. **Views.**
    - A table view: virtualized rows, inline cell editing by type, column resize and hide, and new rows that create child pages.
    - A list view.
-   - Sorting and AND filters (DATA_MODEL §6.5), with view settings saved to `.forma/views.json`.
+   - Sorting and AND filters (DATA_MODEL §6.5), with view settings saved to `.diaspar/views.json`.
    - Decide and document how entries show in the sidebar. The default proposal is to collapse them under the collection page and load them lazily.
 3. **Links.**
    - The page-link node, `[[` autocomplete and live titles.
@@ -292,7 +292,7 @@ These were checked against the npm registry and crates.io on 2026-11-02. Each ph
 1. **API verification first.**
    - Check the current OpenAI API (whether Chat Completions is still supported or the Responses API should be used), the Anthropic Messages API version headers and streaming events, Ollama `/api/chat`, `/api/tags` and `/api/show`, and the LM Studio endpoints.
    - Record the findings in DECISIONS (risk R8).
-2. **`forma-ai` crate.**
+2. **`diaspar-ai` crate.**
    - The provider trait (ARCHITECTURE §9.1), the OpenAI-protocol adapter, the Anthropic adapter, the native Ollama adapter, and the LM Studio preset.
    - SSE and NDJSON parsers, cancellation, error mapping and capability detection.
 3. **Secrets.** A `SecretStore` trait with an implementation for the macOS Keychain and one in memory for tests. Keys never cross IPC.
@@ -398,8 +398,8 @@ Each of these is verified by a test or a documented manual check:
 2. Error-handling polish: an error log viewer and "Copy diagnostics", which excludes content and keys.
 3. A first-run experience, with an optional sample page that the user creates. Nothing is created automatically.
 4. Settings → Data:
-   - **Export:** a Markdown copy without `.forma`.
-   - **Backup:** a zip of the workspace, including `.forma`.
+   - **Export:** a Markdown copy without `.diaspar`.
+   - **Backup:** a zip of the workspace, including `.diaspar`.
    - **Restore:** unzip into a new folder and open it there. A restore never overwrites in place.
 5. Performance profiling with the 5,000-page workspace (startup, search, typing latency, idle CPU). Record the measured numbers and claim only measured improvements.
 6. App icon, About window, README, user guide, `CONTRIBUTING.md`, and a trademark policy once the product-name search is done (R15). The license (Apache-2.0) is already in place.

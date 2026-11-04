@@ -1,4 +1,4 @@
-// The editor and the Rust index (crates/forma-core/src/extract.rs) must agree
+// The editor and the Rust index (crates/diaspar-core/src/extract.rs) must agree
 // on which links a page has; both read tests/fixtures/links/.
 import { Editor, type JSONContent } from "@tiptap/core";
 import { describe, expect, it } from "vitest";

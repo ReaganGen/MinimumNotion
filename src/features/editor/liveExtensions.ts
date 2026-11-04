@@ -14,7 +14,7 @@ import { SlashCommands } from "./slashCommands";
 
 /**
  * Where an image's `src` loads from (ADR-031): references inside the
- * workspace go through `forma-asset://`, `https:` images load directly, and
+ * workspace go through `diaspar-asset://`, `https:` images load directly, and
  * anything else (plain `http:`, `data:`, `file:`) isn't loaded.
  */
 export function resolveImageSource(pageId: string, src: string): string | null {
@@ -30,7 +30,7 @@ function imageView(pageId: string) {
     addNodeView() {
       return ({ node }) => {
         const dom = document.createElement("span");
-        dom.className = "forma-image";
+        dom.className = "diaspar-image";
         const render = (attrs: Record<string, string | null>) => {
           dom.replaceChildren();
           const source = resolveImageSource(pageId, attrs.src ?? "");
@@ -45,7 +45,7 @@ function imageView(pageId: string) {
             dom.append(img);
           } else {
             const placeholder = document.createElement("span");
-            placeholder.className = "forma-image-placeholder";
+            placeholder.className = "diaspar-image-placeholder";
             placeholder.textContent = `Image not loaded: ${attrs.src ?? ""}`;
             dom.append(placeholder);
           }

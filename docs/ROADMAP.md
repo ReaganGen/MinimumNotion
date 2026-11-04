@@ -1,4 +1,4 @@
-# Forma Roadmap
+# Diaspar Roadmap
 
 ## v0.1.0: the first usable release (macOS)
 
@@ -36,13 +36,13 @@ These are not implemented in v0.1.0 unless a future phase explicitly asks for th
 
 These ideas follow naturally from the v0.1 architecture. Each still needs its own planning and approval.
 
-- **`forma://` deep links.** Register the URL scheme so page links open Forma from other apps (builds on ADR-007).
+- **`diaspar://` deep links.** Register the URL scheme so page links open Diaspar from other apps (builds on ADR-007).
 - **Semantic retrieval.** An optional local embedding model behind the existing `Retriever` trait, combined with BM25 into hybrid search.
 - **Multiple workspaces** and a workspace switcher. The index is already keyed per workspace.
 - **Tabs or split view** for having more than one page open.
 - **Lazy loading of remote images** with an explicit "Load" action per image.
 - **Code block syntax highlighting.**
 - **More collection features.** Membership in several collections, more views, and relations, added only if they keep things simple.
-- **Windows and Linux builds.** `forma-core` and `forma-ai` contain no macOS-specific code. The filename rules already avoid characters Windows reserves.
+- **Windows and Linux builds.** `diaspar-core` and `diaspar-ai` contain no macOS-specific code. The filename rules already avoid characters Windows reserves.
 - **Managed sync and collaboration**, the planned commercial offering. These build on stable IDs, the operation log and history (ARCHITECTURE §13).
 - **TypeScript 7** once its ecosystem catches up (ADR-016).

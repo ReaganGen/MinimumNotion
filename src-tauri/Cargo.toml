@@ -1,6 +1,6 @@
 [package]
-name = "forma"
-description = "Forma desktop shell: IPC commands, window, and menus"
+name = "diaspar"
+description = "Diaspar desktop shell: IPC commands, window, and menus"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,8 +11,8 @@ publish.workspace = true
 tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
-forma-ai.workspace = true
-forma-core.workspace = true
+diaspar-ai.workspace = true
+diaspar-core.workspace = true
 log = "0.4.35"
 tauri = { version = "2.12.5", features = [] }
 tauri-plugin-dialog = "2.8.4"

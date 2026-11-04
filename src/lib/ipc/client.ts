@@ -34,11 +34,11 @@ import type { WorkspaceChanges } from "./bindings/WorkspaceChanges";
 import type { WorkspaceInfo } from "./bindings/WorkspaceInfo";
 
 /** Emitted by the native menu with a command ID payload (src-tauri/src/menu.rs). */
-export const MENU_EVENT = "forma://menu";
+export const MENU_EVENT = "diaspar://menu";
 /** Emitted with a `WorkspaceChanges` payload when pages change (src-tauri/src/session.rs). */
 export const WORKSPACE_CHANGED_EVENT = "workspace://changed";
 /** Emitted when the app is about to quit; answer with `ipc.confirmQuit()` (src-tauri/src/main.rs). */
-export const FLUSH_BEFORE_QUIT_EVENT = "forma://flush-before-quit";
+export const FLUSH_BEFORE_QUIT_EVENT = "diaspar://flush-before-quit";
 
 export class IpcError extends Error {
   readonly code: ErrorPayload["code"];
@@ -187,7 +187,7 @@ export const ipc = {
 
 /** URL the webview loads an attachment from (served by src-tauri/src/assets.rs). */
 export function assetUrl(pageId: string, reference: string): string {
-  return `forma-asset://localhost/${pageId}/${reference}`;
+  return `diaspar-asset://localhost/${pageId}/${reference}`;
 }
 
 export function onMenuCommand(handler: (id: string) => void): Promise<UnlistenFn> {

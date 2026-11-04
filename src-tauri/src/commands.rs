@@ -1,7 +1,7 @@
-//! IPC commands. Each one is a thin wrapper around `forma-core`.
+//! IPC commands. Each one is a thin wrapper around `diaspar-core`.
 
-use forma_core::error::{ErrorCode, ErrorPayload};
-use forma_core::settings::{AppSettings, SettingsSnapshot, SettingsUpdate, ThemePreference};
+use diaspar_core::error::{ErrorCode, ErrorPayload};
+use diaspar_core::settings::{AppSettings, SettingsSnapshot, SettingsUpdate, ThemePreference};
 use tauri::{Manager, State, WebviewWindow};
 
 use crate::AppState;

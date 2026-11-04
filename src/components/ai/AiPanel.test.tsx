@@ -340,7 +340,7 @@ describe("AiPanel", () => {
     expect(within(cited).queryByText("Ice")).toBeNull();
     expect(screen.getByText("1 more provided, not cited")).toBeInTheDocument();
     expect(
-      screen.getByText(/Unverified: S7 isn't among the sources Forma provided/),
+      screen.getByText(/Unverified: S7 isn't among the sources Diaspar provided/),
     ).toBeInTheDocument();
     expect(screen.getByText("Unverified citation")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Source S7/ })).toBeNull();

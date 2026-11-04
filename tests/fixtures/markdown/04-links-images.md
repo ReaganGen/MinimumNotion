@@ -1,4 +1,4 @@
-A [link](https://example.com "Example title") and a page link [Attention](forma://page/550e8400-e29b-41d4-a716-446655440000).
+A [link](https://example.com "Example title") and a page link [Attention](diaspar://page/550e8400-e29b-41d4-a716-446655440000).
 
 An autolink <https://example.org/path>.
 

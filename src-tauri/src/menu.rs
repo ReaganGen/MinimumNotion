@@ -1,14 +1,14 @@
 //! Native menu bar. App-level shortcuts are menu accelerators, so macOS shows
 //! them in the menu and handles them natively. Menu clicks are forwarded to the
-//! frontend as `forma://menu` events whose payload is a command ID.
+//! frontend as `diaspar://menu` events whose payload is a command ID.
 //! The IDs must match `MENU_COMMANDS` in src/features/commands/commands.ts.
 
 use tauri::menu::{AboutMetadata, MenuBuilder, MenuEvent, MenuItemBuilder, SubmenuBuilder};
 use tauri::{AppHandle, Emitter, Runtime};
 
-pub const MENU_EVENT: &str = "forma://menu";
+pub const MENU_EVENT: &str = "diaspar://menu";
 
-const COPYRIGHT: &str = "© 2026 Forma contributors";
+const COPYRIGHT: &str = "© 2026 Diaspar contributors";
 
 /// (command id, label, accelerator)
 const VIEW_ITEMS: [(&str, &str, &str); 2] = [
@@ -38,9 +38,9 @@ pub fn install<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             .build(app)
     };
 
-    let app_menu = SubmenuBuilder::new(app, "Forma")
+    let app_menu = SubmenuBuilder::new(app, "Diaspar")
         .about(Some(AboutMetadata {
-            name: Some("Forma".into()),
+            name: Some("Diaspar".into()),
             version: Some(app.package_info().version.to_string()),
             // macOS shows the copyright and credits; it ignores `comments` and `license`.
             copyright: Some(COPYRIGHT.into()),

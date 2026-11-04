@@ -1,8 +1,8 @@
-# Forma Data Model
+# Diaspar Data Model
 
-Status: Phase 0 baseline (2026-11-02). This is the normative specification of Forma's durable formats. Code that reads or writes workspace files must follow it. When a phase changes a rule, update this file in the same change and record why in [DECISIONS.md](DECISIONS.md).
+Status: Phase 0 baseline (2026-11-02). Names updated on 2026-11-03 (ADR-046): the product was called Forma, with `.forma/`, `forma://page/` links and the reserved key `forma`. This is the normative specification of Diaspar's durable formats. Code that reads or writes workspace files must follow it. When a phase changes a rule, update this file in the same change and record why in [DECISIONS.md](DECISIONS.md).
 
-Terminology: **durable** means stored in the workspace folder and part of the user's data. **Derived** means computed from durable data, either cached in the index or computed on demand. **Advisory** means durable but non-essential: if it is lost, Forma falls back to a sensible default and no content is lost.
+Terminology: **durable** means stored in the workspace folder and part of the user's data. **Derived** means computed from durable data, either cached in the index or computed on demand. **Advisory** means durable but non-essential: if it is lost, Diaspar falls back to a sensible default and no content is lost.
 
 ---
 
@@ -10,15 +10,15 @@ Terminology: **durable** means stored in the workspace folder and part of the us
 
 | Entity | Identity | Authoritative storage | Notes |
 |---|---|---|---|
-| Workspace | UUID | `.forma/workspace.json` | One active workspace per app session in v0.1 |
+| Workspace | UUID | `.diaspar/workspace.json` | One active workspace per app session in v0.1 |
 | Page | UUID | A Markdown file (`*.md` or `<dir>/index.md`) | See §3–§4 |
 | Collection | The UUID of its collection page | `collection:` block in the collection page's frontmatter | A collection *is* a page (§6) |
 | Collection Property | Short ID, unique within its collection | The collection schema | Values live in entry pages' frontmatter |
 | Page Link | (source page, ordinal) | Source page body Markdown | Derived into the index |
 | Attachment | (page, relative name) | File in the page's `_assets/` folder | Never stored in SQLite |
-| Document Revision | Content hash (current) / snapshot file (past) | Current: derived. Past: `.forma/history/` | §8 |
-| Trash Entry | UUID | `.forma/trash/<entry-id>/` | §7.4 |
-| Operation (AI) | UUID | `.forma/operations/<op-id>.json` | For undo and history (§7.5) |
+| Document Revision | Content hash (current) / snapshot file (past) | Current: derived. Past: `.diaspar/history/` | §8 |
+| Trash Entry | UUID | `.diaspar/trash/<entry-id>/` | §7.4 |
+| Operation (AI) | UUID | `.diaspar/operations/<op-id>.json` | For undo and history (§7.5) |
 
 ### 1.1 Page fields
 
@@ -31,8 +31,8 @@ Terminology: **durable** means stored in the workspace folder and part of the us
 | Modification timestamp | frontmatter `updated_at` (fallback: file mtime) | durable |
 | Parent page reference | the directory that contains the page | durable, **derived from location** and never stored twice |
 | Revision identifier | BLAKE3 of the file bytes | derived |
-| Favorite status | `.forma/tree.json` → `favorites` | advisory |
-| Sibling order | `.forma/tree.json` → `order` | advisory |
+| Favorite status | `.diaspar/tree.json` → `favorites` | advisory |
+| Sibling order | `.diaspar/tree.json` → `order` | advisory |
 | Optional icon | frontmatter `icon` | durable |
 | Tags | frontmatter `tags` | durable |
 | Optional Collection membership | the page's parent is a collection page | durable, derived from location |
@@ -51,7 +51,7 @@ Terminology: **durable** means stored in the workspace folder and part of the us
 │   ├── <Child>.md
 │   └── <Child>/index.md …
 ├── <Folder>/                          folder page: a directory without index.md (§3.2)
-└── .forma/
+└── .diaspar/
     ├── workspace.json                 §7.1
     ├── tree.json                      §7.2  (advisory)
     ├── views.json                     §6.5  (advisory)
@@ -64,9 +64,9 @@ Terminology: **durable** means stored in the workspace folder and part of the us
     └── lock                           advisory flock target
 ```
 
-Outside the workspace, in `~/Library/Application Support/<bundle-id>/`: `settings.json` (§11), `.window-state.json` (window size and position) and `index/<workspace-key>/index.db` (§9). The log is `~/Library/Logs/<bundle-id>/forma.log`. Secrets live in the Keychain (§11.2).
+Outside the workspace, in `~/Library/Application Support/<bundle-id>/`: `settings.json` (§11), `.window-state.json` (window size and position) and `index/<workspace-key>/index.db` (§9). The log is `~/Library/Logs/<bundle-id>/diaspar.log`. Secrets live in the Keychain (§11.2).
 
-The workspace root is the page-tree root. It is not itself a page. Opening any existing folder makes it a workspace. Forma creates `.forma/` and writes nothing else until the user acts (§4.4).
+The workspace root is the page-tree root. It is not itself a page. Opening any existing folder makes it a workspace. Diaspar creates `.diaspar/` and writes nothing else until the user acts (§4.4).
 
 ---
 
@@ -74,17 +74,17 @@ The workspace root is the page-tree root. It is not itself a page. Opening any e
 
 ### 3.1 Page kinds
 
-| Kind | On disk | Title fallback | Created by Forma when |
+| Kind | On disk | Title fallback | Created by Diaspar when |
 |---|---|---|---|
 | leaf | `<stem>.md` | stem | New page with no children and no attachments |
 | bundle | `<stem>/index.md` (+ `_assets/`, child pages) | directory name | A leaf gains its first child or attachment (converted by `mkdir` + `rename`, ARCHITECTURE §3.1) |
-| folder | `<stem>/` with no `index.md` | directory name | Never. These are created externally. Forma creates `index.md` the first time it has to write such a page |
+| folder | `<stem>/` with no `index.md` | directory name | Never. These are created externally. Diaspar creates `index.md` the first time it has to write such a page |
 
-- A bundle stays a bundle after its last child or attachment is removed. Forma never converts it back automatically, which avoids churn.
-- Forma creates the extension `.md`. When reading, `.md` and `.markdown` are accepted case-insensitively.
+- A bundle stays a bundle after its last child or attachment is removed. Diaspar never converts it back automatically, which avoids churn.
+- Diaspar creates the extension `.md`. When reading, `.md` and `.markdown` are accepted case-insensitively.
 - An `index.md` directly in the workspace root is an ordinary leaf page.
-- **Relative references during conversion.** A leaf's body may contain hand-written relative references, meaning anything other than `forma:` links, absolute URLs and `_assets/`. Moving the file one level deeper would break them, so the conversion prefixes each with `../` using the parser's source offsets. Because this variant also rewrites the body, it records a `bundle_conversion` journal intent first (§7.6).
-- **Limitation (v0.1):** when a page is *moved*, hand-written relative references to files outside its own `_assets/` aren't rewritten and may break. Forma shows them as broken references. Forma's own references (`forma://` links and `_assets/`) never break.
+- **Relative references during conversion.** A leaf's body may contain hand-written relative references, meaning anything other than `diaspar:` links, absolute URLs and `_assets/`. Moving the file one level deeper would break them, so the conversion prefixes each with `../` using the parser's source offsets. Because this variant also rewrites the body, it records a `bundle_conversion` journal intent first (§7.6).
+- **Limitation (v0.1):** when a page is *moved*, hand-written relative references to files outside its own `_assets/` aren't rewritten and may break. Diaspar shows them as broken references. Diaspar's own references (`diaspar://` links and `_assets/`) never break.
 
 ### 3.2 Discovery rules
 
@@ -95,7 +95,7 @@ When scanning (or reconciling) a directory:
 3. A Markdown file other than a bundle's own `index.md` is a leaf page.
 4. A directory is a bundle if it contains `index.md`, and a folder page otherwise.
 5. Other files are attachments or unmanaged files. They are ignored by the page tree and always preserved.
-6. If `Foo.md` and a directory `Foo/` sit side by side (for example, from another tool's export), both are treated as separate pages. Forma never creates this situation itself.
+6. If `Foo.md` and a directory `Foo/` sit side by side (for example, from another tool's export), both are treated as separate pages. Diaspar never creates this situation itself.
 
 ### 3.3 Filenames
 
@@ -105,10 +105,10 @@ The file stem is derived from the title. It is human-friendly and **not authorit
 2. Replace `/ \ : * ? " < > |` and control characters with `-`. This keeps names portable to a future Windows build.
 3. Trim leading and trailing spaces and dots. Strip leading `.` so the file can't become hidden.
 4. Truncate to at most **100 bytes** of UTF-8, cutting at a grapheme boundary.
-5. If the result is empty, use `Untitled`. If it equals a reserved name (`index`, `_assets`, `.forma`, compared case-insensitively), append ` 1`.
+5. If the result is empty, use `Untitled`. If it equals a reserved name (`index`, `_assets`, `.diaspar`, compared case-insensitively), append ` 1`.
 6. Uniqueness among siblings is **case-insensitive and normalization-insensitive**, matching APFS defaults. `Name.md`, `Name/` and any case variant claim the same slot. On a collision, append ` 2`, ` 3` and so on.
 
-Renaming a page in Forma updates `title` and then renames the file or directory, deferred while the user is typing (ARCHITECTURE §6.4). If a user renames a file in Finder, Forma keeps the frontmatter `title` and doesn't rename the file back.
+Renaming a page in Diaspar updates `title` and then renames the file or directory, deferred while the user is typing (ARCHITECTURE §6.4). If a user renames a file in Finder, Diaspar keeps the frontmatter `title` and doesn't rename the file back.
 
 ---
 
@@ -122,7 +122,7 @@ Renaming a page in Forma updates `title` and then renames the file or directory,
 
 ### 4.2 Reserved keys
 
-| Key | Type | Written by Forma | Read rules |
+| Key | Type | Written by Diaspar | Read rules |
 |---|---|---|---|
 | `id` | UUID string | Always, once persisted | Must parse as a UUID. If not, the page is invalid (§4.5) |
 | `title` | string | Always | Missing → fallback (§1.1). Newlines become spaces |
@@ -132,11 +132,11 @@ Renaming a page in Forma updates `title` and then renames the file or directory,
 | `updated_at` | RFC 3339 UTC timestamp | On every content or metadata write | As above |
 | `collection` | mapping (§6.2) | Collection pages only | Invalid schema → the collection opens read-only with an error |
 
-Reserved keys are matched case-sensitively when reading. Collection property names may not equal any reserved key, compared case-insensitively. The key `forma` is also reserved, for future namespaced metadata.
+Reserved keys are matched case-sensitively when reading. Collection property names may not equal any reserved key, compared case-insensitively. The key `diaspar` is also reserved, for future namespaced metadata.
 
-All other keys are **user keys**. Forma preserves them byte for byte (§4.6). They may hold collection property values (§6.3).
+All other keys are **user keys**. Diaspar preserves them byte for byte (§4.6). They may hold collection property values (§6.3).
 
-### 4.3 Example (Forma-created leaf page)
+### 4.3 Example (Diaspar-created leaf page)
 
 ```markdown
 ---
@@ -154,12 +154,12 @@ Content goes here.
 
 The title isn't repeated as an `# H1` in the body. That would make two authoritative copies of the title, so the editor shows `title` as the page heading instead. An H1 the user writes in the body is ordinary content.
 
-For newly created files, Forma writes keys in this order: `id, title, icon, tags, created_at, updated_at`, then property values in schema order, then `collection`. In existing files the order is preserved.
+For newly created files, Diaspar writes keys in this order: `id, title, icon, tags, created_at, updated_at`, then property values in schema order, then `collection`. In existing files the order is preserved.
 
 ### 4.4 ID persistence and duplicates
 
 - Index-only IDs are assigned to pages discovered without an `id`.
-- **Invariant:** before Forma creates any durable reference to a page, it calls `ensure_persisted_id(page)`. Durable references are links, favorites, order entries, history snapshots, operation records and journal steps. Trash entries aren't on this list: they record IDs for information only and are restored by path, so trashing a large external folder writes nothing into its files. That call writes `id` into the file using the surgical edit described in §4.6.
+- **Invariant:** before Diaspar creates any durable reference to a page, it calls `ensure_persisted_id(page)`. Durable references are links, favorites, order entries, history snapshots, operation records and journal steps. Trash entries aren't on this list: they record IDs for information only and are restored by path, so trashing a large external folder writes nothing into its files. That call writes `id` into the file using the surgical edit described in §4.6.
 - On duplicate `id`s, the original keeps the ID: that is the file at the path the index already associates with the ID, or failing that the earliest birth time, then the first path in order. The other file gets a new UUID and the user is notified. Both files are kept.
 
 ### 4.5 Invalid frontmatter
@@ -167,19 +167,19 @@ For newly created files, Forma writes keys in this order: `id, title, icon, tags
 If the frontmatter can't be parsed, isn't a mapping or has an invalid `id`:
 
 - The page appears in the tree with a warning badge and opens **read-only**, showing the parse error with line and column. It offers *Open in default editor* and *Reveal in Finder*.
-- Forma never writes to the file while it is invalid. After the file is fixed externally, the watcher reconciles it and the page becomes editable again.
+- Diaspar never writes to the file while it is invalid. After the file is fixed externally, the watcher reconciles it and the page becomes editable again.
 
 ### 4.6 Surgical frontmatter editing
 
-Forma never re-serializes the whole frontmatter block. To change keys, it:
+Diaspar never re-serializes the whole frontmatter block. To change keys, it:
 
 1. Parses the block with a span-aware YAML 1.2 parser to find the byte range of each **top-level** key and its value. Each range runs from the key's line to the start of the next top-level key or the end of the block.
 2. Replaces only the ranges of the keys being changed with freshly emitted YAML (§4.7). New keys are appended at the end of the block in the order given in §4.3. Removed keys have their range deleted.
 3. Leaves every other byte untouched, including comments, user keys, key order, anchors, flow style and quoting.
 
-If the frontmatter uses a construct that prevents safe span edits, Forma treats the page's metadata as read-only. Such constructs include a top-level flow mapping, or a key that Forma must change being defined through an alias or merge key. Body editing still works in that case. The body is replaced and the frontmatter bytes are kept verbatim, without updating `updated_at`.
+If the frontmatter uses a construct that prevents safe span edits, Diaspar treats the page's metadata as read-only. Such constructs include a top-level flow mapping, or a key that Diaspar must change being defined through an alias or merge key. Body editing still works in that case. The body is replaced and the frontmatter bytes are kept verbatim, without updating `updated_at`.
 
-### 4.7 YAML emission rules (values Forma writes)
+### 4.7 YAML emission rules (values Diaspar writes)
 
 - **Strings:** use plain style only if the value would be read back as the same string under *both* YAML 1.2 core and YAML 1.1. Use double quotes, with escapes, when the string:
   - is empty
@@ -200,7 +200,7 @@ If the frontmatter uses a construct that prevents safe span edits, Forma treats 
 
 ### 5.1 Base
 
-The base dialect is **CommonMark** with these **GitHub Flavored Markdown** extensions: tables, task list items, strikethrough and autolinks. On top of that come Forma's own conventions: math, page links (§5.4) and read support for wikilinks.
+The base dialect is **CommonMark** with these **GitHub Flavored Markdown** extensions: tables, task list items, strikethrough and autolinks. On top of that come Diaspar's own conventions: math, page links (§5.4) and read support for wikilinks.
 
 The fixture corpus in `tests/fixtures/markdown/` is the executable definition of this section. It is created in Phase 2, and where a rule here is ambiguous the corpus decides. Any change to a rule must come with a corpus change.
 
@@ -225,14 +225,14 @@ The fixture corpus in `tests/fixtures/markdown/` is the executable definition of
 | Hard line break | two trailing spaces, `\` | `\` at end of line |
 | Inline math | `$…$` (opening `$` not followed by a space, closing `$` not preceded by a space or followed by a digit) | `$…$` |
 | Block math | `$$` on its own line … `$$` | `$$\n…\n$$` |
-| Page link | `[label](forma://page/<uuid>)` | Same, with the label set to the target's current title |
+| Page link | `[label](diaspar://page/<uuid>)` | Same, with the label set to the target's current title |
 | Wikilink | `[[Title]]`, `[[Title\|alias]]`, `[[Folder/Title]]` | **Kept exactly as written** |
 | Raw HTML (block or inline) | anything | **Kept exactly as written.** Displayed as text, never rendered |
 | Footnotes, definition lists, other syntax | anything | **Kept exactly as written** in a raw block or as literal inline text |
 
 ### 5.3 Normalization on write
 
-These rules apply only when Forma writes a body after an actual edit (ARCHITECTURE §6.3):
+These rules apply only when Diaspar writes a body after an actual edit (ARCHITECTURE §6.3):
 
 - LF line endings, a single trailing newline, UTF-8 without a BOM.
 - **Minimal escaping.** A character is escaped only if leaving it unescaped would change how that position parses. For example, a literal `$` is escaped only where it would otherwise open math, and a leading `#` only where it would otherwise start a heading.
@@ -241,14 +241,14 @@ These rules apply only when Forma writes a body after an actual edit (ARCHITECTU
 
 ### 5.4 Links and references
 
-- **Page link URL scheme:** `forma://page/<uuid>`, optionally followed by `#<heading-slug>`. Forma resolves the UUID through the index. An unknown UUID renders as a broken link and is kept unchanged.
+- **Page link URL scheme:** `diaspar://page/<uuid>`, optionally followed by `#<heading-slug>`. Diaspar resolves the UUID through the index. An unknown UUID renders as a broken link and is kept unchanged.
 - **Wikilink resolution (read-only):** `[[Folder/Title]]` is matched against path suffixes, and `[[Title]]` against titles, falling back to filename stems. Exactly one match is a resolved link. Zero or several matches show as an unresolved link with a hint. The index stores what it resolved; the text in the file is never changed.
 - **Attachment and image sources:**
-  - A relative path resolves against the directory of the page's file. Forma writes `_assets/<name>` for its own attachments.
+  - A relative path resolves against the directory of the page's file. Diaspar writes `_assets/<name>` for its own attachments.
   - A path that resolves outside the workspace isn't loaded.
   - `https:` image URLs are loaded automatically. `http:` image URLs are kept but not loaded (ADR-031, ARCHITECTURE §6.6).
   - `data:` image URLs are kept and not rendered in v0.1.
-- **Allowed link schemes when activated:** `forma:`, `http:`, `https:`, `mailto:`. Any other scheme is shown but not opened.
+- **Allowed link schemes when activated:** `diaspar:`, `http:`, `https:`, `mailto:`. Any other scheme is shown but not opened.
 
 ---
 
@@ -295,7 +295,7 @@ collection:
 
 Validation rules:
 
-- `version` must be `1`. A higher version opens the collection read-only, marked "needs a newer Forma".
+- `version` must be `1`. A higher version opens the collection read-only, marked "needs a newer Diaspar".
 - Property `id`: 8 characters, `[a-z0-9]`, unique within the collection. Option `id`: 4 or more characters, unique within the property. IDs are generated randomly and never reused.
 - Property `name`: 1–64 characters after trimming, unique case-insensitively, and not a reserved key (§4.2).
 - `color` is one of `gray, brown, orange, yellow, green, blue, purple, pink, red`, mapped to theme tokens.
@@ -343,7 +343,7 @@ Read: false
 | Add or rename option | Rename means a batch rewrite of the values (journaled) |
 | Remove option | Schema only. Values become "unknown option" |
 
-### 6.5 Views (`.forma/views.json`, advisory)
+### 6.5 Views (`.diaspar/views.json`, advisory)
 
 ```json
 {
@@ -376,11 +376,11 @@ The filter operators, combined with AND only in v0.1, are:
 | select | `is`, `is_not`, `empty`, `not_empty` |
 | multi_select | `contains`, `not_contains`, `empty`, `not_empty` |
 
-Without views.json, or when an entry references an unknown property, Forma falls back to a table sorted by title. Filter values are always written as strings (numbers, `YYYY-MM-DD` dates, `true`/`false`, option names). The pseudo-properties `title`, `created_at` and `updated_at` can be used in `sort` and `filter`.
+Without views.json, or when an entry references an unknown property, Diaspar falls back to a table sorted by title. Filter values are always written as strings (numbers, `YYYY-MM-DD` dates, `true`/`false`, option names). The pseudo-properties `title`, `created_at` and `updated_at` can be used in `sort` and `filter`.
 
 ---
 
-## 7. `.forma/` metadata files
+## 7. `.diaspar/` metadata files
 
 All JSON files are written atomically and carry a `format_version`.
 
@@ -388,10 +388,10 @@ All JSON files are written atomically and carry a `format_version`.
 
 ```json
 { "format_version": 1, "id": "<uuid>", "name": "My Workspace",
-  "created_at": "2026-11-02T10:00:00Z", "created_by": "Forma 0.1.0" }
+  "created_at": "2026-11-02T10:00:00Z", "created_by": "Diaspar 0.1.0" }
 ```
 
-If `format_version` is higher than this build supports, the workspace opens **read-only** with an explanation. If it is lower, migrations run (§10) after a backup of `.forma/` metadata.
+If `format_version` is higher than this build supports, the workspace opens **read-only** with an explanation. If it is lower, migrations run (§10) after a backup of `.diaspar/` metadata.
 
 ### 7.2 `tree.json` (advisory)
 
@@ -442,7 +442,7 @@ Written when the user applies an AI proposal or undoes one (Phase 6, ADR-043), i
 
 - `source` is `ai`, or `undo` for a record that undid another (`undoes` names it). Undoing an `undo` record redoes the change. `trash_page` and `restore_page` appear in undo records: undoing a creation trashes the page, and undoing that restores it.
 - An operation is undone when a record that `undoes` it exists and isn't undone itself. Records are never rewritten.
-- `seq` orders the records (timestamps can tie). Forma keeps the newest 100; when it removes an older one, that operation's snapshots stop being protected from history pruning (§8.2).
+- `seq` orders the records (timestamps can tie). Diaspar keeps the newest 100; when it removes an older one, that operation's snapshots stop being protected from history pruning (§8.2).
 
 ### 7.6 Journal: `journal/<journal-id>.json`
 
@@ -470,7 +470,7 @@ The user then sees "An interrupted operation was undone".
     { "action": "make_dir", "path": "Projects" },
     { "action": "rename",   "from": "Projects.md", "to": "Projects/index.md" },
     { "action": "write",    "page_id": "…", "path": "Plan.md", "before_rev": "…|null",
-      "after_rev": "…", "snapshot": ".forma/history/<page-id>/…_ai.md|null" }
+      "after_rev": "…", "snapshot": ".diaspar/history/<page-id>/…_ai.md|null" }
   ] }
 ```
 
@@ -482,11 +482,11 @@ These hold editor buffers that couldn't be saved normally (conflict, deleted fil
 
 ### 7.8 Backup archives and exports (outside the workspace)
 
-Settings → Data writes these where the user chooses (ADR-044). Neither is read by Forma except a backup being restored.
+Settings → Data writes these where the user chooses (ADR-044). Neither is read by Diaspar except a backup being restored.
 
-- **Backup:** a zip, by default `<name> backup <YYYY-MM-DD>.zip`. Every entry is under one top folder named after the workspace: `<name>/Page.md`, `<name>/.forma/workspace.json`, … It holds every file of the workspace, `.forma/` included, except `.forma/tmp/` and `.forma/lock`. Entries are Deflate-compressed. Directory entries may be present; symbolic links are never written.
-- **Restore** accepts a zip with relative entry names and no links that holds at least one `.md` file or a `.forma/workspace.json`. If all entries share one top folder, its name becomes the new folder's name and its contents are unpacked into it; otherwise the zip's file name is used. An existing name gets " 2", " 3"…
-- **Export:** a folder `<name> export <YYYY-MM-DD>` with the workspace's files and attachments, without `.forma/`. It is a plain Markdown tree that Forma or any other app can open; opening it in Forma makes it a new workspace.
+- **Backup:** a zip, by default `<name> backup <YYYY-MM-DD>.zip`. Every entry is under one top folder named after the workspace: `<name>/Page.md`, `<name>/.diaspar/workspace.json`, … It holds every file of the workspace, `.diaspar/` included, except `.diaspar/tmp/` and `.diaspar/lock`. Entries are Deflate-compressed. Directory entries may be present; symbolic links are never written.
+- **Restore** accepts a zip with relative entry names and no links that holds at least one `.md` file or a `.diaspar/workspace.json`. If all entries share one top folder, its name becomes the new folder's name and its contents are unpacked into it; otherwise the zip's file name is used. An existing name gets " 2", " 3"…
+- **Export:** a folder `<name> export <YYYY-MM-DD>` with the workspace's files and attachments, without `.diaspar/`. It is a plain Markdown tree that Diaspar or any other app can open; opening it in Diaspar makes it a new workspace.
 
 ---
 
@@ -500,12 +500,12 @@ Settings → Data writes these where the user chooses (ADR-044). Neither is read
 
 ### 8.2 Snapshots
 
-Snapshots are stored at `.forma/history/<page-id>/<YYYYMMDDTHHMMSSZ>_<rev>_<reason>.md` and are full copies of the file bytes.
+Snapshots are stored at `.diaspar/history/<page-id>/<YYYYMMDDTHHMMSSZ>_<rev>_<reason>.md` and are full copies of the file bytes.
 
 `reason` is one of:
 
 - `autosave`
-- `external` (content not produced by Forma)
+- `external` (content not produced by Diaspar)
 - `ai`
 - `restore`
 - `conflict`
@@ -518,7 +518,7 @@ Policy: ARCHITECTURE §4.6. Restoring a snapshot is a normal write: the current 
 
 ## 9. SQLite index schema
 
-This is a cache and safe to delete. A `schema_version` mismatch drops and rebuilds it. The schema below is `schema_version = 2`: Phase 3's tables plus Phase 5's passages (`crates/forma-core/src/index.rs`):
+This is a cache and safe to delete. A `schema_version` mismatch drops and rebuilds it. The schema below is `schema_version = 2`: Phase 3's tables plus Phase 5's passages (`crates/diaspar-core/src/index.rs`):
 
 ```sql
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- schema_version
@@ -569,7 +569,7 @@ CREATE VIRTUAL TABLE passages_fts USING fts5(title, heading, text,
   tokenize = 'porter unicode61 remove_diacritics 2');
 ```
 
-Passages are 250–400 tokens, cut at headings and between blocks; a block longer than that is cut at lines, then sentences, then characters (`crates/forma-core/src/passages.rs`). CJK questions find pages through `pages_trigram` and rank their passages in Rust, so there is no passage trigram table.
+Passages are 250–400 tokens, cut at headings and between blocks; a block longer than that is cut at lines, then sentences, then characters (`crates/diaspar-core/src/passages.rs`). CJK questions find pages through `pages_trigram` and rank their passages in Rust, so there is no passage trigram table.
 
 Changes from the initial draft:
 - `rel_path` isn't `UNIQUE`: two pages can trade places within one rescan.
@@ -651,7 +651,7 @@ rebuild_index()                                             → ()
 {
   "format_version": 1,
   "appearance": { "theme": "system" },
-  "workspace": { "last_path": "/Users/me/FormaWorkspace" },
+  "workspace": { "last_path": "/Users/me/DiasparWorkspace" },
   "layout": { "sidebar": { "visible": true, "width": 260 }, "ai_panel": { "visible": false, "width": 360 } },
   "ai": {
     "enabled": false,
@@ -677,7 +677,7 @@ Notes on `ai` (Phase 4):
 
 ### 11.2 Keychain
 
-Generic password items in the login keychain, with service `<bundle-id>.ai-provider` (currently `app.forma.desktop.ai-provider`) and account `<provider-config-id>`. These are created, replaced and deleted only through the settings UI, and removing a provider deletes its item. Their values never cross IPC to the webview.
+Generic password items in the login keychain, with service `<bundle-id>.ai-provider` (currently `app.diaspar.desktop.ai-provider`) and account `<provider-config-id>`. These are created, replaced and deleted only through the settings UI, and removing a provider deletes its item. Their values never cross IPC to the webview.
 
 ### 11.3 Not persisted in v0.1
 
@@ -690,7 +690,7 @@ Generic password items in the login keychain, with service `<bundle-id>.ai-provi
 
 | Format | Version field | On newer-than-supported | On older |
 |---|---|---|---|
-| Workspace metadata | `workspace.json.format_version` | Open read-only | Migrate after backing up `.forma/*.json` |
+| Workspace metadata | `workspace.json.format_version` | Open read-only | Migrate after backing up `.diaspar/*.json` |
 | tree.json, views.json | `format_version` | Ignore the file (advisory) and don't overwrite it | Migrate |
 | Collection schema | `collection.version` | Collection read-only | Migrate on the next schema edit only |
 | Page frontmatter | none (keys are stable within workspace format 1) | — | — |

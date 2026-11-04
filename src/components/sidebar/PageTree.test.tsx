@@ -64,14 +64,14 @@ describe("PageTree", () => {
 
   it("expands a page to load and show what's inside", async () => {
     const user = userEvent.setup();
-    vi.mocked(ipc.listChildren).mockResolvedValue([summary("c", "Forma")]);
+    vi.mocked(ipc.listChildren).mockResolvedValue([summary("c", "Diaspar")]);
     render(<PageTree />);
 
     const toggle = screen.getByRole("button", { name: "Expand Projects" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     await user.click(toggle);
     expect(ipc.listChildren).toHaveBeenCalledWith("a");
-    expect(await screen.findByRole("button", { name: "Forma" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Diaspar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Collapse Projects" })).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -116,7 +116,7 @@ describe("PageTree", () => {
     vi.mocked(ipc.listChildren).mockImplementation(async (parentId) =>
       parentId === null
         ? [summary("a", "Projects", { has_children: true }), summary("b", "Journal")]
-        : [summary("c", "Forma")],
+        : [summary("c", "Diaspar")],
     );
     vi.mocked(ipc.movePage).mockResolvedValue(undefined);
     render(<PageTree />);
@@ -129,7 +129,7 @@ describe("PageTree", () => {
     expect(within(dialog).getByRole("button", { name: /Top level/ })).toBeDisabled();
 
     await user.click(within(dialog).getByRole("button", { name: "Expand Projects" }));
-    await user.click(await within(dialog).findByRole("button", { name: "Forma" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Diaspar" }));
     expect(ipc.movePage).toHaveBeenCalledWith("b", "c", null);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });

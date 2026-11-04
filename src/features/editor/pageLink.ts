@@ -1,4 +1,4 @@
-// Page links `[Title](forma://page/<uuid>)` and wikilinks `[[Title]]` as
+// Page links `[Title](diaspar://page/<uuid>)` and wikilinks `[[Title]]` as
 // editor nodes (ARCHITECTURE §6.5). A page link's label is refreshed to the
 // target's current title when the page is saved; a wikilink is written back
 // exactly as it was read.
@@ -7,7 +7,7 @@ import { escapeInlineText } from "./markdownRules";
 
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const PAGE_LINK = new RegExp(
-  `^\\[((?:\\\\.|[^\\]\\\\\\n])*)\\]\\(forma://page/(${UUID})(#[^)\\s]*)?\\)`,
+  `^\\[((?:\\\\.|[^\\]\\\\\\n])*)\\]\\(diaspar://page/(${UUID})(#[^)\\s]*)?\\)`,
 );
 /** Wikilink `[[Target]]` or `[[Target|alias]]`; resolved by title (DATA_MODEL §5.4). */
 const WIKILINK = /^\[\[[^[\]\n]+\]\]/;
@@ -54,7 +54,7 @@ export const PageLink = Node.create<PageLinkOptions>({
   markdownTokenizer: {
     name: "pageLink",
     level: "inline",
-    start: (src: string) => src.search(/\[[^\]\n]*\]\(forma:\/\/page\//i),
+    start: (src: string) => src.search(/\[[^\]\n]*\]\(diaspar:\/\/page\//i),
     tokenize: (src: string) => {
       const match = PAGE_LINK.exec(src);
       if (!match) return undefined;
@@ -78,7 +78,7 @@ export const PageLink = Node.create<PageLinkOptions>({
   renderMarkdown(node) {
     const id = node.attrs?.id as string;
     const label = this.options.currentTitle(id) ?? (node.attrs?.label as string) ?? "";
-    return `[${escapeInlineText(label)}](forma://page/${id}${node.attrs?.anchor ?? ""})`;
+    return `[${escapeInlineText(label)}](diaspar://page/${id}${node.attrs?.anchor ?? ""})`;
   },
 });
 

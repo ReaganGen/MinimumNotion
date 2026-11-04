@@ -99,7 +99,7 @@ export function PageView({ pageId }: { pageId: string }) {
       });
   }, [externalChange]);
 
-  // The page's file went away outside Forma: close it, unless that would lose edits.
+  // The page's file went away outside Diaspar: close it, unless that would lose edits.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs once per removal notification
   useEffect(() => {
     if (activeRemoved === 0) return;
@@ -191,8 +191,8 @@ export function PageView({ pageId }: { pageId: string }) {
         {conflict && <ConflictBanner conflict={conflict} onResolve={resolve} />}
         {reformatNotice && !conflict && editable && (
           <Banner tone="info" onDismiss={() => setReformatNotice(false)}>
-            Some of this page's Markdown is written in a form Forma normalizes. When you edit it,
-            Forma will rewrite those parts. The original is kept in the page's history.
+            Some of this page's Markdown is written in a form Diaspar normalizes. When you edit it,
+            Diaspar will rewrite those parts. The original is kept in the page's history.
           </Banner>
         )}
         {/* No keys needed: EditorArea keys the whole view by page. */}
@@ -306,8 +306,8 @@ function ConflictBanner({
     <Banner tone="warning">
       <p className="font-medium text-foreground">
         {deleted
-          ? "This page's file was deleted outside Forma."
-          : "This page was changed outside Forma while you were editing."}
+          ? "This page's file was deleted outside Diaspar."
+          : "This page was changed outside Diaspar while you were editing."}
       </p>
       <p className="mt-0.5">
         Your text is safe: it's kept in a recovery copy until you choose. Saving is paused.

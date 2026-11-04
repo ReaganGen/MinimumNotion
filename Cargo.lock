@@ -809,6 +809,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "diaspar"
+version = "0.1.0"
+dependencies = [
+ "diaspar-ai",
+ "diaspar-core",
+ "log",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-window-state",
+]
+
+[[package]]
+name = "diaspar-ai"
+version = "0.1.0"
+dependencies = [
+ "apple-native-keyring-store",
+ "diaspar-core",
+ "keyring-core",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "ts-rs",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "diaspar-core"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chrono",
+ "log",
+ "notify",
+ "notify-debouncer-full",
+ "pulldown-cmark",
+ "rusqlite",
+ "saphyr",
+ "serde",
+ "serde_json",
+ "similar",
+ "tempfile",
+ "thiserror 2.0.21",
+ "ts-rs",
+ "unicode-normalization",
+ "unicode-segmentation",
+ "uuid",
+ "xattr",
+ "zip",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1182,66 +1242,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "forma"
-version = "0.1.0"
-dependencies = [
- "forma-ai",
- "forma-core",
- "log",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-single-instance",
- "tauri-plugin-window-state",
-]
-
-[[package]]
-name = "forma-ai"
-version = "0.1.0"
-dependencies = [
- "apple-native-keyring-store",
- "forma-core",
- "keyring-core",
- "log",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "ts-rs",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "forma-core"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "chrono",
- "log",
- "notify",
- "notify-debouncer-full",
- "pulldown-cmark",
- "rusqlite",
- "saphyr",
- "serde",
- "serde_json",
- "similar",
- "tempfile",
- "thiserror 2.0.21",
- "ts-rs",
- "unicode-normalization",
- "unicode-segmentation",
- "uuid",
- "xattr",
- "zip",
 ]
 
 [[package]]

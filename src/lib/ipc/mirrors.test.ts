@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { type CommandId, SHORTCUTS } from "@/features/commands/commands";
 import { WIDTH_RANGES } from "@/features/settings/defaults";
-import settingsRs from "../../../crates/forma-core/src/settings.rs?raw";
+import settingsRs from "../../../crates/diaspar-core/src/settings.rs?raw";
 import menuRs from "../../../src-tauri/src/menu.rs?raw";
 
 function rustRange(name: string) {

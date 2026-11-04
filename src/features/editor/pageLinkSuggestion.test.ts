@@ -47,7 +47,7 @@ describe("[[ page links", () => {
     const end = editor.state.doc.content.size - 1;
     await insertPageLink(editor, { from: end - 6, to: end }, hit);
     expect(ipc.ensurePersistedId).toHaveBeenCalledWith(TARGET);
-    expect(docToMarkdown(editor)).toBe(`See [Reading list](forma://page/${TARGET})\n`);
+    expect(docToMarkdown(editor)).toBe(`See [Reading list](diaspar://page/${TARGET})\n`);
     expect(useLinkStore.getState().pages[TARGET]?.title).toBe("Reading list");
     editor.destroy();
   });

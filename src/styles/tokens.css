@@ -1,5 +1,5 @@
 /*
- * Forma design tokens. Every color, radius, shadow and motion value in the UI
+ * Diaspar design tokens. Every color, radius, shadow and motion value in the UI
  * comes from here. Names follow the shadcn/ui convention so generated
  * components work unchanged. The `--accent` token is the subtle hover fill,
  * not a brand color.

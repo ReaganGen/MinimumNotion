@@ -36,7 +36,7 @@ import { ipc } from "@/lib/ipc/client";
 import { cn } from "@/lib/utils";
 import { MoveDialog } from "./MoveDialog";
 
-const DRAG_TYPE = "application/x-forma-page";
+const DRAG_TYPE = "application/x-diaspar-page";
 const INDENT = 14;
 /** A collection's entries beyond this many are reached from the collection itself. */
 const COLLECTION_PREVIEW = 50;

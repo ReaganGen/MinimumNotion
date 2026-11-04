@@ -1,4 +1,4 @@
-// KaTeX math with Forma's Markdown rules (DATA_MODEL §5.2). The stock
+// KaTeX math with Diaspar's Markdown rules (DATA_MODEL §5.2). The stock
 // tokenizers would read currency such as "$5 and $10" as math, so these
 // follow the pandoc rule instead.
 import {

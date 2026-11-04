@@ -97,7 +97,7 @@ interface AiChatState {
   clear: () => void;
 }
 
-/** As `MAX_SELECTION_CHARS` in crates/forma-ai/src/knowledge.rs. */
+/** As `MAX_SELECTION_CHARS` in crates/diaspar-ai/src/knowledge.rs. */
 const MAX_SELECTION_CHARS = 20_000;
 
 let nextTurn = 0;

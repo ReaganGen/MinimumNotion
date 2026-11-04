@@ -1,7 +1,7 @@
 use std::thread;
 use std::time::Duration;
 
-use forma_core::settings::ThemePreference;
+use diaspar_core::settings::ThemePreference;
 use tauri::window::Color;
 use tauri::{Runtime, Theme, WebviewWindow, Window};
 

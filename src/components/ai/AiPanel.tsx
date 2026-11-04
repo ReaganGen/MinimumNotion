@@ -81,7 +81,7 @@ export function AiPanel() {
         <EmptyState
           title="AI is off"
           action="Turn on in Settings"
-          body="Forma works fully without it. Turn it on to ask about your notes with OpenAI, Anthropic, or a local model through Ollama or LM Studio."
+          body="Diaspar works fully without it. Turn it on to ask about your notes with OpenAI, Anthropic, or a local model through Ollama or LM Studio."
         />
       )}
       {ready.state === "no-provider" && (
@@ -102,7 +102,7 @@ export function AiPanel() {
         <EmptyState
           title="Add an API key"
           action="Open AI settings"
-          body={`${ready.provider.name} needs an API key. Forma keeps it in your Keychain.`}
+          body={`${ready.provider.name} needs an API key. Diaspar keeps it in your Keychain.`}
         />
       )}
       {(ready.state === "ready" || ready.state === "needs-agreement") && (
@@ -379,7 +379,7 @@ function Sources({ turn }: { turn: ChatTurn }) {
           <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden />
           <span>
             Unverified: {unverified.join(", ")} {unverified.length === 1 ? "isn't" : "aren't"} among
-            the sources Forma provided.
+            the sources Diaspar provided.
           </span>
         </p>
       )}

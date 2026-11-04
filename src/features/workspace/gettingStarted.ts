@@ -5,7 +5,7 @@
 
 export const GETTING_STARTED_TITLE = "Getting started";
 
-export const GETTING_STARTED_BODY = `Forma keeps each page as a Markdown file in this workspace's folder. You can open, copy or back up those files with any other app. This page is one of them; delete it whenever you like.
+export const GETTING_STARTED_BODY = `Diaspar keeps each page as a Markdown file in this workspace's folder. You can open, copy or back up those files with any other app. This page is one of them; delete it whenever you like.
 
 ## Writing
 
@@ -32,7 +32,7 @@ export const GETTING_STARTED_BODY = `Forma keeps each page as a Markdown file in
 
 ## AI, if you want it
 
-AI is off until you turn it on in Settings → AI. It can use a model on this Mac (Ollama or LM Studio) or a cloud provider with your own API key, and Forma says whenever something is sent off your Mac. When it suggests changes to your pages, you review them first, and you can undo them afterwards.
+AI is off until you turn it on in Settings → AI. It can use a model on this Mac (Ollama or LM Studio) or a cloud provider with your own API key, and Diaspar says whenever something is sent off your Mac. When it suggests changes to your pages, you review them first, and you can undo them afterwards.
 
 ## Keeping your notes safe
 

@@ -1,4 +1,4 @@
-// Forma's Markdown serialization rules (DATA_MODEL §5.2–5.3), layered on
+// Diaspar's Markdown serialization rules (DATA_MODEL §5.2–5.3), layered on
 // @tiptap/markdown where its defaults would change meaning or bytes:
 //
 // - Text is escaped minimally: a character is escaped only where leaving it

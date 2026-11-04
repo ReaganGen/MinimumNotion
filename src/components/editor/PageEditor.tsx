@@ -44,7 +44,7 @@ interface PageEditorProps {
   onConflict: (conflict: Conflict) => void;
 }
 
-const PAGE_LINK = /^forma:\/\/page\/([0-9a-f-]{36})/i;
+const PAGE_LINK = /^diaspar:\/\/page\/([0-9a-f-]{36})/i;
 
 function imageFiles(list: FileList | null | undefined): File[] {
   return Array.from(list ?? []).filter((file) => file.type.startsWith("image/"));
@@ -77,7 +77,7 @@ export const PageEditor = forwardRef<PageEditorHandle, PageEditorProps>(function
     if (!editor || !controller || files.length === 0) return;
     try {
       // Adding the first attachment can turn the page file into a folder,
-      // so save first and pick up any change Forma made to the body.
+      // so save first and pick up any change Diaspar made to the body.
       await controller.flush();
       for (const file of files) {
         const src = await ipc.importAttachment(page.id, file);
@@ -112,7 +112,7 @@ export const PageEditor = forwardRef<PageEditorHandle, PageEditorProps>(function
       // Leaving the text (for the title, the sidebar, another app) saves at once.
       onBlur: () => void controllerRef.current?.flush(),
       editorProps: {
-        attributes: { class: "forma-editor", "aria-label": "Page content" },
+        attributes: { class: "diaspar-editor", "aria-label": "Page content" },
         handlePaste: (_view, event) => {
           const files = imageFiles(event.clipboardData?.files);
           if (files.length === 0) return false;
@@ -260,7 +260,7 @@ function FormattingMenu({ editor, page }: { editor: Editor; page: PageDocument }
   }
 
   return (
-    <BubbleMenu editor={editor} className="forma-popover flex items-center gap-0.5 p-1">
+    <BubbleMenu editor={editor} className="diaspar-popover flex items-center gap-0.5 p-1">
       {linking ? (
         <input
           // biome-ignore lint/a11y/noAutofocus: opened by an explicit click on "Link"

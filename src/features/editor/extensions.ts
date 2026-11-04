@@ -1,4 +1,4 @@
-// The editor's schema: every node and mark Forma supports, each with a
+// The editor's schema: every node and mark Diaspar supports, each with a
 // Markdown parse and render rule (DATA_MODEL §5). The live editor and the
 // round-trip tests use this same list, so what is tested is what ships.
 import type { AnyExtension } from "@tiptap/core";
@@ -19,7 +19,7 @@ export function createMarkdownExtensions(): AnyExtension[] {
       underline: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       trailingNode: false,
-      // Replaced by the versions with Forma's Markdown rules below.
+      // Replaced by the versions with Diaspar's Markdown rules below.
       paragraph: false,
       hardBreak: false,
       codeBlock: false,

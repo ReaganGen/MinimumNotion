@@ -178,7 +178,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => {
         // Not closed here: unsaved edits must survive the file going away.
         set({ activeRemoved: get().activeRemoved + 1 });
       } else if (active && (changes.content_changed.includes(active) || changes.tree_changed)) {
-        // A tree change can also mean Forma rewrote the open page (it became a
+        // A tree change can also mean Diaspar rewrote the open page (it became a
         // bundle, and relative links moved), so the page view re-checks then too.
         set({ externalChange: get().externalChange + 1 });
       }

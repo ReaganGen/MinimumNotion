@@ -6,6 +6,6 @@ export type WorkspaceInfo = { root: string, name: string, id: string,
  */
 read_only_reason: string | null, 
 /**
- * One-time messages about things Forma noticed while opening.
+ * One-time messages about things Diaspar noticed while opening.
  */
 notices: Array<string>, };

@@ -1,5 +1,5 @@
 // Development-only stand-in for the Rust backend, used when `vite dev` is opened in a
-// regular browser instead of the Forma app. It keeps settings and a small sample
+// regular browser instead of the Diaspar app. It keeps settings and a small sample
 // workspace in memory (pages, a collection, links) and maps the menu accelerators to
 // menu events, because a browser has no native menu. Never included in production
 // builds (see main.tsx). Its search and collection logic are rough stand-ins, and
@@ -67,7 +67,7 @@ const SAMPLE_BODY = `This is a **preview** page served from memory. Try *formatt
 | --- | --- |
 | a | 1 |
 
-Inline math $e^{i\\pi} + 1 = 0$. A page link: [Paper notes](forma://page/${id(3)}), and a wikilink: [[Reading list]].
+Inline math $e^{i\\pi} + 1 = 0$. A page link: [Paper notes](diaspar://page/${id(3)}), and a wikilink: [[Reading list]].
 `;
 
 function memoryWorkspace() {
@@ -194,8 +194,8 @@ function memoryWorkspace() {
 
   return {
     info: {
-      root: "/preview/Forma",
-      name: "Forma (preview)",
+      root: "/preview/Diaspar",
+      name: "Diaspar (preview)",
       id: "preview",
       read_only_reason: null,
       notices: [],
@@ -664,7 +664,7 @@ function memoryAi(getAi: () => AiSettings, setAi: (ai: AiSettings) => void) {
 export function installBrowserPreview() {
   let settings = defaultSettings();
   let notice: string | null =
-    "Browser preview: running without the Forma app. Nothing is saved to disk.";
+    "Browser preview: running without the Diaspar app. Nothing is saved to disk.";
   const ws = memoryWorkspace();
   const ai = memoryAi(
     () => settings.ai,

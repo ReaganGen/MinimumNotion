@@ -12,9 +12,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use forma_ai::AiService;
-use forma_ai::secrets::{KeychainStore, MemoryStore, SecretStore};
-use forma_core::settings::SettingsStore;
+use diaspar_ai::AiService;
+use diaspar_ai::secrets::{KeychainStore, MemoryStore, SecretStore};
+use diaspar_core::settings::SettingsStore;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, WindowEvent};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 use tauri_plugin_window_state::StateFlags;
@@ -28,7 +28,7 @@ pub struct AppState {
 }
 
 /// Asks the window to save unsaved edits before quitting (ARCHITECTURE §6.4).
-const FLUSH_EVENT: &str = "forma://flush-before-quit";
+const FLUSH_EVENT: &str = "diaspar://flush-before-quit";
 /// Quit anyway if the window doesn't answer in time.
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 static QUIT_CONFIRMED: AtomicBool = AtomicBool::new(false);
@@ -69,14 +69,14 @@ fn main() {
                 window::focus(&main);
             }
         }))
-        // Logs go to ~/Library/Logs/<bundle id>/forma.log and to stdout (audit F7).
+        // Logs go to ~/Library/Logs/<bundle id>/diaspar.log and to stdout (audit F7).
         // They never contain note content or credentials.
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
                     Target::new(TargetKind::Stdout),
                     Target::new(TargetKind::LogDir {
-                        file_name: Some("forma".into()),
+                        file_name: Some("diaspar".into()),
                     }),
                 ])
                 .level(if cfg!(debug_assertions) {
@@ -120,7 +120,7 @@ fn main() {
             });
 
             // Keys live in the login keychain (ADR-020). If it can't be
-            // opened, keys last only until Forma quits, and the log says so.
+            // opened, keys last only until Diaspar quits, and the log says so.
             let secrets: Arc<dyn SecretStore> = match KeychainStore::new() {
                 Ok(store) => Arc::new(store),
                 Err(err) => {
@@ -128,7 +128,10 @@ fn main() {
                     Arc::new(MemoryStore::default())
                 }
             };
-            app.manage(AiService::new(forma_ai::provider::http_client()?, secrets));
+            app.manage(AiService::new(
+                diaspar_ai::provider::http_client()?,
+                secrets,
+            ));
 
             menu::install(app.handle())?;
 
@@ -219,7 +222,7 @@ fn main() {
             data_commands::diagnostics,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Forma");
+        .expect("error while building Diaspar");
 
     app.run(|app, event| {
         if let RunEvent::ExitRequested { api, .. } = event

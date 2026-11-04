@@ -1,4 +1,4 @@
-// Facts about AI providers the UI shows. Mirrors crates/forma-ai/src/presets.rs;
+// Facts about AI providers the UI shows. Mirrors crates/diaspar-ai/src/presets.rs;
 // Rust enforces the same rules before anything is sent.
 import type { AiSettings } from "@/lib/ipc/bindings/AiSettings";
 import type { ProviderConfig } from "@/lib/ipc/bindings/ProviderConfig";

@@ -6,8 +6,8 @@
 set -eu
 
 bundle=${1:?usage: verify-bundle.sh <bundle folder>}
-app="$bundle/macos/Forma.app"
-binary="$app/Contents/MacOS/forma"
+app="$bundle/macos/Diaspar.app"
+binary="$app/Contents/MacOS/diaspar"
 
 archs=$(lipo -archs "$binary")
 echo "architectures: $archs"

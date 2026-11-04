@@ -1,8 +1,8 @@
-# Forma
+# Diaspar
 
 *A quieter place to think, with AI that works for you.*
 
-Forma is a minimal, local-first knowledge workspace for macOS. It pairs Notion-style editing and organization with plain Markdown files that you own, and adds optional AI help, from cloud providers or local models, that never changes your notes without your approval.
+Diaspar is a minimal, local-first knowledge workspace for macOS. It pairs Notion-style editing and organization with plain Markdown files that you own, and adds optional AI help, from cloud providers or local models, that never changes your notes without your approval.
 
 ## Status
 
@@ -19,7 +19,7 @@ npm install
 npm run tauri:dev      # run the app with hot reload
 npm run check          # typecheck, lint, and test both TypeScript and Rust
 npx tauri build --target universal-apple-darwin --bundles app,dmg
-                       # Forma.app and a DMG in target/universal-apple-darwin/release/bundle/
+                       # Diaspar.app and a DMG in target/universal-apple-darwin/release/bundle/
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the rules, checks and release steps.

@@ -7,7 +7,7 @@ const PAGE = "11111111-1111-4111-8111-111111111111";
 describe("resolveImageSource", () => {
   it("serves relative references through the asset protocol", () => {
     expect(resolveImageSource(PAGE, "_assets/photo%201.png")).toBe(
-      `forma-asset://localhost/${PAGE}/_assets/photo%201.png`,
+      `diaspar-asset://localhost/${PAGE}/_assets/photo%201.png`,
     );
   });
 

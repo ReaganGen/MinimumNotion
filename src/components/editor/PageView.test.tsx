@@ -33,7 +33,8 @@ vi.mock("@/lib/ipc/client", () => ({
     ensurePersistedId: vi.fn(),
     quickOpen: vi.fn(),
   },
-  assetUrl: (pageId: string, reference: string) => `forma-asset://localhost/${pageId}/${reference}`,
+  assetUrl: (pageId: string, reference: string) =>
+    `diaspar-asset://localhost/${pageId}/${reference}`,
 }));
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -139,7 +140,7 @@ describe("PageView", () => {
     type(editor, " mine");
 
     await screen.findByText(
-      "This page was changed outside Forma while you were editing.",
+      "This page was changed outside Diaspar while you were editing.",
       {},
       {
         timeout: 2000,
@@ -150,7 +151,7 @@ describe("PageView", () => {
 
     vi.mocked(ipc.getPage).mockResolvedValue(page({ body: "Changed elsewhere\n", body_rev: "b9" }));
     await user.click(screen.getByRole("button", { name: "Use theirs" }));
-    await waitFor(() => expect(screen.queryByText(/changed outside Forma/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/changed outside Diaspar/)).toBeNull());
     // "Theirs" still keeps "mine" in the page's history.
     expect(ipc.snapshotText).toHaveBeenCalledWith(ID, "Hello mine\n", "conflict");
     expect(ipc.discardRecovery).toHaveBeenCalledWith(ID);
@@ -158,13 +159,13 @@ describe("PageView", () => {
     expect(editor.isEditable).toBe(true);
   });
 
-  it("keeps unsaved edits when the file is deleted outside Forma", async () => {
+  it("keeps unsaved edits when the file is deleted outside Diaspar", async () => {
     const user = userEvent.setup();
     const editor = await renderPage();
     type(editor, " unsaved");
     act(() => useWorkspaceStore.setState({ activeRemoved: 1 }));
 
-    await screen.findByText("This page's file was deleted outside Forma.");
+    await screen.findByText("This page's file was deleted outside Diaspar.");
     expect(useWorkspaceStore.getState().activePageId).toBe(ID);
     expect(ipc.writeRecovery).toHaveBeenCalledWith(ID, "Hello unsaved\n", "conflict");
 
@@ -210,7 +211,7 @@ describe("PageView", () => {
     const user = userEvent.setup();
     const TARGET = "44444444-4444-4444-8444-444444444444";
     vi.mocked(ipc.getPage).mockResolvedValue(
-      page({ body: `See [Old title](forma://page/${TARGET}).\n` }),
+      page({ body: `See [Old title](diaspar://page/${TARGET}).\n` }),
     );
     vi.mocked(ipc.resolvePages).mockResolvedValue([
       { id: TARGET, title: "New title", icon: null, state: "ok" },
@@ -225,7 +226,7 @@ describe("PageView", () => {
   it("marks a link to a trashed page and doesn't follow it", async () => {
     const user = userEvent.setup();
     const GONE = "55555555-5555-4555-8555-555555555555";
-    vi.mocked(ipc.getPage).mockResolvedValue(page({ body: `[Gone](forma://page/${GONE})\n` }));
+    vi.mocked(ipc.getPage).mockResolvedValue(page({ body: `[Gone](diaspar://page/${GONE})\n` }));
     vi.mocked(ipc.resolvePages).mockResolvedValue([
       { id: GONE, title: "Gone", icon: null, state: "trashed" },
     ]);

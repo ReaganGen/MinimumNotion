@@ -113,7 +113,7 @@ describe("SettingsDialog", () => {
 
   it("shows why settings are read-only, and still switches the window theme", async () => {
     const user = userEvent.setup();
-    const reason = "Forma couldn't open its settings (permission denied).";
+    const reason = "Diaspar couldn't open its settings (permission denied).";
     useSettingsStore
       .getState()
       .hydrate({ settings: defaultSettings(), notice: null, read_only_reason: reason });
@@ -224,7 +224,7 @@ describe("SettingsDialog", () => {
     const user = userEvent.setup();
     useUiStore.setState({ settingsSection: "data" });
     vi.mocked(ipc.readLog).mockResolvedValue("[INFO] opened workspace");
-    vi.mocked(ipc.diagnostics).mockResolvedValue("Forma 0.1.0 (aarch64)");
+    vi.mocked(ipc.diagnostics).mockResolvedValue("Diaspar 0.1.0 (aarch64)");
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     renderOpen();
@@ -233,7 +233,7 @@ describe("SettingsDialog", () => {
     await user.click(screen.getByRole("button", { name: "Hide log" }));
     expect(screen.queryByRole("log")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Copy diagnostics" }));
-    expect(writeText).toHaveBeenCalledWith("Forma 0.1.0 (aarch64)");
+    expect(writeText).toHaveBeenCalledWith("Diaspar 0.1.0 (aarch64)");
     expect(await screen.findByText("Copied. Paste it into a bug report.")).toBeInTheDocument();
   });
 });

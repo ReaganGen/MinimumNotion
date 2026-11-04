@@ -1,14 +1,14 @@
 //! AI commands (ARCHITECTURE §9). Settings changes go through the settings
 //! store; API keys go into the Keychain and no command ever returns one.
 
-use forma_ai::knowledge::{ChatInput, Library, MAX_SELECTION_CHARS};
-use forma_ai::presets::{ProviderUpdate, apply_update, new_provider};
-use forma_ai::types::{ModelCapabilities, ModelInfo};
-use forma_ai::{AiError, AiErrorKind, AiService, ChatStreamEvent, ConnectionReport};
-use forma_core::error::{ErrorCode, ErrorPayload};
-use forma_core::settings::{AiSettings, AppSettings, ProviderConfig, ProviderKind};
-use forma_core::workspace::changeset::{ChangeOutcome, OperationInfo};
-use forma_core::workspace::now_rfc3339;
+use diaspar_ai::knowledge::{ChatInput, Library, MAX_SELECTION_CHARS};
+use diaspar_ai::presets::{ProviderUpdate, apply_update, new_provider};
+use diaspar_ai::types::{ModelCapabilities, ModelInfo};
+use diaspar_ai::{AiError, AiErrorKind, AiService, ChatStreamEvent, ConnectionReport};
+use diaspar_core::error::{ErrorCode, ErrorPayload};
+use diaspar_core::settings::{AiSettings, AppSettings, ProviderConfig, ProviderKind};
+use diaspar_core::workspace::changeset::{ChangeOutcome, OperationInfo};
+use diaspar_core::workspace::now_rfc3339;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 

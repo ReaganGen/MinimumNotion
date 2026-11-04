@@ -210,12 +210,12 @@ describe("CollectionView", () => {
     expect(screen.getByText("1 of 2 entries")).toBeInTheDocument();
   });
 
-  it("is read-only when the schema comes from a newer Forma", async () => {
+  it("is read-only when the schema comes from a newer Diaspar", async () => {
     vi.mocked(ipc.getCollection).mockResolvedValue(
-      data({ problem: "This collection was made by a newer version of Forma." }),
+      data({ problem: "This collection was made by a newer version of Diaspar." }),
     );
     await renderView();
-    expect(screen.getByText(/newer version of Forma/)).toBeInTheDocument();
+    expect(screen.getByText(/newer version of Diaspar/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add a property" })).toBeNull();
     expect(screen.getByRole("checkbox", { name: "Read for BERT" })).toBeDisabled();

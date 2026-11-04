@@ -7,7 +7,7 @@ import type { Schema } from "./Schema";
  */
 export type CollectionData = { id: string, title: string, schema: Schema | null, 
 /**
- * Why the schema can't be edited (written by a newer Forma, unreadable,
+ * Why the schema can't be edited (written by a newer Diaspar, unreadable,
  * or a read-only workspace). `None` when it can.
  */
 problem: string | null, rows: Array<CollectionRow>, };

@@ -1,14 +1,14 @@
-# Forma — Claude Code Development Rules
+# Diaspar — Claude Code Development Rules
 
 ## Project Identity
 
-Forma is a local-first, AI-native knowledge management application for macOS. It combines:
+Diaspar is a local-first, AI-native knowledge management application for macOS. It combines:
 
 - Notion-inspired editing and organization
 - Markdown-native local storage
 - AI-assisted knowledge management
 
-The initial release is v0.1.0. The repository folder is named `MinimumNotion`. The product name is **Forma**.
+The initial release is v0.1.0. The repository folder is named `MinimumNotion`. The product name is **Diaspar**.
 
 ## Execution Transparency & Explainability
 
@@ -127,7 +127,7 @@ The goal is to make autonomous execution understandable, inspectable, and verifi
 
 ## Technology Stack
 
-- Tauri 2, Rust (Cargo workspace: `crates/forma-core`, `crates/forma-ai`, `src-tauri`)
+- Tauri 2, Rust (Cargo workspace: `crates/diaspar-core`, `crates/diaspar-ai`, `src-tauri`)
 - React 19, TypeScript **6.0** (not 7; see ADR-016), Vite 8
 - Tailwind CSS 4, shadcn/ui, Lucide, CSS design tokens
 - Tiptap 3 / ProseMirror (`@tiptap/markdown`, gated by a round-trip spike; see ADR-015)
@@ -140,9 +140,9 @@ Verified versions: `docs/IMPLEMENTATION_PLAN.md` §2. Re-verify before adding an
 
 ## Architecture Rules
 
-1. Markdown files (with frontmatter) and `.forma/*.json` are the durable representation.
+1. Markdown files (with frontmatter) and `.diaspar/*.json` are the durable representation.
 2. SQLite is only an index and cache. It lives in Application Support, not in the workspace, and is always rebuildable.
-3. All workspace file mutations go through `DocumentService` (`forma-core`).
+3. All workspace file mutations go through `DocumentService` (`diaspar-core`).
 4. UI components never modify workspace files directly. IPC arguments are page IDs, never paths.
 5. AI tools never modify workspace files directly. They only build ChangeSets, and applying one is a user-only command.
 6. Pages use stable UUIDs in frontmatter, persisted lazily. Run `ensure_persisted_id` before creating any durable reference to a page.
@@ -151,7 +151,7 @@ Verified versions: `docs/IMPLEMENTATION_PLAN.md` §2. Re-verify before adding an
 9. Core functionality works offline. The webview has no network access except loading `https:` images embedded in notes (ADR-031). AI chat output and AI change previews never load remote images. All AI traffic goes through Rust.
 10. No unnecessary cloud dependencies, telemetry, accounts or license checks.
 11. The directory tree mirrors the page tree: `Name.md` for a leaf, `Name/index.md` for a bundle, attachments in `_assets/`.
-12. Page links are `[Title](forma://page/<uuid>)`. Never rewrite other files on rename or move.
+12. Page links are `[Title](diaspar://page/<uuid>)`. Never rewrite other files on rename or move.
 13. Frontmatter is edited surgically. Preserve unknown keys, comments and order.
 14. Never write a file the user didn't change. Opening a page must not write it.
 15. Never render raw HTML from documents or AI output. Keep the CSP strict.

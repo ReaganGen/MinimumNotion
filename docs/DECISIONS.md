@@ -2,6 +2,8 @@
 
 Each record lists its Status, Date, Context, Decision, Alternatives, Rationale and Consequences. Status is one of **Accepted**, **Proposed** (awaiting the user's approval) or **Superseded by ADR-N**. Don't edit an accepted decision in place. Write a new ADR that supersedes it.
 
+The product was called Forma until ADR-046. Earlier records were updated for the new name and identifiers only; their decisions are unchanged.
+
 | ADR | Title | Status |
 |---|---|---|
 | 001 | Tauri 2 + Rust backend + React/TypeScript frontend | Accepted |
@@ -10,17 +12,17 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 | 004 | The directory tree mirrors the page tree (leaf file / bundle folder with `index.md`) | Accepted, user-confirmed |
 | 005 | Page identity is a UUID in frontmatter, persisted lazily | Accepted |
 | 006 | The title is authoritative in frontmatter; the filename is derived | Accepted, user-confirmed |
-| 007 | Page links are standard Markdown links to `forma://page/<uuid>` | Accepted, user-confirmed |
+| 007 | Page links are standard Markdown links to `diaspar://page/<uuid>` | Accepted, user-confirmed |
 | 008 | Attachments are co-located in the page's `_assets/` folder | Accepted, user-confirmed |
 | 009 | A revision is a content hash; optimistic concurrency on every write | Accepted |
-| 010 | History is full-file snapshots in `.forma/history/` | Accepted |
+| 010 | History is full-file snapshots in `.diaspar/history/` | Accepted |
 | 011 | Rust owns the file format; TypeScript owns body Markdown ⇄ editor | Accepted |
 | 012 | Surgical frontmatter editing preserves unknown content | Accepted |
 | 013 | A collection is a page; schema in its frontmatter; entries are its children | Accepted, user-confirmed |
-| 014 | Sibling order and favorites live in `.forma/tree.json` (advisory) | Accepted |
+| 014 | Sibling order and favorites live in `.diaspar/tree.json` (advisory) | Accepted |
 | 015 | Editor: Tiptap 3 + `@tiptap/markdown`, gated by a round-trip spike | Accepted (gated) |
 | 016 | TypeScript 6.0 with Biome, not TypeScript 7 or ESLint | Accepted |
-| 017 | Rust workspace: `forma-core`, `forma-ai`, thin `src-tauri` shell | Accepted |
+| 017 | Rust workspace: `diaspar-core`, `diaspar-ai`, thin `src-tauri` shell | Accepted |
 | 018 | All AI traffic goes through Rust; the webview has no network access | Accepted |
 | 019 | Provider abstraction: two wire protocols plus presets, with capability detection | Accepted; the OpenAI preset changed by ADR-038 |
 | 020 | Credentials in the macOS Keychain via `keyring-core` | Accepted |
@@ -37,7 +39,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 | 031 | Remote `https:` images in notes load automatically; AI output and AI previews still don't | Accepted, user-chosen |
 | 032 | The Phase 2 page index lives in memory; SQLite arrives with search | Accepted; extended by ADR-035 |
 | 033 | The editor's saves are checked against the body revision | Accepted, user-approved |
-| 034 | Outcome of the Markdown gate: `@tiptap/markdown` plus a Forma rules layer | Accepted |
+| 034 | Outcome of the Markdown gate: `@tiptap/markdown` plus a Diaspar rules layer | Accepted |
 | 035 | The SQLite cache: loaded at open, written with every change, one connection | Accepted |
 | 036 | CJK search uses a trigram table with LIKE; words use unicode61 | Accepted |
 | 037 | Collections in the sidebar and in pages | Accepted |
@@ -47,6 +49,9 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 | 041 | Retrieval as built: passage chunks, stemmed BM25, CJK through page trigrams, rank fusion | Accepted |
 | 042 | Asking about notes: numbered sources, a packed context, read-only tools, and a new cloud agreement | Accepted |
 | 043 | AI changes: proposals in memory, applied in one journaled transaction, recorded and undoable | Accepted |
+| 044 | Export, backup and restore through Rust-opened dialogs; diagnostics without content | Accepted |
+| 045 | Release builds: universal, ad-hoc signed, drafted by CI | Accepted |
+| 046 | The product is named Diaspar | Accepted, user-confirmed |
 
 ---
 
@@ -66,7 +71,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 - **Status:** Accepted. **Date:** 2026-11-02
 - **Context:** The spec requires portable, human-readable data, and requires that deleting the index loses nothing.
-- **Decision:** Every user-authored datum lives in Markdown files, YAML frontmatter or `.forma/*.json`. SQLite holds only data that can be rebuilt from those files.
+- **Decision:** Every user-authored datum lives in Markdown files, YAML frontmatter or `.diaspar/*.json`. SQLite holds only data that can be rebuilt from those files.
 - **Alternatives:** SQLite as primary storage with a Markdown export (simpler queries, but it breaks portability and external editing). A dual-write design where both are authoritative (consistency bugs).
 - **Rationale:** User ownership, durability, and simple recovery: the index can always be rebuilt.
 - **Consequences:** Queries depend on index freshness, so reconciliation must be robust. Collection queries can't rely on SQLite constraints for integrity, which means validation happens in the Document Service.
@@ -74,16 +79,16 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 ## ADR-003: The index database lives outside the workspace
 
 - **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
-- **Context:** The spec's illustrative layout places `index.db` in `.forma/`. Workspaces are often stored in Dropbox, iCloud Drive or git.
+- **Context:** The spec's illustrative layout places `index.db` in `.diaspar/`. Workspaces are often stored in Dropbox, iCloud Drive or git.
 - **Decision:** Store the index at `~/Library/Application Support/<bundle-id>/index/<workspace-key>/index.db`.
-- **Alternatives:** `.forma/index.db`, as illustrated in the spec. Sync tools corrupt SQLite databases or create conflict copies of them, and the file bloats git repositories and backups.
+- **Alternatives:** `.diaspar/index.db`, as illustrated in the spec. Sync tools corrupt SQLite databases or create conflict copies of them, and the file bloats git repositories and backups.
 - **Rationale:** It is a cache, and machine-local caches don't belong in synced data. Integrity is protected because the index can always be rebuilt.
 - **Consequences:** Moving the workspace folder triggers a rebuild, which is cheap. "Rebuild index" and "Reveal index" must handle the external location.
 
 ## ADR-004: The directory tree mirrors the page tree
 
 - **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
-- **Context:** Pages nest to arbitrary depth. Hierarchy has to be durable, portable and visible outside Forma, and multi-file operations are a source of corruption.
+- **Context:** Pages nest to arbitrary depth. Hierarchy has to be durable, portable and visible outside Diaspar, and multi-file operations are a source of corruption.
 - **Decision:** A leaf page is `Name.md`. A page with children or attachments is a bundle, `Name/index.md`, and its children live inside `Name/`. A page's parent is derived from its location. See DATA_MODEL §3.
 - **Alternatives:**
   1. **A flat `pages/` folder with `parent:` in frontmatter.** The simplest code, but the hierarchy is invisible in Finder and other editors, which is a real portability loss.
@@ -96,7 +101,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 - **Status:** Accepted. **Date:** 2026-11-02
 - **Context:** Identity must not depend on title or path. Opening a folder of existing Markdown must not mass-rewrite the user's files.
-- **Decision:** Use a UUID v4 stored as frontmatter `id`. Pages discovered without an ID get an index-only ID, which is persisted only when Forma writes the file or just before something durable references the page (`ensure_persisted_id`). Duplicate IDs are resolved deterministically (DATA_MODEL §4.4).
+- **Decision:** Use a UUID v4 stored as frontmatter `id`. Pages discovered without an ID get an index-only ID, which is persisted only when Diaspar writes the file or just before something durable references the page (`ensure_persisted_id`). Duplicate IDs are resolved deterministically (DATA_MODEL §4.4).
 - **Alternatives:**
   - Write IDs into every file on discovery. This silently modifies the user's files in bulk.
   - Keep IDs only in the index. They would be lost on rebuild.
@@ -108,24 +113,24 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 - **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** The spec's example has the title both in `title:` and as an `# H1`. The spec also says to avoid duplicated authoritative state. Filenames can't represent every title, because of `/`, `:`, length limits and collisions.
-- **Decision:** `title` in frontmatter is authoritative. When it is missing, the filename stem is used. The body doesn't repeat the title as an H1, because the editor shows the title field as the page heading. Forma renames the file when the title changes in Forma. It doesn't rename the file back if the user renames it in Finder.
+- **Decision:** `title` in frontmatter is authoritative. When it is missing, the filename stem is used. The body doesn't repeat the title as an H1, because the editor shows the title field as the page heading. Diaspar renames the file when the title changes in Diaspar. It doesn't rename the file back if the user renames it in Finder.
 - **Alternatives:**
   - Filename as the title (Obsidian style). Lossy for characters a filename can't hold, and collisions need visible suffixes.
   - The H1 as the title. Ambiguous, and it mixes metadata with content.
 - **Rationale:** Exact titles and a single authority, while filenames stay human-friendly.
-- **Consequences:** Renaming a file in Finder doesn't change the title shown in Forma. This is documented. One thing to consider later is omitting `title:` when the filename represents it losslessly.
+- **Consequences:** Renaming a file in Finder doesn't change the title shown in Diaspar. This is documented. One thing to consider later is omitting `title:` when the filename represents it losslessly.
 
-## ADR-007: Page links are standard Markdown links to `forma://page/<uuid>`
+## ADR-007: Page links are standard Markdown links to `diaspar://page/<uuid>`
 
 - **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** The spec asks for `[[Page Name]]` syntax, resolution by stable ID, backlinks, and safe renaming. Titles are not unique: two "Notes" pages can exist under different parents.
-- **Decision:** On disk, a page link is `[Current Title](forma://page/<uuid>)`. Typing `[[` opens title autocomplete and inserts that link. Literal `[[Wikilinks]]` written by other tools are resolved by title, read-only, and kept exactly as written. When the source page is saved, its link labels are refreshed to the targets' current titles.
+- **Decision:** On disk, a page link is `[Current Title](diaspar://page/<uuid>)`. Typing `[[` opens title autocomplete and inserts that link. Literal `[[Wikilinks]]` written by other tools are resolved by title, read-only, and kept exactly as written. When the source page is saved, its link labels are refreshed to the targets' current titles.
 - **Alternatives:**
   1. **`[[Title]]` on disk, with every referencing file rewritten on rename** (the Obsidian approach). The most familiar syntax, but titles are ambiguous, a rename cascades into writes to many files (more conflict surface), and a link breaks if the target is renamed outside the app.
   2. **`[[<uuid>|Title]]`.** ID-stable, but noisy, and it isn't standard Markdown.
   3. **Relative path links (`../Notes.md`).** Clickable on GitHub, but they break on move and need cascading rewrites.
 - **Rationale:** Correctness and integrity first: links are unambiguous, they survive renames and moves, and they never require rewriting other files. The syntax is standard CommonMark, so both parsers handle it without custom extensions, and every Markdown tool displays it as readable link text.
-- **Consequences:** Outside Forma, the link target (`forma://…`) isn't clickable unless Forma later registers the URL scheme for deep links, which would be a natural follow-up. Custom link labels for page links aren't supported in v0.1, because labels track the title.
+- **Consequences:** Outside Diaspar, the link target (`diaspar://…`) isn't clickable unless Diaspar later registers the URL scheme for deep links, which would be a natural follow-up. Custom link labels for page links aren't supported in v0.1, because labels track the title.
 
 ## ADR-008: Attachments are co-located in the page's `_assets/` folder
 
@@ -147,7 +152,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Rationale:** It detects every change automatically, including external ones, and stores nothing extra.
 - **Consequences:** Each check re-reads and re-hashes the file, which is cheap at Markdown sizes. There is a residual time-of-check-to-time-of-use window, documented in ARCHITECTURE §4.5.
 
-## ADR-010: History is full-file snapshots in `.forma/history/`
+## ADR-010: History is full-file snapshots in `.diaspar/history/`
 
 - **Status:** Accepted. **Date:** 2026-11-02
 - **Context:** AI undo, conflict resolution, restoring revisions and recovering from external overwrites all need old versions.
@@ -156,7 +161,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
   - Diffs or deltas. Smaller, but fragile (a corrupt base breaks the chain) and not human-recoverable.
   - Git under the hood. Heavy, and surprising when the user already uses git in that folder.
   - SQLite blobs. That would put user data in the cache.
-- **Rationale:** Robust, simple, readable without Forma, and Markdown files are small.
+- **Rationale:** Robust, simple, readable without Diaspar, and Markdown files are small.
 - **Consequences:** Disk use grows with editing. A thinning policy is required, specified in Phase 2.
 
 ## ADR-011: Rust owns the file format; TypeScript owns body Markdown ⇄ editor
@@ -185,19 +190,19 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 - **Status:** Accepted, confirmed by the user on 2026-11-02. **Date:** 2026-11-02
 - **Context:** The spec describes collections as simplified Notion databases, where a page belongs to at most one primary collection, and the illustrative layout shows `collections/*.json`.
-- **Decision:** A collection is a bundle page whose frontmatter contains a `collection:` schema. Its direct children are its entries. Entry values are top-level frontmatter keys named after the properties. View settings (sort, filter, hidden columns) are kept in `.forma/views.json`, which is advisory. See DATA_MODEL §6.
+- **Decision:** A collection is a bundle page whose frontmatter contains a `collection:` schema. Its direct children are its entries. Entry values are top-level frontmatter keys named after the properties. View settings (sort, filter, hidden columns) are kept in `.diaspar/views.json`, which is advisory. See DATA_MODEL §6.
 - **Alternatives:**
   - `collections/<id>.json` with an explicit `collection:` membership key on each page. Membership would be independent of the tree, but there'd be a second source of truth, and orphaned schemas or members.
   - Values nested under a `properties:` key. Less likely to clash with other keys, but most frontmatter tools only read top-level keys.
   - Values keyed by property ID. Renames would be free, but the files would be unreadable.
 - **Rationale:** It matches the Notion mental model (database rows are pages inside the database). Membership can't be inconsistent with location. The schema travels with the collection when it moves. Entry files stay readable.
-- **Consequences:** Renaming a property or an option rewrites every entry in a journaled batch, which is rare. Removing a property is non-destructive. View settings are lost if `.forma/` is lost, which loses no data. Multi-collection membership is deferred, and the format can grow to support it.
+- **Consequences:** Renaming a property or an option rewrites every entry in a journaled batch, which is rare. Removing a property is non-destructive. View settings are lost if `.diaspar/` is lost, which loses no data. Multi-collection membership is deferred, and the format can grow to support it.
 
-## ADR-014: Sibling order and favorites live in `.forma/tree.json` (advisory)
+## ADR-014: Sibling order and favorites live in `.diaspar/tree.json` (advisory)
 
 - **Status:** Accepted. **Date:** 2026-11-02
 - **Context:** Manual sibling order and favorites need persisting. Putting them in frontmatter would rewrite user files for what are UI preferences.
-- **Decision:** Store an ordered list of child IDs per parent, plus a favorites list, in `.forma/tree.json`. Missing entries fall back to natural title order.
+- **Decision:** Store an ordered list of child IDs per parent, plus a favorites list, in `.diaspar/tree.json`. Missing entries fall back to natural title order.
 - **Alternatives:** An `order:` fractional key in each page's frontmatter (noise in every file, and every reorder writes user files). A per-folder hidden order file (pollutes the user's folders).
 - **Rationale:** User files stay clean, reorder is one small atomic write, and losing the file costs only cosmetic state.
 - **Consequences:** Pages must have persisted IDs before they can be ordered or favorited (ADR-005). Reordering in Finder isn't possible, which is expected anyway.
@@ -225,12 +230,12 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Rationale:** It uses the stable, fully compatible toolchain and keeps the dependency count low.
 - **Consequences:** Revisit TypeScript 7 once its ecosystem catches up. Biome's type-aware rules are a subset of what typescript-eslint offers, and that is acceptable.
 
-## ADR-017: Rust workspace: `forma-core`, `forma-ai`, thin `src-tauri` shell
+## ADR-017: Rust workspace: `diaspar-core`, `diaspar-ai`, thin `src-tauri` shell
 
 - **Status:** Accepted. **Date:** 2026-11-02
 - **Decision:**
-  - `crates/forma-core` holds the workspace, documents, frontmatter, index, watcher and collections. It has no Tauri and no network dependencies.
-  - `crates/forma-ai` holds the providers, agent, tools and ChangeSets.
+  - `crates/diaspar-core` holds the workspace, documents, frontmatter, index, watcher and collections. It has no Tauri and no network dependencies.
+  - `crates/diaspar-ai` holds the providers, agent, tools and ChangeSets.
   - `src-tauri` holds only commands, events, window and menus, and packaging.
 - **Alternatives:** A single Tauri crate. Simpler at first, but every test has to build WebKit bindings, and the network boundary isn't visible.
 - **Rationale:** A fast test loop, core logic that isn't tied to a platform (one of the spec's goals), and a security boundary that shows up in the dependency graph.
@@ -277,7 +282,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
   - The agent runtime holds a read-only Document Service handle and a ChangeSet builder.
   - `apply_changeset` is a user-only IPC command.
   - Applies are journaled, all-or-nothing, and checked against each operation's `base_rev`.
-  - Each applied operation is written to `.forma/operations/` with protected snapshots, so undo can restore pages when nothing has changed since.
+  - Each applied operation is written to `.diaspar/operations/` with protected snapshots, so undo can restore pages when nothing has changed since.
 - **Alternatives:**
   - Letting the model call mutation tools after a confirmation prompt. Authorization would then rest on model compliance and UI timing.
   - Auto-applying changes with undo. That violates the spec.
@@ -314,7 +319,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 ## ADR-025: No remote content is loaded in the webview
 
 - **Status:** Superseded by ADR-031 (2026-11-02): the user chose to load remote images in notes. **Date:** 2026-11-02
-- **Decision:** The CSP allows only `'self'`, the IPC origin and the `forma-asset:` protocol. Remote images in documents and AI output are shown as placeholders and never fetched. External links open in the system browser when the user clicks them.
+- **Decision:** The CSP allows only `'self'`, the IPC origin and the `diaspar-asset:` protocol. Remote images in documents and AI output are shown as placeholders and never fetched. External links open in the system browser when the user clicks them.
 - **Alternatives:** Allowing remote images, which is convenient but leaks reading activity and enables data exfiltration through prompt injection.
 - **Rationale:** Local-first privacy, and closing an exfiltration path for prompt injection.
 - **Consequences:** Pages that embed remote images look less complete. A per-image "Load" action could be added later.
@@ -322,28 +327,28 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 ## ADR-026: Open-source license
 
 - **Status:** Accepted: **Apache-2.0**, chosen by the user on 2026-11-02. **Date:** 2026-11-02
-- **Context:** Forma is meant to be open core, with commercial offerings that are hosted services (sync, collaboration, team administration). The spec requires documenting tradeoffs and getting approval before choosing. Nothing is licensed yet, so no `LICENSE` file has been created.
+- **Context:** Diaspar is meant to be open core, with commercial offerings that are hosted services (sync, collaboration, team administration). The spec requires documenting tradeoffs and getting approval before choosing. Nothing is licensed yet, so no `LICENSE` file has been created.
 - **Options:**
 
 | License | Forks may be closed-source? | Effect on contributors and companies | Mac App Store | Fit with an open-core model |
 |---|---|---|---|---|
 | **Apache-2.0** | Yes | Most welcoming, and it includes an explicit patent grant | Compatible | Value is protected by the brand (trademark) and the hosted services, not by the license |
 | **MIT** | Yes | Most welcoming, but no patent grant | Compatible | Same as Apache-2.0 |
-| **MPL-2.0** | Only for new files. Changes to Forma's files must stay open | Moderate (copyleft at the file level) | Generally compatible | Improvements to the core stay open, and proprietary add-ons can be separate files |
+| **MPL-2.0** | Only for new files. Changes to Diaspar's files must stay open | Moderate (copyleft at the file level) | Generally compatible | Improvements to the core stay open, and proprietary add-ons can be separate files |
 | **GPL-3.0** | No | Some companies avoid it | Problematic for distribution by anyone else. The copyright holder can still publish under other terms, which needs a CLA once outside contributions arrive | Prevents closed forks of the desktop app |
 | **AGPL-3.0** | No, and modifications offered over a network must be published too | Same as GPL, and stricter | Same as GPL | Used by peer note apps (for example AppFlowy and Logseq). Its network clause matters little for a desktop client |
 | FSL / BSL (source-available) | — | Not OSI-approved open source | — | Conflicts with the "open source core" goal. Not recommended |
 
-- **Recommendation:** **Apache-2.0** for the core, together with a trademark policy for the name "Forma". Forma plans to make money from hosted services, which are separate code, not from the desktop client, so copyleft on the client adds little protection and costs adoption. Apache-2.0 also keeps future Mac App Store distribution and dual licensing simple without a CLA.
+- **Recommendation:** **Apache-2.0** for the core, together with a trademark policy for the name "Diaspar". Diaspar plans to make money from hosted services, which are separate code, not from the desktop client, so copyleft on the client adds little protection and costs adoption. Apache-2.0 also keeps future Mac App Store distribution and dual licensing simple without a CLA.
   - **If preventing closed-source forks of the app is the priority, choose AGPL-3.0 instead.** It should come with a CLA from the start, so the project keeps the option to sell commercial licenses.
 - **Dependency check:** Every planned dependency is under a permissive license compatible with all of the options above: Tauri (MIT/Apache-2.0), React (MIT), Tiptap core (MIT), ProseMirror (MIT), SQLite (public domain), KaTeX (MIT), shadcn/ui (MIT), Lucide (ISC), rusqlite (MIT).
 - **Decision (2026-11-02):** The user chose **Apache-2.0**. The repository now has the standard Apache License 2.0 text in `LICENSE`, and `package.json` and `Cargo.toml` declare `Apache-2.0`. No CLA: under Apache-2.0 §5, contributions are licensed under the same terms by default.
-- **Consequences:** `CONTRIBUTING.md` and a trademark policy for the product name are written before the first public release (Phase 7). The trademark policy waits for the name search (risk R15), because "Forma" may collide with existing products.
+- **Consequences:** `CONTRIBUTING.md` and a trademark policy for the product name are written before the first public release (Phase 7). The trademark policy waits for the name search (risk R15), because "Diaspar" may collide with existing products.
 
 ## ADR-027: Single instance plus a workspace lock
 
 - **Status:** Accepted. **Date:** 2026-11-02
-- **Decision:** Use `tauri-plugin-single-instance` and an advisory `flock` on `.forma/lock`. If the lock is held, for example by a second instance or a different build, the workspace opens read-only.
+- **Decision:** Use `tauri-plugin-single-instance` and an advisory `flock` on `.diaspar/lock`. If the lock is held, for example by a second instance or a different build, the workspace opens read-only.
 - **Rationale:** Two writers on one workspace break the single-writer guarantee.
 - **Consequences:** The lock doesn't help when the same workspace is synced to another machine. That case is handled through revision checks and duplicate-ID handling (risk R3).
 
@@ -351,14 +356,14 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 - **Status:** Accepted. **Date:** 2026-11-02
 - **Context:** `serde_yaml` is marked deprecated (0.9.34+deprecated, archived in 2024). Surgical editing (ADR-012) needs a parser that reports source spans.
-- **Decision:** Use `saphyr` / `saphyr-parser` (YAML 1.2, maintained) for span-aware parsing, and Forma's own emitter for the values it writes. Phase 2 confirms the exact crate split and whether `serde-saphyr` 2.x is worth using for typed deserialization of `.forma/` files. Those files are JSON, so they use `serde_json`.
+- **Decision:** Use `saphyr` / `saphyr-parser` (YAML 1.2, maintained) for span-aware parsing, and Diaspar's own emitter for the values it writes. Phase 2 confirms the exact crate split and whether `serde-saphyr` 2.x is worth using for typed deserialization of `.diaspar/` files. Those files are JSON, so they use `serde_json`.
 - **Alternatives:** `serde_yaml_ng` and `serde_norway` (forks of the deprecated crate with slow maintenance, and no span API). `yaml-rust2` (maintained, but its span support is weaker).
 - **Consequences:** We need our own value-emission code (DATA_MODEL §4.7), with tests against YAML 1.1 ambiguities such as the "Norway problem".
 
 ## ADR-029: Custom pixel-width resize handles instead of `react-resizable-panels`
 
 - **Status:** Accepted. **Date:** 2026-11-02 (Phase 1)
-- **Context:** The plan listed `react-resizable-panels` for the three-panel layout. Forma's side panels are fixed-width columns in pixels, like Notion's sidebar: their width shouldn't change when the window is resized. They also need to collapse smoothly and turn into overlays in narrow windows.
+- **Context:** The plan listed `react-resizable-panels` for the three-panel layout. Diaspar's side panels are fixed-width columns in pixels, like Notion's sidebar: their width shouldn't change when the window is resized. They also need to collapse smoothly and turn into overlays in narrow windows.
 - **Decision:** Use a small `ResizeHandle` component (pointer capture, keyboard arrows, Home/End, double-click to reset, `role="separator"` with ARIA values). Panel widths are stored in pixels and clamped in both TypeScript and Rust.
 - **Alternatives:** `react-resizable-panels` 4.x. It's capable, but its model is built around a group of panels that share the space, which is more than two independent fixed-width columns need.
 - **Rationale:** About 100 lines of code, with full control over animation and overlay behavior, and one dependency fewer.
@@ -368,7 +373,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 - **Status:** Accepted. **Date:** 2026-11-02 (Phase 1)
 - **Context:** App shortcuts (⌘⇧L, ⌘⇧A, ⌘K, ⌘P, ⌘,) should show in the macOS menu bar. If the native menu and a JavaScript key handler both reacted to the same key, the shortcut could fire twice, depending on how WebKit orders key equivalents.
-- **Decision:** Each app-level shortcut is defined once, as a menu item accelerator in `src-tauri/src/menu.rs`. A menu click or accelerator sends `forma://menu` with a command ID. The frontend runs it through `runCommand` in `src/features/commands/commands.ts`. The webview doesn't listen for these keys. A Rust test checks that every menu ID exists in the frontend registry. Editor-level shortcuts (⌘B, ⌘I) stay in the editor (Phase 2).
+- **Decision:** Each app-level shortcut is defined once, as a menu item accelerator in `src-tauri/src/menu.rs`. A menu click or accelerator sends `diaspar://menu` with a command ID. The frontend runs it through `runCommand` in `src/features/commands/commands.ts`. The webview doesn't listen for these keys. A Rust test checks that every menu ID exists in the frontend registry. Editor-level shortcuts (⌘B, ⌘I) stay in the editor (Phase 2).
 - **Alternatives:** JavaScript key handlers alone. The shortcuts wouldn't be visible or discoverable in the menu bar, and they'd conflict with macOS conventions.
 - **Consequences:** The display labels in `SHORTCUTS` have to be kept in step with the accelerators in `menu.rs`. A test checks the IDs, not the key labels. In the development browser preview, a harness maps the same keys to menu events.
 
@@ -377,7 +382,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Status:** Accepted, chosen by the user on 2026-11-02. Supersedes ADR-025. **Date:** 2026-11-02
 - **Context:** ADR-025 blocked all remote content, so web images embedded in notes would only show as placeholders. The user prefers notes to display the way they were written.
 - **Decision:**
-  1. Images in notes whose URL uses `https:` are loaded automatically. The CSP `img-src` becomes `'self' forma-asset: https:`. This lands in Phase 2, when the editor first renders images; Phase 1 renders none, so its CSP is unchanged.
+  1. Images in notes whose URL uses `https:` are loaded automatically. The CSP `img-src` becomes `'self' diaspar-asset: https:`. This lands in Phase 2, when the editor first renders images; Phase 1 renders none, so its CSP is unchanged.
   2. Plain `http:` images are **not** loaded and show a placeholder with their URL, because unencrypted requests can be read and altered on the network. This detail was chosen by Claude; the user can override it.
   3. Everything else stays blocked: `connect-src` remains IPC-only, and no remote scripts, styles, fonts or frames are allowed. All AI traffic still goes through Rust.
   4. **The AI safety boundary is kept:**
@@ -408,29 +413,29 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Decision:**
   1. `get_page` returns both `rev` (the whole file) and `body_rev` (the BLAKE3 hash of the body only, truncated to 16 hex characters).
   2. `save_page(id, base_body_rev, body)` re-reads the file just before writing and compares the **body** revision. If the body changed, nothing is written and the result is `Conflict { current_body_rev, current_body }`. If only the frontmatter changed, the new body is written under the current frontmatter, so neither side's change is lost.
-  3. Metadata edits (`set_title`, `set_icon`, `set_favorite`) take no base revision. Each changes one key surgically in the file as it is on disk at that moment. If that content came from outside Forma, it is snapshotted to history first (ARCHITECTURE §4.6).
+  3. Metadata edits (`set_title`, `set_icon`, `set_favorite`) take no base revision. Each changes one key surgically in the file as it is on disk at that moment. If that content came from outside Diaspar, it is snapshotted to history first (ARCHITECTURE §4.6).
   4. There is no separate `workspace://conflict` event. A conflict surfaces as the result of a save, or when `workspace://changed` reports a new body revision for the page being edited.
 - **Alternatives:** Keep whole-file revisions and refresh the editor's base after each metadata change. That races with autosave and still turns every outside tag edit into a conflict banner.
 - **Rationale:** A conflict should mean that two people changed the same text. Body edits are still never silently overwritten. A title or icon change is a single explicit user action that is applied to the current file, and the snapshot policy keeps whatever it replaced.
 - **Consequences:** CLAUDE.md rule 7 now reads: "Revisions are content hashes. Every body write carries the base body revision. Metadata edits are surgical, applied to the current file, and snapshot outside content first." AI proposals (Phase 6) still carry a whole-file `base_rev`, as ARCHITECTURE §10 specifies.
 
-## ADR-034: Outcome of the Markdown gate: `@tiptap/markdown` plus a Forma rules layer
+## ADR-034: Outcome of the Markdown gate: `@tiptap/markdown` plus a Diaspar rules layer
 
 - **Status:** Accepted. **Date:** 2026-11-02 (Phase 2)
 - **Context:** ADR-015 made `@tiptap/markdown` conditional on the round-trip corpus passing.
-- **Decision:** Adopt `@tiptap/markdown` 3.32 (marked 17), with Forma's rules in `src/features/editor/markdownRules.ts`, `math.ts` and `rawBlock.ts`. Run as shipped, the library failed the corpus in these ways, each now fixed by a rule and covered by a fixture:
+- **Decision:** Adopt `@tiptap/markdown` 3.32 (marked 17), with Diaspar's rules in `src/features/editor/markdownRules.ts`, `math.ts` and `rawBlock.ts`. Run as shipped, the library failed the corpus in these ways, each now fixed by a rule and covered by a fixture:
   1. Code fences weren't lengthened when the code contained a fence, which corrupted the block.
   2. Paragraph lines starting with `#`, `>`, `-` or `1.` weren't escaped, so they came back as blocks.
   3. `&`, `<` and `>` were written as HTML entities.
   4. Every `_` was escaped, even inside words.
   5. Autolinks such as `<https://…>` were rewritten as `[…](…)`.
-  6. Hard breaks were written as two trailing spaces, which editors strip. Forma writes a backslash.
+  6. Hard breaks were written as two trailing spaces, which editors strip. Diaspar writes a backslash.
   7. Tables got a blank line before them and an extra one after them, and the alignment row was wider than its columns.
-  8. `$5 and $10` was read as math. Forma follows the pandoc rule for inline math.
+  8. `$5 and $10` was read as math. Diaspar follows the pandoc rule for inline math.
   Raw HTML, footnotes and wikilinks are kept byte for byte as atom nodes and never rendered.
 - **Alternatives:** The `prosemirror-markdown` fallback. The problems found were local serializer rules, not structural, so the fallback would have cost more than the fixes.
 - **Rationale:** It is the maintained path, and the rules layer is small and fully covered by the corpus (23 fixtures; byte-identical output for canonical input).
-- **Consequences:** Upgrading `@tiptap/markdown` must re-run the corpus. Some valid Markdown is written back in Forma's canonical form, for example `*` list markers become `-` and tables are padded to aligned columns. Opening such a page shows a notice, and the original is snapshotted before the first save rewrites it (ARCHITECTURE §6.3).
+- **Consequences:** Upgrading `@tiptap/markdown` must re-run the corpus. Some valid Markdown is written back in Diaspar's canonical form, for example `*` list markers become `-` and tables are padded to aligned columns. Opening such a page shows a notice, and the original is snapshotted before the first save rewrites it (ARCHITECTURE §6.3).
 
 ## ADR-035: The SQLite cache: loaded at open, written with every change, one connection
 
@@ -439,7 +444,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Decision:**
   1. The cache lives at `~/Library/Application Support/<bundle-id>/index/<hash of workspace ID and path>/index.db` (ADR-003). It holds rows for pages, tags, links and the parsed frontmatter, plus two FTS5 tables (DATA_MODEL §9).
   2. Opening a workspace loads the cached rows as the starting point of the scan, so files whose size and modification time are unchanged aren't read. The in-memory index (ADR-032) stays the session's page tree.
-  3. Every rescan, and every file Forma writes, updates the cache in one transaction, with the content of each file that was read.
+  3. Every rescan, and every file Diaspar writes, updates the cache in one transaction, with the content of each file that was read.
   4. One connection, owned by the Document Service and used under its lock. A read-only workspace (open in another window) keeps its index in memory. A broken cache file is deleted and rebuilt.
   5. "Rebuild search index" re-reads every file into a side database and swaps it in when complete. It keeps page IDs that exist only in memory, so open pages don't change identity.
 - **Alternatives:** A dedicated index task with a read pool, so search keeps working during a rebuild and long indexing. Not needed at the measured cost (cold open of 5,000 pages 0.6 s, rebuild 0.6 s, searches 0.2–5 ms).
@@ -509,7 +514,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 
 - **Status:** Accepted. **Date:** 2026-11-03 (Phase 4)
 - **Context:** AI output is untrusted (ARCHITECTURE §10.4). It must render as Markdown with no HTML, no remote images and no `javascript:` links.
-- **Decision:** `marked` 17.0.6, already installed through `@tiptap/markdown` and now a direct dependency at that version, only tokenizes the answer. Forma builds React elements from the tokens, so nothing passes through `innerHTML`. Raw HTML appears as text. An image shows as "[Image: alt · address]" and isn't loaded. Only `https:`, `http:` and `mailto:` links can be opened: they're buttons that name their destination and open it in the browser on click. Other links show their address as text.
+- **Decision:** `marked` 17.0.6, already installed through `@tiptap/markdown` and now a direct dependency at that version, only tokenizes the answer. Diaspar builds React elements from the tokens, so nothing passes through `innerHTML`. Raw HTML appears as text. An image shows as "[Image: alt · address]" and isn't loaded. Only `https:`, `http:` and `mailto:` links can be opened: they're buttons that name their destination and open it in the browser on click. Other links show their address as text.
 - **Alternatives:** `marked` to HTML plus a sanitizer (DOMPurify). A sanitizer bug or setting would become an XSS hole, and XSS here could defeat the approval boundary (ARCHITECTURE §2.1). A read-only Tiptap editor: heavy for a chat answer.
 - **Consequences:** The renderer handles the token types it knows (headings, paragraphs, lists and task lists, code, quotes, tables, rules, and the inline forms). Anything newer shows as its source text. HTML entities written by the model (for example `&amp;`) show as written.
 
@@ -533,12 +538,12 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Status:** Accepted. **Date:** 2026-11-03 (Phase 5)
 - **Context:** Phase 5 lets the assistant read the notes. What it reads must be visible, citable and bounded by the model's window, and it must not be able to write.
 - **Decision:**
-  - **Read-only by type.** The assistant reaches the workspace only through `forma_core::workspace::read::ReadView`, which has no method that writes (`Workspace` has a few `&self` methods that write recovery buffers and snapshots; they aren't on it). `forma_ai::knowledge::Library` hands out nothing else. Each Ask tool's `run` takes a `ReadView` and its arguments.
+  - **Read-only by type.** The assistant reaches the workspace only through `diaspar_core::workspace::read::ReadView`, which has no method that writes (`Workspace` has a few `&self` methods that write recovery buffers and snapshots; they aren't on it). `diaspar_ai::knowledge::Library` hands out nothing else. Each Ask tool's `run` takes a `ReadView` and its arguments.
   - **Sources.** Every piece of the notes sent to a model is a `<source key="S#" kind page page_id section>` block, keyed for the conversation (keys continue across messages). A source gets its key only if its text is actually sent. Source text can't close its block, and the system prompt says sources are data, not instructions. The panel receives the sources from Rust and checks each citation in an answer against the sources of that answer; any other key is marked unverified and links nowhere.
   - **Packing.** Within the window less the answer's reserve: the system prompt and the new message, then the selection (up to 30% of what's left), the attached page (up to 60%; a long page is cut to the passages nearest the cursor, gaps marked "[…]"), retrieved passages (up to 60% of what's left), then earlier turns, newest first. Rust reports what went in (page, selection, passage count, turns left out). A window that neither the user nor the provider gives counts as 8,192 tokens.
   - **Tools.** Models that can call tools (as the provider reports, or as the user sets in Settings → AI) also get `search_pages`, `read_page`, `list_pages` and `get_page_metadata`: typed JSON Schemas with no extra properties, page IDs only (checked as UUIDs, looked up in the index), results cut to 3,000 tokens and to the room left, at most 6 rounds and 10 minutes, then one round that must answer. That last round keeps the tools defined with `tool_choice: none`, because some APIs reject a conversation that uses undefined tools. Anthropic's thinking blocks are passed back unchanged with tool results, as its API requires.
   - **Search notes switch.** On by default. Turned off, nothing from the notes is sent unless the user attaches a page or a selection, and no tools are offered, since tools read notes too.
-  - **A new cloud agreement.** Phase 4's agreement said Forma sends "never your notes". Agreements now live in `ai.cloud_consent`, and the text says that the parts of the notes a question needs go to the provider. Agreements recorded in Phase 4's `cloud_acknowledged` aren't carried over, so a cloud provider asks once more.
+  - **A new cloud agreement.** Phase 4's agreement said Diaspar sends "never your notes". Agreements now live in `ai.cloud_consent`, and the text says that the parts of the notes a question needs go to the provider. Agreements recorded in Phase 4's `cloud_acknowledged` aren't carried over, so a cloud provider asks once more.
 - **Alternatives:**
   - Sending sources in the system prompt. Providers recommend documents in the user's turn; it also keeps each message's sources next to it.
   - Re-numbering sources from S1 in every message. Answers in the history would then cite keys that now mean something else.
@@ -552,8 +557,8 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Decision:**
   - **Proposals.** In Edit mode the model gets six proposal tools (`create_page`, `edit_page`, `move_page`, `create_collection`, `update_page_properties`, `link_pages`) next to the read tools. Each one's `run` receives the read-only view, its arguments and a `ChangeSet`: plain data in memory, which refers to pages by ID. Each proposal is checked as it's made (the page exists in this workspace, the replaced text occurs exactly once, values fit the collection's schema, no move into itself, at most 50 changes and 5 MB of text per set), and a refusal goes back to the model as a tool error. Pages proposed in the same set are named `new-1`, `new-2`…; edits and values for them are folded into their creation. Edits capture the body revision they were made against; the model doesn't pass one. There is no delete tool.
   - **Review.** The preview lists each change with a word-level diff (`similar` 3.2.1, Unicode words, so CJK text is compared per character), property values before and after, moves from and to, page IDs that must be written so a new link works, and every external image a change adds, shown as its address. Changes can be chosen one by one; one that goes inside a page another change creates needs that change too.
-  - **Apply.** `apply_changeset(changeset_id, change_ids)` is a command only the review dialog calls; the set itself stays in Rust. Every chosen change is checked against the page as it is now (body revision for edits, file revision for values, parent for moves). Any mismatch returns the conflicts and writes nothing. Otherwise the changes run in a **transaction**: while it's open, every file action of the Document Service (a file written, a rename, a new folder, a trash entry) goes into `.forma/journal/` before it's done, with a snapshot of any file it overwrites. A failure undoes the recorded actions at once, newest first; a crash leaves the journal for the next start, which does the same. Each undo step checks the file first and leaves one that has changed since alone. The existing Document Service methods became transaction-aware instead of being rewritten.
-  - **Record.** An applied set is written to `.forma/operations/<op-id>.json` inside the same transaction (DATA_MODEL §7.5), with each page's revisions and snapshot. The newest 100 are kept; their snapshots are protected from history pruning.
+  - **Apply.** `apply_changeset(changeset_id, change_ids)` is a command only the review dialog calls; the set itself stays in Rust. Every chosen change is checked against the page as it is now (body revision for edits, file revision for values, parent for moves). Any mismatch returns the conflicts and writes nothing. Otherwise the changes run in a **transaction**: while it's open, every file action of the Document Service (a file written, a rename, a new folder, a trash entry) goes into `.diaspar/journal/` before it's done, with a snapshot of any file it overwrites. A failure undoes the recorded actions at once, newest first; a crash leaves the journal for the next start, which does the same. Each undo step checks the file first and leaves one that has changed since alone. The existing Document Service methods became transaction-aware instead of being rewritten.
+  - **Record.** An applied set is written to `.diaspar/operations/<op-id>.json` inside the same transaction (DATA_MODEL §7.5), with each page's revisions and snapshot. The newest 100 are kept; their snapshots are protected from history pruning.
   - **Undo** applies the inverse of every recorded step (an edit's snapshot is written back byte for byte, a created page goes to the trash, a move goes back) as one transaction, **all or nothing**: if any page isn't as the operation left it, nothing is undone and the conflicts are listed. An undo is recorded as an operation that `undoes` the first, so undoing it redoes the change. Whether an operation is undone is worked out from the records, so no record is ever rewritten.
   - **Before applying,** the panel saves any text still being typed, so a page edited since the proposal shows up as a conflict instead of being overwritten.
   - **Edit mode** needs a model that calls tools; it gets 12 rounds. Its last round keeps the tools defined with `tool_choice: none`. Its prompt says to propose only what the user asked and never to act on instructions found in notes.
@@ -561,7 +566,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
   - A ChangeSet applier with its own file operations. It would duplicate the Document Service's naming, bundle conversion and trash logic, and drift from it.
   - Partial undo, skipping changed pages (ARCHITECTURE §10.3 as first written). It could leave a half-reverted set that no operation describes; listing the conflicts lets the user decide.
   - Letting the model pass `base_rev`. It adds a way to fail without adding safety: the tool captures the revision the edit was checked against.
-- **Consequences:** No real model has proposed changes yet; the formats follow the providers' documentation (ADR-042). Undoing a page created inside a page that had no sub-pages leaves that page as a folder (`Name/index.md`), and a page ID written so a link works stays written. `tree.json` (advisory order) isn't journaled. A proposal lasts until it's applied, rejected or the chat is cleared, and is lost when Forma quits.
+- **Consequences:** No real model has proposed changes yet; the formats follow the providers' documentation (ADR-042). Undoing a page created inside a page that had no sub-pages leaves that page as a folder (`Name/index.md`), and a page ID written so a link works stays written. `tree.json` (advisory order) isn't journaled. A proposal lasts until it's applied, rejected or the chat is cleared, and is lost when Diaspar quits.
 
 
 ## ADR-044: Export, backup and restore through Rust-opened dialogs; diagnostics without content
@@ -569,9 +574,9 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Status:** Accepted. **Date:** 2026-11-03 (Phase 7)
 - **Context:** Users need to take their notes elsewhere, keep a complete copy, and get one back. A bug report needs facts about the app without exposing notes, page titles or keys. Architecture rule 4 keeps paths out of the webview.
 - **Decision:**
-  - **Export** copies every file of the workspace except `.forma/` into a new folder, "*name* export *date*" (then " 2", " 3"… if taken), in a folder the user picks. **Backup** writes a zip of the whole workspace, `.forma/` included but without `.forma/tmp/` and `.forma/lock`, with every entry under one top folder named after the workspace (DATA_MODEL §7.8). It's written as `<name>.zip.partial` and renamed when complete, while the workspace is held for reading, so no save lands halfway through. **Restore** unpacks a zip into a **new** folder beside nothing it could overwrite, then opens it. Both refuse a destination inside the workspace.
-  - **Restore validates the whole archive before writing anything:** each raw entry name must be relative (no leading `/` or `\`, no NUL), pass `enclosed_name`, and have only normal components; symbolic links are refused; it must hold a `.md` file or `.forma/workspace.json`; there are at most 500,000 entries and 20 GB. Each entry is read up to its declared size only. It unpacks into `.forma-restore-<uuid>` next to the destination and renames that into place, and removes a stale `.forma/lock`.
-  - **The shell opens the folder and file dialogs itself** (`tauri-plugin-dialog`'s blocking pickers in the command) and passes paths to `forma-core`, so no path crosses IPC.
+  - **Export** copies every file of the workspace except `.diaspar/` into a new folder, "*name* export *date*" (then " 2", " 3"… if taken), in a folder the user picks. **Backup** writes a zip of the whole workspace, `.diaspar/` included but without `.diaspar/tmp/` and `.diaspar/lock`, with every entry under one top folder named after the workspace (DATA_MODEL §7.8). It's written as `<name>.zip.partial` and renamed when complete, while the workspace is held for reading, so no save lands halfway through. **Restore** unpacks a zip into a **new** folder beside nothing it could overwrite, then opens it. Both refuse a destination inside the workspace.
+  - **Restore validates the whole archive before writing anything:** each raw entry name must be relative (no leading `/` or `\`, no NUL), pass `enclosed_name`, and have only normal components; symbolic links are refused; it must hold a `.md` file or `.diaspar/workspace.json`; there are at most 500,000 entries and 20 GB. Each entry is read up to its declared size only. It unpacks into `.diaspar-restore-<uuid>` next to the destination and renames that into place, and removes a stale `.diaspar/lock`.
+  - **The shell opens the folder and file dialogs itself** (`tauri-plugin-dialog`'s blocking pickers in the command) and passes paths to `diaspar-core`, so no path crosses IPC.
   - **zip 9.3.0** with only `deflate-flate2-zlib-rs` (pure Rust, Zlib license); no other compression formats.
   - **Diagnostics:** `read_log` returns the last 400 lines for the viewer on this Mac. "Copy diagnostics" returns versions, the macOS version, page count, read-only state, theme, AI on or off and, per provider, its kind, active or not, on this Mac or remote, agreement, model, whether a key is stored and the tool setting; then the last 80 log lines with every quoted string and every path that starts a token replaced (`diagnostics.rs`). It never contains server addresses, note text, titles or keys. The webview copies it to the clipboard; nothing is sent anywhere.
 - **Alternatives:**
@@ -587,7 +592,7 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
 - **Decision:**
   - The release is one universal `.app` (arm64 and x86_64) in a DMG, built with `tauri build --target universal-apple-darwin --bundles app,dmg`, ad-hoc signed (`signingIdentity: "-"`, hardened runtime) and not notarized. `scripts/verify-bundle.sh` checks both architectures, `codesign --verify --deep --strict` and the DMG checksum, and records the Gatekeeper result, which is "rejected" without notarization. The user guide explains how to allow the app once.
   - **CI** (`.github/workflows/ci.yml`, `macos-26`; the dependency audit on `ubuntu-24.04`): `npm run check`, a check that generated bindings are committed, `npm audit`, `cargo audit` (0.22.2), and the bundle build with verification. **Release** (`release.yml`) runs on a `v*` tag that matches the app version and creates a **draft** GitHub release with the DMG, its SHA-256 and the signing details. Third-party actions are pinned to commit SHAs; Rust is installed with the runner's rustup and pinned to 1.99.1.
-  - The About panel shows the version, "© 2026 Forma contributors", the tagline and the license (macOS shows only `copyright` and `credits`).
+  - The About panel shows the version, "© 2026 Diaspar contributors", the tagline and the license (macOS shows only `copyright` and `credits`).
   - First run: an empty workspace offers **Add a getting-started page**, which creates a page through the ordinary create and save. Nothing is created automatically.
 - **Alternatives:**
   - An arm64-only build. Smaller (about half), but drops Intel Macs that macOS 13 still supports.
@@ -595,3 +600,25 @@ Each record lists its Status, Date, Context, Decision, Alternatives, Rationale a
   - A Developer ID path in the workflow without a certificate to test it with. Untested signing code would be presented as working; CONTRIBUTING.md lists the variables Tauri reads instead.
 - **Consequences:** Each build has a new ad-hoc identity, so after an update macOS asks again to open the app, for Keychain access (R7) and for Desktop or Documents access. The workflows haven't run on GitHub; their steps were run locally. The x86_64 slice was run under Rosetta 2, not on an Intel Mac.
 - **Amended 2026-11-03:** In the first CI run on GitHub (run 41687433709), the dependency audit passed, but the check job got no macOS arm64 runner within 15 minutes and was cancelled, so the bundle job was skipped. The audit reads only the lockfiles, so it moved to `ubuntu-24.04`, and a run now needs two macOS runners instead of three. rust-cache keys include the runner's OS, so no macOS cache is restored on Linux. The next run (41757388084) passed all three jobs.
+
+## ADR-046: The product is named Diaspar
+
+- **Status:** Accepted, user-confirmed. **Date:** 2026-11-03 (after Phase 7)
+- **Context:** The old name, Forma, collided with existing software (R15): "Forma – Notes & Tasks" for Mac, Autodesk's "AUTODESK FORMA" in class 42 and an iOS PDF app. Nothing has been released, so the app's identity and the durable names can still change without migrating anyone's data. The bundle identifier had been provisional since Phase 0 (IMPLEMENTATION_PLAN §4.1).
+- **Decision:**
+  - The product is **Diaspar**, after the city in Arthur C. Clarke's *The City and the Stars* whose memory banks keep everything.
+  - The bundle identifier is `app.diaspar.desktop`. It sets the settings folder (`~/Library/Application Support/app.diaspar.desktop`), the logs folder and the Keychain service `app.diaspar.desktop.ai-provider`.
+  - Durable names: workspace metadata in `.diaspar/`, page links `diaspar://page/<uuid>`, the reserved frontmatter key `diaspar`, and `created_by: "Diaspar <version>"` in `workspace.json`. DATA_MODEL is updated in the same change.
+  - In code: the crates `diaspar-core` and `diaspar-ai`, the binary and npm package `diaspar`, the log file `diaspar.log`, the events `diaspar://menu` and `diaspar://flush-before-quit`. A "D" icon replaces the "F".
+- **Alternatives:**
+  - Keep Forma. The conflicts stay.
+  - Other names were checked: Pallas, Spica, Oort, Facet, Agate and Wallfacer. Pallas had the deepest check: no live US class 9 mark, but CACI holds PALLAS in class 42 for military software. The user chose Diaspar.
+  - Also read old `.forma/` folders and `forma://` links. Not needed: nothing was released, and the only Forma workspace is the maintainer's trial one.
+- **Consequences:**
+  - A Forma build's settings, search index and stored API keys stay under the old identifier, and Diaspar starts with defaults. Nothing old is deleted.
+  - A workspace made by Forma opens as a new workspace. The page scan skips its `.forma/` folder like any hidden folder, but export copies it like any other file, so delete it by hand.
+  - Name risk (R15; not a legal clearance, checked 2026-11-03):
+    - Lavren Labs ships "Diaspar", persistent memory for AI coding agents: an MCP server, v3.13.0 on 2026-09-14, installed with Homebrew on macOS, at diaspar.dev.
+    - The USPTO has no DIASPAR mark; DIASPARK (Diaspark Inc., class 42, software development services) is live.
+    - diaspar.com, .app, .dev, .ai, .net and .so are registered; diasparnotes.com, getdiaspar.com, diaspar.io and diaspar.md weren't.
+    - The user accepted the overlap. China's register (CNIPA) and the EU's weren't searched.

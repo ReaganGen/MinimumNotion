@@ -4,11 +4,11 @@
 
 use std::path::PathBuf;
 
-use forma_core::archive::{self, ArchiveResult, today};
-use forma_core::diagnostics::sanitized_tail;
-use forma_core::error::{ErrorCode, ErrorPayload};
-use forma_core::settings::ProviderKind;
-use forma_core::workspace::types::WorkspaceInfo;
+use diaspar_core::archive::{self, ArchiveResult, today};
+use diaspar_core::diagnostics::sanitized_tail;
+use diaspar_core::error::{ErrorCode, ErrorPayload};
+use diaspar_core::settings::ProviderKind;
+use diaspar_core::workspace::types::WorkspaceInfo;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 
@@ -38,7 +38,7 @@ fn open_info(session: &Session) -> Result<WorkspaceInfo> {
         .ok_or_else(|| ErrorPayload::new(ErrorCode::NotFound, "No workspace is open."))
 }
 
-/// Copies the pages, without `.forma`, into a new folder the user picks.
+/// Copies the pages, without `.diaspar`, into a new folder the user picks.
 #[tauri::command]
 pub async fn export_workspace(
     app: AppHandle,
@@ -60,7 +60,7 @@ pub async fn export_workspace(
     Ok(Some(summary.into()))
 }
 
-/// Zips the whole workspace, `.forma` included, to a file the user names.
+/// Zips the whole workspace, `.diaspar` included, to a file the user names.
 /// The workspace is held while it's read, so the backup is consistent.
 #[tauri::command]
 pub async fn backup_workspace(
@@ -101,7 +101,7 @@ pub async fn restore_backup(
     let Some(zip) = app
         .dialog()
         .file()
-        .set_title("Choose a Forma backup to restore")
+        .set_title("Choose a Diaspar backup to restore")
         .add_filter("Zip archive", &["zip"])
         .blocking_pick_file()
     else {
@@ -140,7 +140,7 @@ fn log_text(app: &AppHandle) -> String {
     app.path()
         .app_log_dir()
         .ok()
-        .and_then(|dir| std::fs::read_to_string(dir.join("forma.log")).ok())
+        .and_then(|dir| std::fs::read_to_string(dir.join("diaspar.log")).ok())
         .unwrap_or_default()
 }
 
@@ -165,7 +165,7 @@ pub async fn diagnostics(
 ) -> Result<String> {
     let mut out = vec![
         format!(
-            "Forma {} ({}), macOS {}",
+            "Diaspar {} ({}), macOS {}",
             app.package_info().version,
             std::env::consts::ARCH,
             macos_version()
@@ -209,7 +209,7 @@ pub async fn diagnostics(
                 ProviderKind::Ollama => "Ollama",
                 ProviderKind::LmStudio => "LM Studio",
             };
-            let local = forma_ai::presets::is_local(&p.base_url);
+            let local = diaspar_ai::presets::is_local(&p.base_url);
             out.push(format!(
                 "  {kind}{}: {}, {}, model {}, key {}, tools {}",
                 if ai.active_provider.as_deref() == Some(p.id.as_str()) {

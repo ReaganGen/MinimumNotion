@@ -1,4 +1,4 @@
-//! The `forma-asset://localhost/<page-id>/<reference>` protocol, which serves
+//! The `diaspar-asset://localhost/<page-id>/<reference>` protocol, which serves
 //! images and attachments to the webview. Every request is resolved by the
 //! Document Service, which refuses anything outside the workspace
 //! (ARCHITECTURE §6.6).
@@ -8,7 +8,7 @@ use tauri::{Manager, Runtime, UriSchemeContext};
 
 use crate::session::Session;
 
-pub const SCHEME: &str = "forma-asset";
+pub const SCHEME: &str = "diaspar-asset";
 
 fn content_type(path: &std::path::Path) -> &'static str {
     let ext = path

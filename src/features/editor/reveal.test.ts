@@ -46,7 +46,7 @@ describe("revealing a cited passage", () => {
     });
     ed.view.dispatch(ed.state.tr.setMeta(flashKey, { from: 1, to: 5 }));
     expect(flashKey.getState(ed.state)?.find().length).toBe(1);
-    expect(ed.view.dom.querySelector(".forma-flash")?.textContent).toBe("Some");
+    expect(ed.view.dom.querySelector(".diaspar-flash")?.textContent).toBe("Some");
     ed.view.dispatch(ed.state.tr.setMeta(flashKey, null));
     expect(flashKey.getState(ed.state)?.find().length).toBe(0);
     expect(ed.state.doc.eq(before)).toBe(true);

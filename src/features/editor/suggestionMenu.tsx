@@ -52,14 +52,16 @@ function MenuListInner<Item>(props: MenuListProps<Item>, ref: React.Ref<MenuHand
 
   if (props.items.length === 0) {
     return (
-      <div className="forma-popover px-3 py-2 text-[13px] text-muted-foreground">{props.empty}</div>
+      <div className="diaspar-popover px-3 py-2 text-[13px] text-muted-foreground">
+        {props.empty}
+      </div>
     );
   }
   return (
     <div
       role="listbox"
       aria-label={props.label}
-      className="forma-popover max-h-80 w-64 overflow-y-auto p-1"
+      className="diaspar-popover max-h-80 w-64 overflow-y-auto p-1"
     >
       {props.items.map((item, index) => (
         <button

@@ -20,7 +20,7 @@ export const useRevealStore = create<RevealState>()((set) => ({
   done: () => set({ target: null }),
 }));
 
-export const flashKey = new PluginKey<DecorationSet>("forma-flash");
+export const flashKey = new PluginKey<DecorationSet>("diaspar-flash");
 
 /** Highlights a range given as the `flashKey` meta; `null` clears it. */
 export const Flash = Extension.create({
@@ -36,7 +36,7 @@ export const Flash = Extension.create({
             if (range === null) return DecorationSet.empty;
             if (range) {
               return DecorationSet.create(tr.doc, [
-                Decoration.inline(range.from, range.to, { class: "forma-flash" }),
+                Decoration.inline(range.from, range.to, { class: "diaspar-flash" }),
               ]);
             }
             return set.map(tr.mapping, tr.doc);

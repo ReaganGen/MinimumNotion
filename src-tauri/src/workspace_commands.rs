@@ -5,14 +5,14 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use forma_core::collection::{CellInput, Schema};
-use forma_core::error::{ErrorCode, ErrorPayload};
-use forma_core::workspace::collections::{CollectionData, CollectionViews, EntryData, SchemaOp};
-use forma_core::workspace::types::{
+use diaspar_core::collection::{CellInput, Schema};
+use diaspar_core::error::{ErrorCode, ErrorPayload};
+use diaspar_core::workspace::collections::{CollectionData, CollectionViews, EntryData, SchemaOp};
+use diaspar_core::workspace::types::{
     PageDocument, PageHit, PageLinkInfo, PageSummary, RecoveryBuffer, SaveOutcome, TrashEntryInfo,
     WikiResolution, WorkspaceInfo,
 };
-use forma_core::workspace::{count_entries, is_workspace, percent_decode};
+use diaspar_core::workspace::{count_entries, is_workspace, percent_decode};
 use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -74,7 +74,7 @@ pub async fn workspace_choose(
     let picked = app
         .dialog()
         .file()
-        .set_title("Choose a folder for your Forma workspace")
+        .set_title("Choose a folder for your Diaspar workspace")
         .blocking_pick_folder();
     let Some(picked) = picked else {
         return Ok(None);
@@ -103,8 +103,8 @@ fn confirm_if_large(app: &AppHandle, path: &Path) -> bool {
     );
     app.dialog()
         .message(format!(
-            "\"{name}\" holds more than 10,000 files and folders. Forma reads every Markdown \
-             file in it, which can take a while, and keeps its own data in a hidden .forma \
+            "\"{name}\" holds more than 10,000 files and folders. Diaspar reads every Markdown \
+             file in it, which can take a while, and keeps its own data in a hidden .diaspar \
              folder there. A folder just for your notes works best.",
         ))
         .title("Open this large folder?")
@@ -116,7 +116,7 @@ fn confirm_if_large(app: &AppHandle, path: &Path) -> bool {
         .blocking_show()
 }
 
-/// Creates (or opens) `~/Documents/Forma`.
+/// Creates (or opens) `~/Documents/Diaspar`.
 #[tauri::command]
 pub async fn workspace_create_default(
     app: AppHandle,
@@ -127,7 +127,7 @@ pub async fn workspace_create_default(
         .path()
         .document_dir()
         .map_err(|e| invalid(format!("Your Documents folder can't be found: {e}")))?;
-    let path = documents.join("Forma");
+    let path = documents.join("Diaspar");
     std::fs::create_dir_all(&path).map_err(|e| {
         ErrorPayload::new(
             ErrorCode::Io,

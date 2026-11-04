@@ -1,7 +1,7 @@
 import type { AppSettings } from "@/lib/ipc/bindings/AppSettings";
 import type { LayoutSettings } from "@/lib/ipc/bindings/LayoutSettings";
 
-// Mirrors forma-core/src/settings.rs. Rust is authoritative and clamps again on save.
+// Mirrors diaspar-core/src/settings.rs. Rust is authoritative and clamps again on save.
 export const WIDTH_RANGES = {
   sidebar: { min: 200, max: 480, default: 260 },
   ai_panel: { min: 300, max: 640, default: 360 },

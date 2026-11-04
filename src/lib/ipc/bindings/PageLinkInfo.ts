@@ -2,6 +2,6 @@
 import type { LinkState } from "./LinkState";
 
 /**
- * What a `forma://page/<id>` link points at, for live titles (ARCHITECTURE §6.5).
+ * What a `diaspar://page/<id>` link points at, for live titles (ARCHITECTURE §6.5).
  */
 export type PageLinkInfo = { id: string, title: string | null, icon: string | null, state: LinkState, };

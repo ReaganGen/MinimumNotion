@@ -52,7 +52,7 @@ export function RecoveryDialog() {
             Unsaved text from last time
           </DialogTitle>
           <DialogDescription className="mt-1 text-[13px] text-muted-foreground">
-            Forma kept this text because it couldn't be saved normally. Keep it as a new page, or
+            Diaspar kept this text because it couldn't be saved normally. Keep it as a new page, or
             discard it. Closing this keeps it for next time.
           </DialogDescription>
         </div>

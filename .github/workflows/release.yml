@@ -57,7 +57,7 @@ jobs:
       - name: Release notes
         run: |
           {
-            echo "Forma $GITHUB_REF_NAME for macOS 13 or later (Apple silicon and Intel)."
+            echo "Diaspar $GITHUB_REF_NAME for macOS 13 or later (Apple silicon and Intel)."
             echo
             echo "**Signing:** ad-hoc signed, not notarized. macOS will say it can't check the app"
             echo "for malicious software. To open it the first time, see Installing in the user guide:"

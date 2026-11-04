@@ -101,14 +101,14 @@
 
 /* Editor typography and editor UI (Phase 2). */
 @layer components {
-  .forma-popover {
+  .diaspar-popover {
     border-radius: var(--radius);
     background: var(--popover);
     color: var(--popover-foreground);
     box-shadow: var(--shadow-popover);
   }
 
-  .forma-editor {
+  .diaspar-editor {
     min-height: 40vh;
     outline: none;
     font-size: 16px;
@@ -120,22 +120,22 @@
   }
 
   /* Entry pages and other short editors. */
-  [data-compact] .forma-editor {
+  [data-compact] .diaspar-editor {
     min-height: 2.5rem;
   }
 
-  .forma-editor > * + * {
+  .diaspar-editor > * + * {
     margin-top: 0.6em;
   }
 
   /* A passage an AI citation pointed to, highlighted for a moment. */
-  .forma-flash {
+  .diaspar-flash {
     background: var(--highlight);
     border-radius: 2px;
-    animation: forma-flash-out 2.4s ease-in forwards;
+    animation: diaspar-flash-out 2.4s ease-in forwards;
   }
 
-  @keyframes forma-flash-out {
+  @keyframes diaspar-flash-out {
     0%,
     60% {
       background: var(--highlight);
@@ -146,41 +146,41 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .forma-flash {
+    .diaspar-flash {
       animation: none;
     }
   }
 
-  .forma-editor h1,
-  .forma-editor h2,
-  .forma-editor h3,
-  .forma-editor h4,
-  .forma-editor h5,
-  .forma-editor h6 {
+  .diaspar-editor h1,
+  .diaspar-editor h2,
+  .diaspar-editor h3,
+  .diaspar-editor h4,
+  .diaspar-editor h5,
+  .diaspar-editor h6 {
     font-weight: 650;
     line-height: 1.3;
     letter-spacing: -0.01em;
     margin-top: 1.4em;
   }
-  .forma-editor h1 {
+  .diaspar-editor h1 {
     font-size: 1.875em;
   }
-  .forma-editor h2 {
+  .diaspar-editor h2 {
     font-size: 1.5em;
   }
-  .forma-editor h3 {
+  .diaspar-editor h3 {
     font-size: 1.25em;
   }
-  .forma-editor h4,
-  .forma-editor h5,
-  .forma-editor h6 {
+  .diaspar-editor h4,
+  .diaspar-editor h5,
+  .diaspar-editor h6 {
     font-size: 1.05em;
   }
-  .forma-editor > :first-child {
+  .diaspar-editor > :first-child {
     margin-top: 0;
   }
 
-  .forma-editor a {
+  .diaspar-editor a {
     color: var(--link);
     text-decoration: underline;
     text-decoration-color: color-mix(in srgb, var(--link) 40%, transparent);
@@ -188,7 +188,7 @@
     cursor: text;
   }
 
-  .forma-editor code {
+  .diaspar-editor code {
     font-family: var(--font-code);
     font-size: 0.88em;
     padding: 0.15em 0.35em;
@@ -197,7 +197,7 @@
     color: var(--destructive);
   }
 
-  .forma-editor pre {
+  .diaspar-editor pre {
     font-family: var(--font-code);
     font-size: 0.875em;
     line-height: 1.55;
@@ -206,85 +206,85 @@
     background: var(--muted);
     overflow-x: auto;
   }
-  .forma-editor pre code {
+  .diaspar-editor pre code {
     padding: 0;
     background: none;
     color: inherit;
   }
 
-  .forma-editor blockquote {
+  .diaspar-editor blockquote {
     border-left: 3px solid var(--input);
     padding-left: 0.9em;
     color: var(--muted-foreground);
   }
 
-  .forma-editor ul,
-  .forma-editor ol {
+  .diaspar-editor ul,
+  .diaspar-editor ol {
     padding-left: 1.6em;
   }
-  .forma-editor ul {
+  .diaspar-editor ul {
     list-style: disc;
   }
-  .forma-editor ol {
+  .diaspar-editor ol {
     list-style: decimal;
   }
-  .forma-editor li > p {
+  .diaspar-editor li > p {
     margin: 0;
   }
-  .forma-editor li + li {
+  .diaspar-editor li + li {
     margin-top: 0.15em;
   }
-  .forma-editor ul[data-type="taskList"] {
+  .diaspar-editor ul[data-type="taskList"] {
     list-style: none;
     padding-left: 0.2em;
   }
-  .forma-editor ul[data-type="taskList"] li {
+  .diaspar-editor ul[data-type="taskList"] li {
     display: flex;
     gap: 0.5em;
     align-items: flex-start;
   }
-  .forma-editor ul[data-type="taskList"] li > label {
+  .diaspar-editor ul[data-type="taskList"] li > label {
     margin-top: 0.3em;
   }
-  .forma-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+  .diaspar-editor ul[data-type="taskList"] li[data-checked="true"] > div {
     color: var(--faint-foreground);
     text-decoration: line-through;
   }
-  .forma-editor input[type="checkbox"] {
+  .diaspar-editor input[type="checkbox"] {
     accent-color: var(--primary);
     width: 1em;
     height: 1em;
   }
 
-  .forma-editor hr {
+  .diaspar-editor hr {
     border: none;
     border-top: 1px solid var(--border);
     margin: 1.4em 0;
   }
 
-  .forma-editor table {
+  .diaspar-editor table {
     border-collapse: collapse;
     width: 100%;
     font-size: 0.94em;
   }
-  .forma-editor th,
-  .forma-editor td {
+  .diaspar-editor th,
+  .diaspar-editor td {
     border: 1px solid var(--border);
     padding: 0.35em 0.6em;
     vertical-align: top;
     min-width: 4em;
   }
-  .forma-editor th {
+  .diaspar-editor th {
     font-weight: 600;
     background: var(--muted);
     text-align: left;
   }
-  .forma-editor .selectedCell {
+  .diaspar-editor .selectedCell {
     background: var(--selection);
   }
 
-  /* Markdown Forma keeps byte for byte: shown as source, never rendered. */
-  .forma-editor .raw-block {
+  /* Markdown Diaspar keeps byte for byte: shown as source, never rendered. */
+  .diaspar-editor .raw-block {
     font-family: var(--font-code);
     font-size: 0.82em;
     white-space: pre-wrap;
@@ -295,8 +295,8 @@
     background: transparent;
   }
   /* Page links and resolved wikilinks: the page's current title (ARCHITECTURE §6.5). */
-  .forma-editor .page-link,
-  .forma-editor .wiki-link[data-state="ok"] {
+  .diaspar-editor .page-link,
+  .diaspar-editor .wiki-link[data-state="ok"] {
     color: var(--foreground);
     text-decoration: underline;
     text-decoration-color: var(--faint-foreground);
@@ -304,34 +304,34 @@
     border-radius: 3px;
     cursor: pointer;
   }
-  .forma-editor .page-link:hover,
-  .forma-editor .wiki-link[data-state="ok"]:hover {
+  .diaspar-editor .page-link:hover,
+  .diaspar-editor .wiki-link[data-state="ok"]:hover {
     background: var(--accent);
   }
-  .forma-editor .page-link[data-state="trashed"],
-  .forma-editor .page-link[data-state="missing"],
-  .forma-editor .wiki-link[data-state="unresolved"] {
+  .diaspar-editor .page-link[data-state="trashed"],
+  .diaspar-editor .page-link[data-state="missing"],
+  .diaspar-editor .wiki-link[data-state="unresolved"] {
     color: var(--muted-foreground);
     text-decoration-style: dashed;
     cursor: default;
   }
-  .forma-editor .page-link[data-state="trashed"] {
+  .diaspar-editor .page-link[data-state="trashed"] {
     text-decoration-line: line-through;
   }
 
-  .forma-editor .raw-inline {
+  .diaspar-editor .raw-inline {
     color: var(--muted-foreground);
     background: transparent;
     border: 1px dashed var(--input);
   }
 
-  .forma-editor .forma-image img {
+  .diaspar-editor .diaspar-image img {
     display: inline-block;
     max-width: 100%;
     border-radius: 4px;
   }
-  .forma-editor .forma-image.is-broken img,
-  .forma-editor .forma-image-placeholder {
+  .diaspar-editor .diaspar-image.is-broken img,
+  .diaspar-editor .diaspar-image-placeholder {
     display: inline-block;
     padding: 0.5em 0.8em;
     border-radius: var(--radius);
@@ -340,7 +340,7 @@
     font-size: 0.85em;
   }
 
-  .forma-editor .is-empty::before {
+  .diaspar-editor .is-empty::before {
     content: attr(data-placeholder);
     float: left;
     height: 0;
@@ -348,7 +348,7 @@
     color: var(--faint-foreground);
   }
 
-  .forma-editor .ProseMirror-selectednode {
+  .diaspar-editor .ProseMirror-selectednode {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
     border-radius: 4px;

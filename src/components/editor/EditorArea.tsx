@@ -22,7 +22,7 @@ function Welcome() {
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-(--reading-width) px-12 pt-[14vh] pb-24">
         <h1 className="text-[40px] leading-tight font-bold tracking-tight text-foreground">
-          Welcome to Forma
+          Welcome to Diaspar
         </h1>
         <p className="mt-2 text-base text-muted-foreground">A quieter place to think.</p>
         <p className="selectable mt-8 max-w-xl text-[15px] leading-7 text-foreground/80">

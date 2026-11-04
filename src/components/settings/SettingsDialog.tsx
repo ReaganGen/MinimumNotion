@@ -63,7 +63,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 
         <div className="min-h-0 overflow-y-auto px-8 py-7">
           <DialogDescription className="sr-only">
-            Forma preferences. Changes are saved automatically.
+            Diaspar preferences. Changes are saved automatically.
           </DialogDescription>
           {section === "appearance" && <AppearanceSection />}
           {section === "workspace" && <WorkspaceSection />}
@@ -147,8 +147,8 @@ function WorkspaceSection() {
           )}
         </div>
         <p className="mt-4 text-[13px] leading-5 text-muted-foreground">
-          Pages are Markdown files in this folder, arranged like your page tree. Forma keeps its own
-          data (history, trash, order) in the hidden .forma folder inside it.
+          Pages are Markdown files in this folder, arranged like your page tree. Diaspar keeps its
+          own data (history, trash, order) in the hidden .diaspar folder inside it.
         </p>
       </div>
     </section>
@@ -233,7 +233,7 @@ function DataSection() {
       <div className="mt-5 border-t pt-4">
         <p className="text-[14px]">Search index</p>
         <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
-          Search, backlinks and collections use an index Forma keeps outside your workspace. It's
+          Search, backlinks and collections use an index Diaspar keeps outside your workspace. It's
           rebuilt from your files alone, so rebuilding is always safe.
         </p>
         <div className="mt-3 flex items-center gap-3">
@@ -254,7 +254,7 @@ function DataSection() {
         <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px] leading-5">
           <dt className="text-foreground">Export</dt>
           <dd className="text-muted-foreground">
-            A copy of your pages and attachments as plain files, without Forma's own data.
+            A copy of your pages and attachments as plain files, without Diaspar's own data.
           </dd>
           <dt className="text-foreground">Back up</dt>
           <dd className="text-muted-foreground">
@@ -308,7 +308,7 @@ function DataSection() {
       <div className="mt-5 border-t pt-4">
         <p className="text-[14px]">Diagnostics</p>
         <p className="mt-0.5 text-[13px] leading-5 text-muted-foreground">
-          “Copy diagnostics” copies Forma's version, macOS version, a settings summary and recent
+          “Copy diagnostics” copies Diaspar's version, macOS version, a settings summary and recent
           log lines with every file path and quoted name removed. It never includes note text, page
           titles, server addresses or keys.
         </p>

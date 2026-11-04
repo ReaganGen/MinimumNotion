@@ -1,4 +1,4 @@
-// AI changes that were applied, newest first, from `.forma/operations/`.
+// AI changes that were applied, newest first, from `.diaspar/operations/`.
 // Each can be undone while its pages are as it left them; an undo can be
 // redone the same way.
 import { Redo2, Undo2 } from "lucide-react";

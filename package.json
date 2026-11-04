@@ -1,5 +1,5 @@
 {
-  "name": "forma",
+  "name": "diaspar",
   "private": true,
   "version": "0.1.0",
   "license": "Apache-2.0",
@@ -18,7 +18,7 @@
     "test:watch": "vitest",
     "test:rust": "cargo test --workspace",
     "lint:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings",
-    "bindings": "cargo test -p forma-core -p forma-ai export_bindings",
+    "bindings": "cargo test -p diaspar-core -p diaspar-ai export_bindings",
     "check": "npm run typecheck && npm run lint && npm test && npm run lint:rust && npm run test:rust",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

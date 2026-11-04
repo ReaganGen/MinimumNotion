@@ -2,7 +2,7 @@
 // Nothing is ever parsed as HTML: raw HTML shows as text, images aren't loaded
 // (their address is shown instead), and only web and email links can be opened,
 // with a click and their destination in view (ARCHITECTURE §10.4).
-// Citations such as [S2] become buttons when they name a source Forma
+// Citations such as [S2] become buttons when they name a source Diaspar
 // provided; any other key is marked unverified and does nothing.
 import { Lexer, type Token, type Tokens } from "marked";
 import { createContext, Fragment, type ReactNode, useContext, useMemo } from "react";
@@ -49,7 +49,7 @@ function Citation({ citeKey, source }: { citeKey: string; source: Source | undef
   if (!source) {
     return (
       <span
-        title="Not a source Forma provided: unverified"
+        title="Not a source Diaspar provided: unverified"
         className={cn(chip, "text-faint-foreground line-through decoration-1")}
       >
         <span className="sr-only">Unverified citation </span>

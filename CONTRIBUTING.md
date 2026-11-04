@@ -1,6 +1,6 @@
-# Contributing to Forma
+# Contributing to Diaspar
 
-Thanks for helping. Forma is small on purpose: a reliable, local-first notes app with optional AI. A smaller change that works completely is worth more than a larger one that doesn't.
+Thanks for helping. Diaspar is small on purpose: a reliable, local-first notes app with optional AI. A smaller change that works completely is worth more than a larger one that doesn't.
 
 ## Setup
 
@@ -29,15 +29,15 @@ Performance on a large workspace:
 
 ```bash
 node scripts/generate-workspace.mjs sandbox-workspaces/perf 5000
-cargo run --release -p forma-core --example measure -- sandbox-workspaces/perf
+cargo run --release -p diaspar-core --example measure -- sandbox-workspaces/perf
 ```
 
 `sandbox-workspaces/` is ignored by Git. Never point tools or tests at real notes.
 
 ## How the code is organized
 
-- `crates/forma-core`: the workspace on disk, the Document Service, Markdown and frontmatter handling, the SQLite index, export and backup. No Tauri and no network.
-- `crates/forma-ai`: providers, retrieval, the assistant's tools and change sets.
+- `crates/diaspar-core`: the workspace on disk, the Document Service, Markdown and frontmatter handling, the SQLite index, export and backup. No Tauri and no network.
+- `crates/diaspar-ai`: providers, retrieval, the assistant's tools and change sets.
 - `src-tauri`: the thin shell. Commands, menus, windows, capabilities.
 - `src`: the React app.
 

@@ -1,5 +1,5 @@
 // Citations in answers: `[S2]`, `[S1, S3]`, `【S4】`. A key counts only if it
-// names a source Forma actually gave the model for that answer (ARCHITECTURE
+// names a source Diaspar actually gave the model for that answer (ARCHITECTURE
 // §11); any other key is shown as unverified and never becomes a link.
 import type { Source } from "@/lib/ipc/bindings/Source";
 

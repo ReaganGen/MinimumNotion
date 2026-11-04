@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Generates a synthetic Forma workspace for performance testing
+// Generates a synthetic Diaspar workspace for performance testing
 // (IMPLEMENTATION_PLAN §6.1 task 5). Deterministic: the same seed gives the
 // same files. Never point it at real notes; it refuses a folder that isn't empty.
 //
@@ -71,7 +71,7 @@ function body(i) {
     const parts = Array.from({ length: 2 + Math.floor(random() * 4) }, sentence);
     if (pages.length > 0 && random() < 0.4) {
       const target = pick(pages);
-      parts.push(`See [${target.title}](forma://page/${target.id}).`);
+      parts.push(`See [${target.title}](diaspar://page/${target.id}).`);
     }
     if (pages.length > 0 && random() < 0.15) parts.push(`Also [[${pick(pages).title}]].`);
     paragraphs.push(parts.join(" "));
